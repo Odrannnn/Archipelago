@@ -158,7 +158,7 @@ bool APBridgeInit(struct APBridge* bridge, uint16_t port) {
 	bridge->client = INVALID_SOCKET;
 	SocketSubsystemInit();
 	bridge->listener = SocketOpenTCP(port, &loopback);
-	if (SOCKET_FAILED(bridge->listener) || SocketListen(bridge->listener, 1)) {
+	if (SOCKET_FAILED(bridge->listener) || SocketListen(bridge->listener, 4)) {
 		APBridgeDeinit(bridge);
 		return false;
 	}
@@ -183,21 +183,51 @@ void APBridgeDeinit(struct APBridge* bridge) {
 	bridge->messagePending = false;
 }
 
+/*
+ * RetroArch stops calling retro_run while its activity is paused. During that
+ * time the Android companion may time out, close its socket, and establish a
+ * replacement connection which sits in the listener queue. The old socket
+ * cannot be observed as closed until polling resumes, so always prefer the
+ * newest queued client instead of making it wait behind stale state.
+ */
+static void _acceptPendingClients(struct APBridge* bridge) {
+	Socket pending;
+	Socket newest = INVALID_SOCKET;
+	size_t accepted = 0;
+	while (accepted < 8) {
+		pending = SocketAccept(bridge->listener, NULL);
+		if (SOCKET_FAILED(pending)) {
+			break;
+		}
+		++accepted;
+		if (!SocketSetBlocking(pending, false)) {
+			SocketClose(pending);
+			continue;
+		}
+		if (!SOCKET_FAILED(newest)) {
+			SocketClose(newest);
+		}
+		newest = pending;
+	}
+
+	if (SOCKET_FAILED(newest)) {
+		return;
+	}
+	if (!SOCKET_FAILED(bridge->client)) {
+		SocketClose(bridge->client);
+	}
+	bridge->client = newest;
+	bridge->inputSize = 0;
+}
+
 void APBridgePoll(struct APBridge* bridge, struct mCore* core) {
 	ssize_t received;
 	if (!core || SOCKET_FAILED(bridge->listener)) {
 		return;
 	}
+	_acceptPendingClients(bridge);
 	if (SOCKET_FAILED(bridge->client)) {
-		bridge->client = SocketAccept(bridge->listener, NULL);
-		if (SOCKET_FAILED(bridge->client)) {
-			return;
-		}
-		if (!SocketSetBlocking(bridge->client, false)) {
-			SocketClose(bridge->client);
-			bridge->client = INVALID_SOCKET;
-			return;
-		}
+		return;
 	}
 
 	received = SocketRecv(bridge->client, bridge->input + bridge->inputSize, sizeof(bridge->input) - bridge->inputSize);

@@ -60,6 +60,7 @@ class BridgeService : Service() {
     private fun connectionLoop() {
         while (running && !Thread.currentThread().isInterrupted) {
             val bridge = MGBABridgeClient()
+            var session: ArchipelagoSession? = null
             activeBridge = bridge
             try {
                 publish("Waiting for the custom mGBA core on 127.0.0.1:${BridgeProtocol.PORT}…")
@@ -69,7 +70,6 @@ class BridgeService : Service() {
                 var fusion: MetroidFusionProfile.RomInfo? = null
                 publish("mGBA connected · protocol $version · platform $platform · waiting for patched Metroid Fusion ROM…")
 
-                var session: ArchipelagoSession? = null
                 var nextSessionAttempt = 0L
                 var nextRomProbeAt = 0L
 
@@ -110,8 +110,6 @@ class BridgeService : Service() {
                     bridge.ping()
                     TimeUnit.SECONDS.sleep(1)
                 }
-                session?.close()
-                if (activeSession === session) activeSession = null
             } catch (error: Exception) {
                 if (running) {
                     publish("mGBA unavailable · reconnecting… (${error.message ?: error.javaClass.simpleName})")
@@ -122,6 +120,8 @@ class BridgeService : Service() {
                     }
                 }
             } finally {
+                session?.close()
+                if (activeSession === session) activeSession = null
                 bridge.close()
                 if (activeBridge === bridge) activeBridge = null
             }

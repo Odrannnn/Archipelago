@@ -8,6 +8,9 @@ companion. Copy `archipelago_bridge.c` and `archipelago_bridge.h` into
 The mGBA top-level CMake build already globs every C file in that directory.
 
 The second patch mirrors the libretro mGBA fork's safe audio-rate handling.
+The bridge source also replaces a stale client with the newest queued loopback
+connection when polling resumes. This is required on Android because RetroArch
+stops calling `retro_run()` while its activity is backgrounded.
 Upstream mGBA can call `RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO` from inside
 `retro_load_game()`, which re-enters RetroArch's Android video initialization
 and can crash its Vulkan driver with `native_window_api_connect(): -22`.

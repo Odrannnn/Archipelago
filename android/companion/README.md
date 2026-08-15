@@ -14,6 +14,10 @@ The bridge can become available before RetroArch has loaded any content.
 `BridgeService` therefore re-probes the ROM marker once per second while the
 core remains connected. It starts a room session when a compatible patched ROM
 appears and closes that session if the content is unloaded or replaced.
+If RetroArch is backgrounded long enough for the local socket to time out, the
+service also closes that room session before retrying. The matching v5 core
+adopts the newest queued loopback connection on resume, avoiding a stale client
+which could otherwise prevent reconnection after switching apps.
 
 The room-network client adds editable server/password settings and
 `ArchipelagoSession`. It supports `ws://` and `wss://`, waits for `RoomInfo`,
