@@ -59,6 +59,12 @@ class MainActivity : Activity() {
                 status.text = "Settings saved · reconnecting…"
             }
         }
+        val generator = Button(this).apply {
+            text = "Offline seed generator"
+            setOnClickListener {
+                startActivity(Intent(this@MainActivity, GeneratorActivity::class.java))
+            }
+        }
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(48, 48, 48, 48)
@@ -69,6 +75,7 @@ class MainActivity : Activity() {
             addView(address, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             addView(password, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             addView(save, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            addView(generator, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             addView(status, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
         setContentView(ScrollView(this).apply { addView(content) })

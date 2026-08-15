@@ -64,3 +64,31 @@ license and publish the required corresponding source.
 The companion needs Android's `INTERNET` permission because Android protects
 loopback TCP behind the same permission. The native core remains bound to
 loopback only and receives no Internet-facing configuration or credentials.
+
+## Offline generation
+
+The **Offline seed generator** screen embeds Python 3.12, the Archipelago 0.6.8
+generation core, and Metroid Fusion APWorld 1.22.4. It can edit/export player
+YAML, generate a one-player or multi-document seed without a network
+connection, export the room ZIP, and apply the generated `.apmetfus` to a
+user-selected base ROM. The app validates it against the checksums declared by
+the APWorld, supports a legacy 512-byte copier header, and never bundles a ROM.
+
+The pinned Python source is under `app/src/main/python`. Refresh it after
+updating the adjacent `ArchipelagoMine` checkout with:
+
+```powershell
+python scripts/sync_offline_generator.py
+```
+
+Chaquopy requires the build-machine Python major/minor version to match the
+embedded version. If Python 3.12 is not discoverable through the normal
+Windows `py`/`python` commands, build with:
+
+```powershell
+.\gradlew.bat app:assembleDebug "-Pchaquopy.buildPython=C:\path\to\python.exe"
+```
+
+Only `arm64-v8a` is packaged, matching the custom mGBA core. The generator
+does not start or host an Archipelago server: the exported seed ZIP can be
+uploaded later when a network connection is available.
