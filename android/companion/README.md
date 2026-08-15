@@ -90,10 +90,17 @@ Any stored seed ZIP can also be uploaded directly to `archipelago.gg` with
 current status, and can refresh the full room list owned by its persistent
 website session. Room controls, trackers, and online server addresses are
 available from the hosted-instances section. **Share multiplayer invite** opens
-Android's share sheet with the public room page (where each player can download
-their patch), current server address, tracker, and player list. **Sync website
-session** opens a secret session link in the browser so the same seeds and rooms
-appear under the website's **User Content** page; that link must not be shared.
+Android's share sheet with a small `.apinvite` file plus the public room page
+(where each player can download their patch), current server address, tracker,
+and player list. Opening that file or its `archipelago-companion://` link on a
+second device verifies the public room with `archipelago.gg`, wakes it if needed,
+loads its current port into the companion, and reconnects the bridge. Imported
+room and tracker links remain available on the main screen. If a receiving app
+does not open the attachment directly, **Open multiplayer invite** provides a
+file-picker fallback. **Sync website session** opens a secret session link in
+the browser so the same seeds and rooms appear under the website's **User
+Content** page; website-session credentials are never placed in an invite and
+that secret sync link must not be shared.
 
 The app applies a selected `.apmetfus` to a user-selected base ROM, validates
 the ROM against the checksums declared by the APWorld, supports a legacy

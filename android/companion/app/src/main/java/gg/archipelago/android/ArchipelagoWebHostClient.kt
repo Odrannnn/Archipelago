@@ -126,6 +126,37 @@ class ArchipelagoWebHostClient(context: Context) {
         parseRooms(JSONArray(preferences.getString(ROOM_CACHE, "[]")))
     }.getOrDefault(emptyList())
 
+    /** Resolves a public room invite and wakes a sleeping website-hosted server. */
+    fun resolvePublicRoom(roomId: String): HostedRoom {
+        require(ROOM_ID_PATTERN.matches(roomId)) { "The invite contains an invalid room identifier." }
+        execute(Request.Builder().url("$BASE_URL/room/$roomId?update=1").get().build()).use { response ->
+            if (!response.isSuccessful) error("The shared room does not exist (HTTP ${response.code}).")
+        }
+
+        var resolved: HostedRoom? = null
+        for (delaySeconds in listOf(0L, 2L, 4L, 8L)) {
+            if (delaySeconds > 0) Thread.sleep(TimeUnit.SECONDS.toMillis(delaySeconds))
+            val status = execute(
+                Request.Builder().url("$BASE_URL/api/room_status/$roomId").get().build(),
+            ).use { response ->
+                if (!response.isSuccessful) error("Could not read the shared room (HTTP ${response.code}).")
+                JSONObject(response.body?.string() ?: error("The shared room returned an empty response."))
+            }
+            resolved = HostedRoom(
+                roomId = roomId,
+                seedId = "",
+                creationTime = "",
+                lastActivity = status.optString("last_activity"),
+                lastPort = status.optInt("last_port", 0),
+                timeoutSeconds = status.optInt("timeout", 0),
+                trackerId = status.optString("tracker"),
+                players = parsePlayers(status.optJSONArray("players")),
+            )
+            if (resolved.lastPort != 0) break
+        }
+        return resolved ?: error("Could not resolve the shared room.")
+    }
+
     fun sessionSyncUrl(): String = "$BASE_URL/session/$websiteSessionId"
 
     private fun ensureWebsiteSession() {
@@ -235,5 +266,6 @@ class ArchipelagoWebHostClient(context: Context) {
         private const val SESSION_COOKIE = "website_session_cookie"
         private const val ROOM_CACHE = "hosted_room_cache"
         private val SESSION_COOKIE_PATTERN = Regex("(?:^|;\\s*)session=([^;]+)")
+        val ROOM_ID_PATTERN = Regex("[A-Za-z0-9_-]{16,64}")
     }
 }

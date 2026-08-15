@@ -503,29 +503,7 @@ class GeneratorActivity : Activity() {
     }
 
     private fun shareHostedRoom(room: HostedRoom) {
-        val roomUrl = "${ArchipelagoWebHostClient.BASE_URL}/room/${room.roomId}"
-        val trackerUrl = room.trackerId.takeIf { it.isNotBlank() }?.let {
-            "${ArchipelagoWebHostClient.BASE_URL}/tracker/$it"
-        }
-        val invitation = buildString {
-            appendLine("Join my Archipelago multiplayer seed!")
-            appendLine()
-            appendLine("Room and player patches: $roomUrl")
-            if (room.lastPort > 0) appendLine("Server: archipelago.gg:${room.lastPort}")
-            trackerUrl?.let { appendLine("Tracker: $it") }
-            if (room.players.isNotEmpty()) appendLine("Players: ${room.players.joinToString()}")
-            append("Open the room page and download the patch for your player slot.")
-        }
-        startActivity(
-            Intent.createChooser(
-                Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, "Archipelago multiplayer invitation")
-                    putExtra(Intent.EXTRA_TEXT, invitation)
-                },
-                "Share Archipelago invitation",
-            ),
-        )
+        RoomInvite.share(this, room)
     }
 
     private fun confirmWebsiteSessionSync() {
