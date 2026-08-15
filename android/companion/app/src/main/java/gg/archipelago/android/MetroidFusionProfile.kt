@@ -78,6 +78,10 @@ class MetroidFusionProfile(private val bridge: MGBABridgeClient) {
         return true
     }
 
+    fun showPlayerMessage(message: String) {
+        bridge.showMessage(message)
+    }
+
     fun readIwrmByteWhileInGame(offset: Long): Int? {
         if (!isInGame()) return null
         return bridge.read(GbaMemoryDomain.IWRAM, offset, 1)[0].unsigned()

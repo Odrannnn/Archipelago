@@ -11,14 +11,15 @@ diff --git a/src/platform/libretro/libretro.c b/src/platform/libretro/libretro.c
  static struct APBridge apBridge;
  static bool apBridgeReady = false;
  static int32_t audioLowPassRightPrev = 0;
-@@ -433,5 +436,6 @@ void retro_get_system_av_info(struct retro_system_av_info* info) {
+@@ -451,5 +454,6 @@ void retro_get_system_av_info(struct retro_system_av_info* info) {
  
  void retro_init(void) {
  	apBridgeReady = APBridgeInit(&apBridge, AP_MGBA_BRIDGE_PORT);
 +	updateAudioRate = false;
  
  	enum retro_pixel_format fmt;
-@@ -552,5 +556,11 @@ void retro_run(void) {
+@@ -569,5 +573,11 @@
+ void retro_run(void) {
  	if (deferredSetup) {
  		_doDeferredSetup();
  	}
@@ -28,9 +29,8 @@ diff --git a/src/platform/libretro/libretro.c b/src/platform/libretro/libretro.c
 +		environCallback(RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO, &info);
 +		updateAudioRate = false;
 +	}
- 	if (apBridgeReady && core) {
- 		APBridgePoll(&apBridge, core);
-@@ -1254,7 +1265,9 @@ static void _postAudioBuffer(struct mAVStream* stream, struct mAudioBuffer* buff
+     _pollAPBridge();
+@@ -1265,7 +1275,9 @@ static void _postAudioBuffer(struct mAVStream* stream, struct mAudioBuffer* buff
  
  static void _audioRateChanged(struct mAVStream* stream, unsigned rate) {
  	UNUSED(stream);

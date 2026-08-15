@@ -22,9 +22,11 @@ keeps reads, guards, and writes on mGBA's emulation thread, with writes applied
 before the next emulated frame.
 
 The current protocol is deliberately small and intended for a first vertical
-slice. It supports `HELLO`, `PING`, `ROM_SHA1`, `READ`, `GUARD`, and `WRITE`.
+slice. Version 2 supports `HELLO`, `PING`, `ROM_SHA1`, `READ`, `GUARD`,
+`WRITE`, and `MESSAGE`. `MESSAGE` queues a UTF-8 string for RetroArch's OSD;
+the core consumes it from `retro_run()` via `RETRO_ENVIRONMENT_SET_MESSAGE`.
 All integers are big-endian, the header is 20 bytes, and payloads are capped at
-4096 bytes. `READ` carries its requested byte count as a four-byte payload;
+4096 bytes (OSD text is capped at 511 bytes). `READ` carries its requested byte count as a four-byte payload;
 the response carries the requested memory bytes. See the companion's
 `BridgeProtocol.kt` for the matching wire definitions.
 

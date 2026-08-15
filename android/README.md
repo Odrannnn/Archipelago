@@ -21,6 +21,8 @@ game-specific Archipelago logic. No memory port is exposed to the LAN.
 - `companion/` now authenticates to the room, resolves item and location IDs
   from the server data package, delivers queued items using the ROM's receipt
   counter, reports checked locations, and reports goal completion at credits.
+  Newly delivered remote items also appear in RetroArch's on-screen display
+  with the sending player's current alias.
   Room credentials and Internet access remain outside the custom core.
 
 ## Next decision

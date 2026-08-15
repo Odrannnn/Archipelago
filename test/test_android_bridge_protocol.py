@@ -8,6 +8,8 @@ import zlib
 class AndroidBridgeProtocolTest(unittest.TestCase):
     MAGIC = 0x41504231  # APB1
     HEADER = struct.Struct(">IHHIII")
+    MESSAGE = 7
+    MAX_MESSAGE_BYTES = 511
 
     def test_header_is_twenty_big_endian_bytes(self) -> None:
         packet = self.HEADER.pack(self.MAGIC, 3, 0, 7, 0x02001234, 4) + struct.pack(">I", 0x40)
@@ -17,6 +19,13 @@ class AndroidBridgeProtocolTest(unittest.TestCase):
             (self.MAGIC, 3, 0, 7, 0x02001234, 4),
         )
         self.assertEqual(struct.unpack(">I", packet[self.HEADER.size:])[0], 0x40)
+
+    def test_osd_message_is_a_bounded_utf8_protocol_frame(self) -> None:
+        payload = "Received Morph Ball from Samus".encode("utf-8")
+        packet = self.HEADER.pack(self.MAGIC, self.MESSAGE, 0, 8, 0, len(payload)) + payload
+        self.assertLessEqual(len(payload), self.MAX_MESSAGE_BYTES)
+        self.assertEqual(self.HEADER.unpack(packet[:self.HEADER.size])[1], self.MESSAGE)
+        self.assertEqual(packet[self.HEADER.size:].decode("utf-8"), "Received Morph Ball from Samus")
 
 
 class MetroidFusionMemoryContractTest(unittest.TestCase):
@@ -40,6 +49,25 @@ class MetroidFusionMemoryContractTest(unittest.TestCase):
         queued_items = ["Missile Data", "Morph Ball", "Energy Tank"]
         received_count = 1
         self.assertEqual(queued_items[received_count], "Morph Ball")
+
+    def test_only_new_remote_delivery_produces_a_notification(self) -> None:
+        items = [
+            {"name": "Morph Ball", "player": 2, "location": 10},
+            {"name": "Energy Tank", "player": 1, "location": 11},
+        ]
+        own_slot = 1
+        received_count = 0
+        notifications = []
+        item = items[received_count]
+        supplied_by_patched_rom = item["player"] == own_slot and item["location"] >= 0
+        received_count += 1
+        if not supplied_by_patched_rom:
+            notifications.append(item["name"])
+        self.assertEqual(notifications, ["Morph Ball"])
+        # Reconciliation/reconnect starts at the persisted counter and does
+        # not replay a notification for already acknowledged history.
+        self.assertEqual(received_count, 1)
+        self.assertEqual(notifications, ["Morph Ball"])
 
     def test_inventory_recovery_uses_authoritative_capacity_not_an_increment(self) -> None:
         missile_data_ammo = 10

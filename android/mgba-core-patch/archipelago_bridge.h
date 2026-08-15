@@ -13,12 +13,16 @@
 struct mCore;
 
 #define AP_MGBA_BRIDGE_PORT 43056
+#define AP_MGBA_MESSAGE_MAX 512
 
 struct APBridge {
 	Socket listener;
 	Socket client;
 	uint8_t input[8192];
 	size_t inputSize;
+	char message[AP_MGBA_MESSAGE_MAX];
+	size_t messageLength;
+	bool messagePending;
 };
 
 bool APBridgeInit(struct APBridge* bridge, uint16_t port);
@@ -27,5 +31,9 @@ void APBridgeDeinit(struct APBridge* bridge);
 /* Call from retro_run only. This keeps every core memory access on the
  * emulator thread and avoids handing raw memory pointers to another thread. */
 void APBridgePoll(struct APBridge* bridge, struct mCore* core);
+
+/* Copies and clears the next companion notification. Call from retro_run so
+ * the returned text can be passed directly to the libretro environment. */
+bool APBridgeTakeMessage(struct APBridge* bridge, char* message, size_t capacity);
 
 #endif

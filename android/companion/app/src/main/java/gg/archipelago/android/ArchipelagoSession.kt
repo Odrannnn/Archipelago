@@ -25,6 +25,7 @@ class ArchipelagoSession(
         val items: List<NetworkItem>,
         val itemsKnown: Boolean,
         val itemNames: Map<Long, String>,
+        val playerNames: Map<Int, String>,
         val locationIds: Map<String, Long>,
         val slotData: MetroidFusionProfile.Companion.SlotData?,
     )
@@ -36,11 +37,13 @@ class ArchipelagoSession(
     private val stateLock = Any()
     private val receivedItems = mutableListOf<NetworkItem>()
     private val itemNamesById = mutableMapOf<Long, String>()
+    private val playerNamesBySlot = mutableMapOf<Int, String>()
     private val locationIdsByName = mutableMapOf<String, Long>()
     private val reportedLocations = mutableSetOf<Long>()
     private var receivedItemsKnown = false
     private var authenticated = false
     private var slot = -1
+    private var team = -1
     private var slotData: MetroidFusionProfile.Companion.SlotData? = null
     private var goalReported = false
     private var syncRequested = false
@@ -89,6 +92,7 @@ class ArchipelagoSession(
                 receivedItems.toList(),
                 receivedItemsKnown,
                 itemNamesById.toMap(),
+                playerNamesBySlot.toMap(),
                 locationIdsByName.toMap(),
                 slotData,
             )
@@ -114,6 +118,9 @@ class ArchipelagoSession(
                     profile.setReceivedItemCountWhileInGame(receivedCount + 1)
                 ) {
                     onStatus("Archipelago synchronized item ${receivedCount + 1}/${state.items.size} · $name")
+                    if (!suppliedByPatchedRom) {
+                        profile.showPlayerMessage(itemNotification(name, item.player, state.slot, state.playerNames))
+                    }
                 }
                 return
             }
@@ -222,7 +229,7 @@ class ArchipelagoSession(
                 }
                 "DataPackage" -> receiveDataPackage(packet)
                 "Connected" -> receiveConnected(packet)
-                "RoomUpdate" -> receiveCheckedLocations(packet.optJSONArray("checked_locations"))
+                "RoomUpdate" -> receiveRoomUpdate(packet)
                 "ConnectionRefused" -> {
                     val errors = packet.optJSONArray("errors") ?: JSONArray()
                     onStatus("Archipelago login refused · ${jsonArrayText(errors)}")
@@ -253,6 +260,10 @@ class ArchipelagoSession(
         synchronized(stateLock) {
             authenticated = true
             slot = connectedSlot
+            team = packet.getInt("team")
+            playerNamesBySlot.clear()
+            playerNamesBySlot[0] = "Archipelago"
+            receivePlayersLocked(packet.optJSONArray("players"), team)
             slotData = MetroidFusionProfile.Companion.SlotData(
                 missileDataAmmo = data.optInt("MissileDataAmmo", 10),
                 missileTankAmmo = data.optInt("MissileTankAmmo", 5),
@@ -266,9 +277,9 @@ class ArchipelagoSession(
             syncRequested = false
             nextInventoryReconcileAt = 0
         }
-        val team = packet.getInt("team") + 1
+        val teamNumber = packet.getInt("team") + 1
         val missing = packet.optJSONArray("missing_locations")?.length() ?: 0
-        onStatus("Archipelago authenticated · team $team · slot $connectedSlot · $missing locations remaining")
+        onStatus("Archipelago authenticated · team $teamNumber · slot $connectedSlot · $missing locations remaining")
     }
 
     private fun receiveItems(packet: JSONObject) {
@@ -297,8 +308,22 @@ class ArchipelagoSession(
         if (mismatch) requestItemResync()
     }
 
-    private fun receiveCheckedLocations(values: JSONArray?) {
-        synchronized(stateLock) { receiveCheckedLocationsLocked(values) }
+    private fun receiveRoomUpdate(packet: JSONObject) {
+        synchronized(stateLock) {
+            receiveCheckedLocationsLocked(packet.optJSONArray("checked_locations"))
+            if (packet.has("players")) receivePlayersLocked(packet.optJSONArray("players"), team)
+        }
+    }
+
+    private fun receivePlayersLocked(values: JSONArray?, currentTeam: Int) {
+        if (values == null) return
+        for (index in 0 until values.length()) {
+            val player = values.getJSONObject(index)
+            if (player.getInt("team") == currentTeam) {
+                playerNamesBySlot[player.getInt("slot")] = player.optString("alias")
+                    .ifBlank { player.optString("name", "Player ${player.getInt("slot")}") }
+            }
+        }
     }
 
     private fun jsonStringList(values: JSONArray?): List<String> =
@@ -337,6 +362,17 @@ class ArchipelagoSession(
 
     private fun jsonArrayText(values: JSONArray): String =
         (0 until values.length()).joinToString(", ") { values.optString(it) }
+
+    private fun itemNotification(
+        itemName: String,
+        sourceSlot: Int,
+        ownSlot: Int,
+        playerNames: Map<Int, String>,
+    ): String = if (sourceSlot == ownSlot) {
+        "Received $itemName"
+    } else {
+        "Received $itemName from ${playerNames[sourceSlot] ?: "Player $sourceSlot"}"
+    }
 
     companion object {
         private const val GAME = "Metroid Fusion"

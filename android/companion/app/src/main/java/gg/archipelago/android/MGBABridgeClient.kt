@@ -16,6 +16,7 @@ class MGBABridgeClient {
     private var input: DataInputStream? = null
     private var output: DataOutputStream? = null
     private var nextId = 1
+    private var protocolVersion = 0
 
     fun connect(timeoutMs: Int = 1_500) {
         check(socket == null) { "Already connected" }
@@ -37,7 +38,8 @@ class MGBABridgeClient {
     fun hello(): Pair<Int, Int> {
         val response = request(BridgeProtocol.HELLO)
         require(response.payload.size == 2) { "Invalid HELLO response" }
-        return (response.payload[0].toInt() and 0xff) to (response.payload[1].toInt() and 0xff)
+        protocolVersion = response.payload[0].toInt() and 0xff
+        return protocolVersion to (response.payload[1].toInt() and 0xff)
     }
 
     fun ping() = request(BridgeProtocol.PING)
@@ -64,6 +66,13 @@ class MGBABridgeClient {
         bytes.joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }
 
+    /** Displays a short notification through RetroArch's on-screen display. */
+    fun showMessage(message: String) {
+        if (protocolVersion < BridgeProtocol.MESSAGE_PROTOCOL_VERSION) return
+        require(message.isNotBlank()) { "Bridge message must not be blank" }
+        request(BridgeProtocol.MESSAGE, payload = boundedUtf8(message))
+    }
+
     /**
      * The mGBA bridge addresses the GBA system bus.  APWorld clients normally
      * use offsets into emulator-specific memory domains, so game profiles use
@@ -77,6 +86,22 @@ class MGBABridgeClient {
 
     fun write(domain: GbaMemoryDomain, offset: Long, value: ByteArray) {
         write(domain.toBusAddress(offset), value)
+    }
+
+    private fun boundedUtf8(message: String): ByteArray {
+        val bytes = message.encodeToByteArray()
+        if (bytes.size <= BridgeProtocol.MAX_MESSAGE_BYTES) return bytes
+
+        val bounded = StringBuilder()
+        var index = 0
+        while (index < message.length) {
+            val codePoint = message.codePointAt(index)
+            val candidate = bounded.toString() + String(Character.toChars(codePoint))
+            if (candidate.encodeToByteArray().size > BridgeProtocol.MAX_MESSAGE_BYTES) break
+            bounded.appendCodePoint(codePoint)
+            index += Character.charCount(codePoint)
+        }
+        return bounded.toString().encodeToByteArray()
     }
 
     private fun request(

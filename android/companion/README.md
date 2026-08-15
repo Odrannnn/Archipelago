@@ -46,7 +46,10 @@ undelivered item. Every three seconds it also reconstructs persistent upgrade,
 keycard, Metroid-count, and capacity-maximum state from the full item history;
 this restores AP items after loading an older in-game save even though the
 separate SRAM receipt counter remains current. DeathLink and player-facing
-item messages remain future work.
+item messages are shown through RetroArch's on-screen display. Only newly
+delivered remote/server items produce an OSD message, so reconnect and
+older-save reconciliation cannot replay notification history. Sender aliases
+come from the room's `players` metadata and follow later alias updates.
 
 The address and item rules were derived from the APWorld's GPL-3.0 client at
 the pinned `v1.22.4` source tag. If this companion is distributed together

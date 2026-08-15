@@ -16,6 +16,7 @@
 #define APB_MAGIC 0x41504231u
 #define APB_HEADER_SIZE 20u
 #define APB_MAX_PAYLOAD 4096u
+#define APB_PROTOCOL_VERSION 2u
 
 enum APBType {
 	APB_HELLO = 1,
@@ -24,6 +25,7 @@ enum APBType {
 	APB_WRITE = 4,
 	APB_GUARD = 5,
 	APB_ROM_SHA1 = 6,
+	APB_MESSAGE = 7,
 };
 
 enum APBStatus {
@@ -97,8 +99,8 @@ static bool _processRequest(struct APBridge* bridge, struct mCore* core, const s
 
 	switch (request->type) {
 	case APB_HELLO:
-		/* Protocol version 1, GBA platform id. */
-		data[0] = 1;
+		/* Protocol version 2 (OSD messages), GBA platform id. */
+		data[0] = APB_PROTOCOL_VERSION;
 		data[1] = (uint8_t) core->platform(core);
 		return _sendResponse(bridge, request, APB_OK, data, 2);
 	case APB_PING:
@@ -131,6 +133,18 @@ static bool _processRequest(struct APBridge* bridge, struct mCore* core, const s
 		for (i = 0; i < request->length; ++i) {
 			core->busWrite8(core, request->address + i, payload[i]);
 		}
+		return _sendResponse(bridge, request, APB_OK, NULL, 0);
+	case APB_MESSAGE:
+		if (!request->length) {
+			return _sendResponse(bridge, request, APB_BAD_REQUEST, NULL, 0);
+		}
+		if (request->length >= AP_MGBA_MESSAGE_MAX) {
+			return _sendResponse(bridge, request, APB_TOO_LARGE, NULL, 0);
+		}
+		memcpy(bridge->message, payload, request->length);
+		bridge->message[request->length] = '\0';
+		bridge->messageLength = request->length;
+		bridge->messagePending = true;
 		return _sendResponse(bridge, request, APB_OK, NULL, 0);
 	default:
 		return _sendResponse(bridge, request, APB_UNSUPPORTED, NULL, 0);
@@ -165,6 +179,8 @@ void APBridgeDeinit(struct APBridge* bridge) {
 	bridge->client = INVALID_SOCKET;
 	bridge->listener = INVALID_SOCKET;
 	bridge->inputSize = 0;
+	bridge->messageLength = 0;
+	bridge->messagePending = false;
 }
 
 void APBridgePoll(struct APBridge* bridge, struct mCore* core) {
@@ -211,4 +227,14 @@ void APBridgePoll(struct APBridge* bridge, struct mCore* core) {
 			bridge->inputSize - APB_HEADER_SIZE - request.length);
 		bridge->inputSize -= APB_HEADER_SIZE + request.length;
 	}
+}
+
+bool APBridgeTakeMessage(struct APBridge* bridge, char* message, size_t capacity) {
+	if (!bridge->messagePending || !message || capacity <= bridge->messageLength) {
+		return false;
+	}
+	memcpy(message, bridge->message, bridge->messageLength + 1);
+	bridge->messageLength = 0;
+	bridge->messagePending = false;
+	return true;
 }

@@ -1,5 +1,5 @@
 diff --git a/src/platform/libretro/libretro.c b/src/platform/libretro/libretro.c
-index 12e7913..5c09b90 100644
+index 12e7913..f9138af 100644
 --- a/src/platform/libretro/libretro.c
 +++ b/src/platform/libretro/libretro.c
 @@ -4,6 +4,7 @@
@@ -10,7 +10,7 @@ index 12e7913..5c09b90 100644
  
  #include <mgba-util/common.h>
  
-@@ -103,6 +104,8 @@ static int32_t gyroZ = 0;
+@@ -103,6 +104,23 @@ static int32_t gyroZ = 0;
  static bool audioLowPassEnabled = false;
  static int32_t audioLowPassRange = 0;
  static int32_t audioLowPassLeftPrev = 0;
@@ -18,8 +18,23 @@ index 12e7913..5c09b90 100644
 +static bool apBridgeReady = false;
  static int32_t audioLowPassRightPrev = 0;
  
++static void _pollAPBridge(void) {
++	char messageText[AP_MGBA_MESSAGE_MAX];
++	if (!apBridgeReady || !core) {
++		return;
++	}
++	APBridgePoll(&apBridge, core);
++	if (APBridgeTakeMessage(&apBridge, messageText, sizeof(messageText))) {
++		struct retro_message message = {
++			.msg = messageText,
++			.frames = 240,
++		};
++		environCallback(RETRO_ENVIRONMENT_SET_MESSAGE, &message);
++	}
++}
++
  static const int keymap[] = {
-@@ -428,6 +431,8 @@ void retro_get_system_av_info(struct retro_system_av_info* info) {
+@@ -428,6 +446,8 @@ void retro_get_system_av_info(struct retro_system_av_info* info) {
  }
  
  void retro_init(void) {
@@ -28,7 +43,7 @@ index 12e7913..5c09b90 100644
  	enum retro_pixel_format fmt;
  #ifdef COLOR_16_BIT
  #ifdef COLOR_5_6_5
-@@ -513,6 +518,10 @@ void retro_init(void) {
+@@ -513,6 +533,10 @@ void retro_init(void) {
  }
  
  void retro_deinit(void) {
@@ -39,23 +54,19 @@ index 12e7913..5c09b90 100644
  	free(outputBuffer);
  
  	if (audioSampleBuffer) {
-@@ -546,6 +555,9 @@ void retro_run(void) {
+@@ -546,6 +570,7 @@ void retro_run(void) {
  	if (deferredSetup) {
  		_doDeferredSetup();
  	}
-+	if (apBridgeReady && core) {
-+		APBridgePoll(&apBridge, core);
-+	}
++    _pollAPBridge();
  	uint16_t keys;
  
  	inputPollCallback();
-@@ -613,6 +625,9 @@ void retro_run(void) {
+@@ -613,6 +638,7 @@ void retro_run(void) {
  	}
  
  	core->runFrame(core);
-+	if (apBridgeReady) {
-+		APBridgePoll(&apBridge, core);
-+	}
++	_pollAPBridge();
  	unsigned width, height;
  	core->currentVideoSize(core, &width, &height);
  	videoCallback(outputBuffer, width, height, BYTES_PER_PIXEL * 256);
