@@ -17,6 +17,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import java.io.File
 import kotlin.concurrent.thread
 
 /** Starts the persistent bridge service and displays its current status. */
@@ -27,6 +28,8 @@ class MainActivity : Activity() {
     private lateinit var address: EditText
     private lateinit var password: EditText
     private lateinit var joinedRoomContainer: LinearLayout
+    private var pendingPlayerInvite: RoomInvite? = null
+    private var pendingPatchedRom: Pair<String, ByteArray>? = null
     private val refreshStatus = object : Runnable {
         override fun run() {
             status.text = BridgeService.statusText +
@@ -122,8 +125,25 @@ class MainActivity : Activity() {
     @Deprecated("Uses the platform file picker result API available to android.app.Activity")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == REQUEST_OPEN_INVITE && resultCode == RESULT_OK && data?.data != null) {
-            handleInvite(Intent(Intent.ACTION_VIEW, data.data))
+        if (resultCode != RESULT_OK || data?.data == null) {
+            if (requestCode == REQUEST_INVITE_BASE_ROM) pendingPlayerInvite = null
+            return
+        }
+        when (requestCode) {
+            REQUEST_OPEN_INVITE -> handleInvite(Intent(Intent.ACTION_VIEW, data.data))
+            REQUEST_INVITE_BASE_ROM -> patchInviteBaseRom(data.data!!)
+            REQUEST_SAVE_INVITE_ROM -> {
+                val export = pendingPatchedRom ?: return
+                runCatching {
+                    contentResolver.openOutputStream(data.data!!)?.use { it.write(export.second) }
+                        ?: error("Could not open the selected destination.")
+                }.onSuccess {
+                    inviteStatus.text = "Saved ${export.first} · ready to load in RetroArch."
+                    pendingPatchedRom = null
+                }.onFailure {
+                    inviteStatus.text = "Could not save ${export.first}: ${it.message}"
+                }
+            }
         }
     }
 
@@ -140,22 +160,33 @@ class MainActivity : Activity() {
         // Prevent an activity recreation from presenting the same invitation twice.
         setIntent(Intent(this, MainActivity::class.java))
         AlertDialog.Builder(this)
-            .setTitle("Load shared multiplayer room?")
+            .setTitle(if (invite.hasPlayerPatch) "Load ${invite.playerName}'s multiplayer invite?" else "Load shared multiplayer room?")
             .setMessage(
-                "The companion will verify room ${invite.roomId.take(10)}… on archipelago.gg, wake its server " +
-                    "if necessary, and load its current connection address. No website-session secret is imported.",
+                buildString {
+                    if (invite.hasPlayerPatch) {
+                        append("This invite is for player slot ${invite.playerSlot} and contains ${invite.patchName}. ")
+                    }
+                    append("The companion will verify room ${invite.roomId.take(10)}… on archipelago.gg, wake its ")
+                    append("server if necessary, and load its current connection address. ")
+                    if (invite.hasPlayerPatch) append("It will then ask for your clean Metroid Fusion base ROM. ")
+                    append("No website-session secret is imported.")
+                },
             )
             .setNegativeButton("Cancel", null)
-            .setPositiveButton("Load room") { _, _ -> resolveAndLoadRoom(invite.roomId) }
+            .setPositiveButton(if (invite.hasPlayerPatch) "Load and patch" else "Load room") { _, _ ->
+                resolveAndLoadRoom(invite)
+            }
             .show()
     }
 
-    private fun resolveAndLoadRoom(roomId: String) {
+    private fun resolveAndLoadRoom(roomId: String) = resolveAndLoadRoom(RoomInvite(roomId, ""))
+
+    private fun resolveAndLoadRoom(invite: RoomInvite) {
         inviteStatus.text = "Resolving shared room on archipelago.gg…"
         thread(name = "shared-room-import") {
-            runCatching { ArchipelagoWebHostClient(this).resolvePublicRoom(roomId) }
+            runCatching { ArchipelagoWebHostClient(this).resolvePublicRoom(invite.roomId) }
                 .onSuccess { room ->
-                    val joined = JoinedRoomStore.save(this, room)
+                    val joined = JoinedRoomStore.save(this, room, invite)
                     runOnUiThread {
                         renderJoinedRoom(joined)
                         if (room.lastPort > 0) {
@@ -175,11 +206,63 @@ class MainActivity : Activity() {
                                 "The invitation was saved, but the room is still starting. Tap Refresh room."
                             }
                         }
+                        if (invite.hasPlayerPatch) {
+                            pendingPlayerInvite = invite
+                            inviteStatus.text = "Room loaded for ${invite.playerName}. Select your clean base ROM."
+                            chooseInviteBaseRom()
+                        }
                     }
                 }
                 .onFailure { error -> runOnUiThread {
                     inviteStatus.text = "Could not load invitation: ${error.message ?: error.javaClass.simpleName}"
                 } }
+        }
+    }
+
+    private fun chooseInviteBaseRom() {
+        startActivityForResult(
+            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "application/octet-stream"
+            },
+            REQUEST_INVITE_BASE_ROM,
+        )
+    }
+
+    private fun patchInviteBaseRom(uri: Uri) {
+        val invite = pendingPlayerInvite ?: return
+        val patchBytes = invite.patchBytes ?: return
+        inviteStatus.text = "Creating ${invite.playerName}'s patched Metroid Fusion ROM…"
+        thread(name = "shared-invite-rom-patching") {
+            runCatching {
+                val baseBytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?: error("Could not read the selected base ROM.")
+                val outputName = "${File(invite.patchName ?: "Player${invite.playerSlot}.apmetfus").nameWithoutExtension}.gba"
+                val output = File(filesDir, "imported_invites/output/$outputName").apply {
+                    parentFile?.mkdirs()
+                }
+                OfflineGenerator.patchRom(this, patchBytes, baseBytes, output)
+            }.onSuccess { output ->
+                pendingPlayerInvite = null
+                val export = output.name to output.readBytes()
+                pendingPatchedRom = export
+                runOnUiThread {
+                    inviteStatus.text = "ROM created for ${invite.playerName}. Choose where to save it."
+                    startActivityForResult(
+                        Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "application/octet-stream"
+                            putExtra(Intent.EXTRA_TITLE, export.first)
+                        },
+                        REQUEST_SAVE_INVITE_ROM,
+                    )
+                }
+            }.onFailure { error ->
+                pendingPlayerInvite = null
+                runOnUiThread {
+                    inviteStatus.text = "Could not patch the base ROM: ${error.message ?: error.javaClass.simpleName}"
+                }
+            }
         }
     }
 
@@ -194,6 +277,9 @@ class MainActivity : Activity() {
         joinedRoomContainer.addView(TextView(this).apply {
             text = buildString {
                 append(if (room.port > 0) "archipelago.gg:${room.port}" else "Room saved · no active port yet")
+                if (!room.playerName.isNullOrBlank()) {
+                    append("\nSelected player: ${room.playerName} (slot ${room.playerSlot})")
+                }
                 if (room.players.isNotEmpty()) append("\n${room.players.joinToString()}")
             }
             textSize = 16f
@@ -239,5 +325,7 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQUEST_OPEN_INVITE = 301
+        private const val REQUEST_INVITE_BASE_ROM = 302
+        private const val REQUEST_SAVE_INVITE_ROM = 303
     }
 }

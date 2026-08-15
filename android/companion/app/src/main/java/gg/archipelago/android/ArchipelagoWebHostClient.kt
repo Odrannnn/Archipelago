@@ -180,7 +180,7 @@ class ArchipelagoWebHostClient(context: Context) {
     private fun execute(request: Request): okhttp3.Response {
         val authenticated = request.newBuilder().apply {
             preferences.getString(SESSION_COOKIE, null)?.let { header("Cookie", "session=$it") }
-            header("User-Agent", "Archipelago-Android-Companion/0.7")
+            header("User-Agent", "Archipelago-Android-Companion/0.9")
         }.build()
         val response = client.newCall(authenticated).execute()
         response.headers("Set-Cookie").forEach { header ->

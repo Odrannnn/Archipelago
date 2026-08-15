@@ -89,18 +89,18 @@ Any stored seed ZIP can also be uploaded directly to `archipelago.gg` with
 **Host on archipelago.gg**. The companion creates and starts a room, caches its
 current status, and can refresh the full room list owned by its persistent
 website session. Room controls, trackers, and online server addresses are
-available from the hosted-instances section. **Share multiplayer invite** opens
-Android's share sheet with a small `.apinvite` file plus the public room page
-(where each player can download their patch), current server address, tracker,
-and player list. Opening that file or its `archipelago-companion://` link on a
-second device verifies the public room with `archipelago.gg`, wakes it if needed,
-loads its current port into the companion, and reconnects the bridge. Imported
-room and tracker links remain available on the main screen. If a receiving app
-does not open the attachment directly, **Open multiplayer invite** provides a
-file-picker fallback. **Sync website session** opens a secret session link in
-the browser so the same seeds and rooms appear under the website's **User
-Content** page; website-session credentials are never placed in an invite and
-that secret sync link must not be shared.
+available from the hosted-instances section. **Share multiplayer invite** first
+selects a player slot, then opens Android's share sheet with a player-specific
+`.apinvite` package. The package contains the public room identifiers and that
+player's locally stored `.apmetfus` patch, protected by an integrity hash; it
+never contains a website-session credential or base ROM. On a second device,
+opening the invite verifies and wakes the public room, loads its current port,
+remembers the selected player, and asks for a legally supplied clean base ROM.
+The embedded generator applies the patch locally and prompts the recipient to
+save the ready-to-run `.gba`. Older metadata-only invites remain supported, and
+**Open multiplayer invite** provides a file-picker fallback when a receiving app
+does not open the attachment directly. **Sync website session** is separate and
+its secret link must not be shared.
 
 The app applies a selected `.apmetfus` to a user-selected base ROM, validates
 the ROM against the checksums declared by the APWorld, supports a legacy

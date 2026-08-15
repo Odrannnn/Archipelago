@@ -121,7 +121,7 @@ class GeneratorActivity : Activity() {
         hostSeedButton = Button(this).apply {
             text = "Host seed on archipelago.gg"
             isEnabled = false
-            setOnClickListener { seedFile?.let { hostSeed(it) } }
+            setOnClickListener { seedFile?.let { hostSeed(it, currentHistoryId) } }
         }
         patchButton = Button(this).apply {
             text = "Create patched GBA"
@@ -376,7 +376,7 @@ class GeneratorActivity : Activity() {
                         entry.files.firstOrNull { it.name.endsWith(".zip", ignoreCase = true) }
                             ?.let { File(it.path) }
                             ?.takeIf { it.isFile }
-                            ?.let { hostSeed(it) }
+                            ?.let { hostSeed(it, entry.id) }
                     }
                 }, matchWrapParams())
                 addView(Button(this@GeneratorActivity).apply {
@@ -387,7 +387,7 @@ class GeneratorActivity : Activity() {
         }
     }
 
-    private fun hostSeed(zip: File) {
+    private fun hostSeed(zip: File, historyId: String?) {
         if (hostingInProgress) return
         hostingInProgress = true
         hostSeedButton.isEnabled = false
@@ -396,6 +396,7 @@ class GeneratorActivity : Activity() {
         thread(name = "archipelago-web-host") {
             runCatching { webHostClient.hostSeed(zip) }
                 .onSuccess { result ->
+                    historyId?.let { HostedRoomHistoryLinks.save(this, result.room.roomId, it) }
                     runOnUiThread {
                         hostingInProgress = false
                         hostSeedButton.isEnabled = seedFile?.isFile == true
@@ -503,8 +504,86 @@ class GeneratorActivity : Activity() {
     }
 
     private fun shareHostedRoom(room: HostedRoom) {
-        RoomInvite.share(this, room)
+        val entries = SeedHistoryStore.list(this).filter { entry ->
+            entry.patches.isNotEmpty() && entry.patches.all { File(it.path).isFile }
+        }
+        if (entries.isEmpty()) {
+            status.text = "No locally stored player patches are available for this room."
+            return
+        }
+
+        val linkedEntry = HostedRoomHistoryLinks.historyId(this, room.roomId)?.let { linkedId ->
+            entries.firstOrNull { it.id == linkedId }
+        }
+        if (linkedEntry != null) {
+            chooseInvitePlayer(room, linkedEntry)
+            return
+        }
+
+        val hostedNames = room.players.map { hostedPlayerName(it) }
+        val matchingEntries = entries.filter { it.players == hostedNames }
+        when {
+            matchingEntries.size == 1 -> {
+                HostedRoomHistoryLinks.save(this, room.roomId, matchingEntries.single().id)
+                chooseInvitePlayer(room, matchingEntries.single())
+            }
+            else -> chooseInviteSeed(room, matchingEntries.ifEmpty { entries })
+        }
     }
+
+    private fun chooseInviteSeed(room: HostedRoom, entries: List<SeedHistoryEntry>) {
+        val labels = entries.map { entry ->
+            val date = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+                .format(Date(entry.createdAt))
+            "Seed ${entry.seed} · ${entry.players.joinToString()} · $date"
+        }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Choose the local seed for this room")
+            .setMessage("The selected seed supplies the player-specific patch embedded in the invitation.")
+            .setNegativeButton("Cancel", null)
+            .setItems(labels) { _, index ->
+                val entry = entries[index]
+                HostedRoomHistoryLinks.save(this, room.roomId, entry.id)
+                chooseInvitePlayer(room, entry)
+            }
+            .show()
+    }
+
+    private fun chooseInvitePlayer(room: HostedRoom, entry: SeedHistoryEntry) {
+        val choices = entry.patches.mapIndexedNotNull { index, patch ->
+            val file = File(patch.path).takeIf { it.isFile } ?: return@mapIndexedNotNull null
+            val slot = Regex("(?:^|_)P(\\d+)(?:_|\\.)", RegexOption.IGNORE_CASE)
+                .find(patch.name)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: (index + 1)
+            val playerName = entry.players.getOrNull(slot - 1) ?: "Player $slot"
+            Triple(slot, playerName, file)
+        }.sortedBy { it.first }
+        if (choices.isEmpty()) {
+            status.text = "The selected seed no longer has any stored player patches."
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Share invite for which player?")
+            .setItems(choices.map { "Player ${it.first} · ${it.second}" }.toTypedArray()) { _, index ->
+                val (slot, playerName, patch) = choices[index]
+                status.text = "Preparing $playerName's multiplayer invitation…"
+                thread(name = "player-invite-package") {
+                    runCatching { patch.readBytes() }
+                        .onSuccess { patchBytes -> runOnUiThread {
+                            runCatching {
+                                RoomInvite.share(this, room, slot, playerName, patch.name, patchBytes)
+                            }.onSuccess {
+                                status.text = "Player-specific invitation ready for $playerName."
+                            }.onFailure { showError("Could not share player invitation", it) }
+                        } }
+                        .onFailure { showError("Could not read ${patch.name}", it) }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun hostedPlayerName(displayName: String): String =
+        displayName.removeSuffix(" (Metroid Fusion)")
 
     private fun confirmWebsiteSessionSync() {
         AlertDialog.Builder(this)

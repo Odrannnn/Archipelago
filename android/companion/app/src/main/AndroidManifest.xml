@@ -29,6 +29,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/vnd.gg.archipelago.companion-invite" />
                 <data android:mimeType="application/vnd.gg.archipelago.companion-invite+json" />
             </intent-filter>
         </activity>
