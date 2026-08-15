@@ -19,6 +19,7 @@ class BridgeService : Service() {
     private val executor = Executors.newSingleThreadExecutor()
     @Volatile private var running = false
     @Volatile private var activeBridge: MGBABridgeClient? = null
+    @Volatile private var activeSession: ArchipelagoSession? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -31,6 +32,10 @@ class BridgeService : Service() {
         if (intent?.action == ACTION_STOP) {
             stopSelf()
             return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_RECONNECT) {
+            activeSession?.close()
+            activeBridge?.close()
         }
         if (!running) {
             running = true
@@ -45,6 +50,8 @@ class BridgeService : Service() {
         running = false
         activeBridge?.close()
         activeBridge = null
+        activeSession?.close()
+        activeSession = null
         executor.shutdownNow()
         publish("Bridge service stopped")
         super.onDestroy()
@@ -68,10 +75,27 @@ class BridgeService : Service() {
                     },
                 )
 
+                var session: ArchipelagoSession? = null
+                var nextSessionAttempt = 0L
+
                 while (running && !Thread.currentThread().isInterrupted) {
+                    val settings = ServerSettings.load(this)
+                    val now = System.currentTimeMillis()
+                    if (settings.isConfigured && fusion != null &&
+                        (session == null || session.isClosed) &&
+                        now >= nextSessionAttempt
+                    ) {
+                        session?.close()
+                        session = ArchipelagoSession(settings, fusion, ::publish)
+                        activeSession = session
+                        session.connect()
+                        nextSessionAttempt = now + TimeUnit.SECONDS.toMillis(5)
+                    }
                     bridge.ping()
                     TimeUnit.SECONDS.sleep(1)
                 }
+                session?.close()
+                if (activeSession === session) activeSession = null
             } catch (error: Exception) {
                 if (running) {
                     publish("mGBA unavailable · reconnecting… (${error.message ?: error.javaClass.simpleName})")
@@ -134,6 +158,7 @@ class BridgeService : Service() {
         private const val CHANNEL_ID = "emulator_bridge"
         private const val NOTIFICATION_ID = 43056
         private const val ACTION_STOP = "gg.archipelago.android.STOP_BRIDGE"
+        const val ACTION_RECONNECT = "gg.archipelago.android.RECONNECT_BRIDGE"
 
         @Volatile
         var statusText: String = "Bridge service has not started"

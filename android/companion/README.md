@@ -10,6 +10,20 @@ game is running. `MainActivity` only starts the service and displays status,
 so closing or backgrounding the activity does not close the emulator socket.
 The persistent notification exposes an explicit Stop action.
 
+The first room-network vertical slice adds editable server/password settings
+and `ArchipelagoSession`. It supports `ws://` and `wss://`, waits for
+`RoomInfo`, and authenticates with a protocol `Connect` packet using the ROM's
+embedded token. This handshake build deliberately requests
+`items_handling = 0`; it observes but does not apply gameplay packets until
+received-item persistence and location-ID mapping are implemented.
+If a cleartext WebSocket handshake is closed by the host, the client retries
+the same host and port once with TLS (`wss://`), matching the desktop client's
+transport fallback behavior.
+
+Enter the game server as `archipelago.gg:PORT` (for example,
+`archipelago.gg:45657`), not as a room-page URL. A pasted numeric path such as
+`archipelago.gg/45657` is normalized to the equivalent port form.
+
 `MetroidFusionProfile` targets the client in
 [`ArchipelagoMine` v1.22.4](https://github.com/StalledStorm/ArchipelagoMine/releases/tag/v1.22.4).
 It implements the memory-facing half of that client:

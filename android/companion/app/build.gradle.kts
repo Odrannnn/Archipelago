@@ -11,8 +11,8 @@ android {
         applicationId = "gg.archipelago.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
     }
 
     // AGP 8.x and Kotlin 2.x both run on JDK 17. Keep javac and kotlinc
@@ -25,4 +25,8 @@ android {
 
 kotlin {
     jvmToolchain(17)
+}
+
+dependencies {
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }

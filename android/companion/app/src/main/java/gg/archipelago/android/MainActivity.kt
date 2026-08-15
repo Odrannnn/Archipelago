@@ -8,6 +8,12 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.InputType
+import android.view.ViewGroup
+import android.widget.Button
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 
 /** Starts the persistent bridge service and displays its current status. */
@@ -24,12 +30,48 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val savedSettings = ServerSettings.load(this)
         status = TextView(this).apply {
             textSize = 18f
-            setPadding(48, 64, 48, 64)
             text = "Starting background bridge…"
         }
-        setContentView(status)
+
+        val address = EditText(this).apply {
+            hint = "Server address, e.g. archipelago.gg:45657"
+            setSingleLine(true)
+            setText(savedSettings.address)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+        }
+        val password = EditText(this).apply {
+            hint = "Room password (optional)"
+            setSingleLine(true)
+            setText(savedSettings.password)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        val save = Button(this).apply {
+            text = "Save and connect"
+            setOnClickListener {
+                ServerSettings.save(this@MainActivity, address.text.toString(), password.text.toString())
+                startForegroundService(
+                    Intent(this@MainActivity, BridgeService::class.java)
+                        .setAction(BridgeService.ACTION_RECONNECT),
+                )
+                status.text = "Settings saved · reconnecting…"
+            }
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 48, 48, 48)
+            addView(TextView(this@MainActivity).apply {
+                text = "Archipelago Android Companion"
+                textSize = 24f
+            })
+            addView(address, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            addView(password, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            addView(save, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            addView(status, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        setContentView(ScrollView(this).apply { addView(content) })
 
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
