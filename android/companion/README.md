@@ -85,6 +85,14 @@ or select any player's patch for local ROM creation. Deleting an entry removes
 its stored files. Uninstalling the app or clearing its app data also removes
 the history.
 
+Any stored seed ZIP can also be uploaded directly to `archipelago.gg` with
+**Host on archipelago.gg**. The companion creates and starts a room, caches its
+current status, and can refresh the full room list owned by its persistent
+website session. Room controls, trackers, and online server addresses are
+available from the hosted-instances section. **Sync website session** opens a
+secret session link in the browser so the same seeds and rooms appear under
+the website's **User Content** page; that link must not be shared.
+
 The app applies a selected `.apmetfus` to a user-selected base ROM, validates
 the ROM against the checksums declared by the APWorld, supports a legacy
 512-byte copier header, and never bundles a ROM.
@@ -104,6 +112,6 @@ Windows `py`/`python` commands, build with:
 .\gradlew.bat app:assembleDebug "-Pchaquopy.buildPython=C:\path\to\python.exe"
 ```
 
-Only `arm64-v8a` is packaged, matching the custom mGBA core. The generator
-does not start or host an Archipelago server: the exported seed ZIP can be
-uploaded later when a network connection is available.
+Only `arm64-v8a` is packaged, matching the custom mGBA core. Local generation
+remains fully offline; direct upload and website room management require an
+Internet connection.

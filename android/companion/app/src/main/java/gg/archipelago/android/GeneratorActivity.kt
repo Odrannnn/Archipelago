@@ -2,6 +2,9 @@ package gg.archipelago.android
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.graphics.Typeface
 import android.net.Uri
@@ -17,7 +20,9 @@ import android.widget.ScrollView
 import android.widget.TextView
 import java.io.File
 import java.text.DateFormat
+import java.text.SimpleDateFormat
 import java.util.Date
+import java.util.Locale
 import kotlin.concurrent.thread
 
 /** Creates player YAMLs, generates seeds, and patches a user-supplied ROM entirely offline. */
@@ -27,10 +32,14 @@ class GeneratorActivity : Activity() {
     private lateinit var playerCountView: TextView
     private lateinit var generateButton: Button
     private lateinit var exportSeedButton: Button
+    private lateinit var hostSeedButton: Button
     private lateinit var patchButton: Button
     private lateinit var patchesContainer: LinearLayout
     private lateinit var historyContainer: LinearLayout
+    private lateinit var hostedRoomsContainer: LinearLayout
+    private lateinit var refreshHostedRoomsButton: Button
     private lateinit var status: TextView
+    private lateinit var webHostClient: ArchipelagoWebHostClient
 
     private var seedFile: File? = null
     private var patchFile: File? = null
@@ -38,9 +47,11 @@ class GeneratorActivity : Activity() {
     private var pendingExport: Pair<String, ByteArray>? = null
     private var historySettingsLoaded = false
     private var currentHistoryId: String? = null
+    private var hostingInProgress = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        webHostClient = ArchipelagoWebHostClient(this)
 
         yamlEditor = EditText(this).apply {
             minLines = 28
@@ -69,6 +80,9 @@ class GeneratorActivity : Activity() {
             orientation = LinearLayout.VERTICAL
         }
         historyContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        hostedRoomsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
 
@@ -104,6 +118,11 @@ class GeneratorActivity : Activity() {
                 seedFile?.takeIf { it.isFile }?.let { beginExport(it.name, it.readBytes()) }
             }
         }
+        hostSeedButton = Button(this).apply {
+            text = "Host seed on archipelago.gg"
+            isEnabled = false
+            setOnClickListener { seedFile?.let { hostSeed(it) } }
+        }
         patchButton = Button(this).apply {
             text = "Create patched GBA"
             isEnabled = false
@@ -137,9 +156,33 @@ class GeneratorActivity : Activity() {
             addView(saveYamlButton, matchWrapParams())
             addView(generateButton, matchWrapParams())
             addView(exportSeedButton, matchWrapParams())
+            addView(hostSeedButton, matchWrapParams())
             addView(patchesContainer, matchWrapParams())
             addView(patchButton, matchWrapParams())
             addView(status, matchWrapParams())
+            addView(TextView(this@GeneratorActivity).apply {
+                text = "Hosted instances"
+                textSize = 22f
+                setPadding(0, 32, 0, 8)
+            })
+            addView(TextView(this@GeneratorActivity).apply {
+                text = "Rooms uploaded by this app are tied to its private archipelago.gg website session. " +
+                    "Refresh to retrieve the current website list."
+            })
+            refreshHostedRoomsButton = Button(this@GeneratorActivity).apply {
+                text = "Refresh hosted instances"
+                setOnClickListener { refreshHostedRooms() }
+            }
+            addView(refreshHostedRoomsButton, matchWrapParams())
+            addView(Button(this@GeneratorActivity).apply {
+                text = "Sync website session"
+                setOnClickListener { confirmWebsiteSessionSync() }
+            }, matchWrapParams())
+            addView(Button(this@GeneratorActivity).apply {
+                text = "Open website instance list"
+                setOnClickListener { openWebUrl("${ArchipelagoWebHostClient.BASE_URL}/user-content") }
+            }, matchWrapParams())
+            addView(hostedRoomsContainer, matchWrapParams())
             addView(TextView(this@GeneratorActivity).apply {
                 text = "Generated seed history"
                 textSize = 22f
@@ -148,6 +191,7 @@ class GeneratorActivity : Activity() {
             addView(historyContainer, matchWrapParams())
         }
         setContentView(ScrollView(this).apply { addView(content) })
+        renderHostedRooms(webHostClient.cachedRooms())
         renderHistory()
 
         thread(name = "offline-generator-startup") {
@@ -250,6 +294,7 @@ class GeneratorActivity : Activity() {
         availablePatches = entry.patches.map { File(it.path) }.filter { it.isFile }
         patchFile = availablePatches.firstOrNull()
         exportSeedButton.isEnabled = seedFile != null
+        hostSeedButton.isEnabled = seedFile != null && !hostingInProgress
         patchButton.isEnabled = patchFile != null
         renderPatchChoices()
         if (loadSettings) {
@@ -325,11 +370,159 @@ class GeneratorActivity : Activity() {
                     }
                 }, matchWrapParams())
                 addView(Button(this@GeneratorActivity).apply {
+                    text = "Host on archipelago.gg"
+                    isEnabled = zipAvailable && !hostingInProgress
+                    setOnClickListener {
+                        entry.files.firstOrNull { it.name.endsWith(".zip", ignoreCase = true) }
+                            ?.let { File(it.path) }
+                            ?.takeIf { it.isFile }
+                            ?.let { hostSeed(it) }
+                    }
+                }, matchWrapParams())
+                addView(Button(this@GeneratorActivity).apply {
                     text = "Delete from history"
                     setOnClickListener { confirmDelete(entry) }
                 }, matchWrapParams())
             }, matchWrapParams())
         }
+    }
+
+    private fun hostSeed(zip: File) {
+        if (hostingInProgress) return
+        hostingInProgress = true
+        hostSeedButton.isEnabled = false
+        renderHistory()
+        status.text = "Uploading ${zip.name} and creating an archipelago.gg room…"
+        thread(name = "archipelago-web-host") {
+            runCatching { webHostClient.hostSeed(zip) }
+                .onSuccess { result ->
+                    runOnUiThread {
+                        hostingInProgress = false
+                        hostSeedButton.isEnabled = seedFile?.isFile == true
+                        renderHistory()
+                        renderHostedRooms(result.rooms)
+                        status.text = if (result.room.lastPort > 0) {
+                            "Room created · connect to archipelago.gg:${result.room.lastPort}"
+                        } else {
+                            "Room created on archipelago.gg. It is starting; refresh hosted instances for its port."
+                        }
+                    }
+                }
+                .onFailure { error ->
+                    runOnUiThread {
+                        hostingInProgress = false
+                        hostSeedButton.isEnabled = seedFile?.isFile == true
+                        renderHistory()
+                    }
+                    showError("Could not host seed", error)
+                }
+        }
+    }
+
+    private fun refreshHostedRooms() {
+        refreshHostedRoomsButton.isEnabled = false
+        status.text = "Refreshing hosted instances from archipelago.gg…"
+        thread(name = "archipelago-web-host-refresh") {
+            runCatching { webHostClient.refreshRooms() }
+                .onSuccess { rooms ->
+                    runOnUiThread {
+                        refreshHostedRoomsButton.isEnabled = true
+                        renderHostedRooms(rooms)
+                        status.text = if (rooms.isEmpty()) {
+                            "No hosted instances belong to this app's website session yet."
+                        } else {
+                            "Found ${rooms.size} hosted instance${if (rooms.size == 1) "" else "s"}."
+                        }
+                    }
+                }
+                .onFailure { error ->
+                    runOnUiThread { refreshHostedRoomsButton.isEnabled = true }
+                    showError("Could not refresh hosted instances", error)
+                }
+        }
+    }
+
+    private fun renderHostedRooms(rooms: List<HostedRoom>) {
+        hostedRoomsContainer.removeAllViews()
+        if (rooms.isEmpty()) {
+            hostedRoomsContainer.addView(TextView(this).apply {
+                text = "No hosted instances are cached on this device."
+            })
+            return
+        }
+        rooms.forEach { room ->
+            hostedRoomsContainer.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(0, 12, 0, 20)
+                addView(TextView(this@GeneratorActivity).apply {
+                    val state = when {
+                        room.lastPort > 0 -> "Online · archipelago.gg:${room.lastPort}"
+                        room.lastPort < 0 -> "Server error"
+                        else -> "Starting or sleeping"
+                    }
+                    val players = room.players.takeIf { it.isNotEmpty() }?.joinToString().orEmpty()
+                    val created = formatWebsiteTime(room.creationTime)
+                    text = buildString {
+                        append(state)
+                        if (created.isNotBlank()) append("\nCreated $created")
+                        if (players.isNotBlank()) append("\n$players")
+                    }
+                    textSize = 16f
+                })
+                addView(Button(this@GeneratorActivity).apply {
+                    text = "Open room controls"
+                    setOnClickListener {
+                        openWebUrl("${ArchipelagoWebHostClient.BASE_URL}/room/${room.roomId}")
+                    }
+                }, matchWrapParams())
+                if (room.trackerId.isNotBlank()) {
+                    addView(Button(this@GeneratorActivity).apply {
+                        text = "Open tracker"
+                        setOnClickListener {
+                            openWebUrl("${ArchipelagoWebHostClient.BASE_URL}/tracker/${room.trackerId}")
+                        }
+                    }, matchWrapParams())
+                }
+                if (room.lastPort > 0) {
+                    addView(Button(this@GeneratorActivity).apply {
+                        text = "Copy server address"
+                        setOnClickListener {
+                            val address = "archipelago.gg:${room.lastPort}"
+                            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("Archipelago server", address))
+                            status.text = "Copied $address"
+                        }
+                    }, matchWrapParams())
+                }
+            }, matchWrapParams())
+        }
+    }
+
+    private fun confirmWebsiteSessionSync() {
+        AlertDialog.Builder(this)
+            .setTitle("Sync archipelago.gg website session?")
+            .setMessage(
+                "This opens the companion's secret session link in your browser. It makes this app's uploaded " +
+                    "seeds and rooms appear under User Content there. Anyone who obtains that link can manage " +
+                    "those instances, so do not share it.",
+            )
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Open secret link") { _, _ -> openWebUrl(webHostClient.sessionSyncUrl()) }
+            .show()
+    }
+
+    private fun openWebUrl(url: String) {
+        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    }
+
+    private fun formatWebsiteTime(value: String): String {
+        if (value.isBlank() || value == "null") return ""
+        val parsed = runCatching {
+            SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.US).parse(value)
+        }.getOrNull()
+        return parsed?.let {
+            DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(it)
+        } ?: value
     }
 
     private fun confirmDelete(entry: SeedHistoryEntry) {
@@ -352,6 +545,7 @@ class GeneratorActivity : Activity() {
         patchFile = null
         availablePatches = emptyList()
         exportSeedButton.isEnabled = false
+        hostSeedButton.isEnabled = false
         patchButton.isEnabled = false
         renderPatchChoices()
     }
