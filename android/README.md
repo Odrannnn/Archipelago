@@ -18,10 +18,10 @@ game-specific Archipelago logic. No memory port is exposed to the LAN.
   `v1.22.4`: it recognizes the patched `MFU` ROM identifier, produces the AP
   authentication token, reads checks/area/room/receipt state, detects credits,
   and applies the APWorld's item-side RAM changes only during gameplay.
-- A room-session adapter is still required to speak the Archipelago WebSocket
-  protocol, resolve location IDs from the room data package, and invoke this
-  profile. The memory-facing vertical slice is intentionally separated from
-  credentials and Internet access.
+- `companion/` now authenticates to the room, resolves item and location IDs
+  from the server data package, delivers queued items using the ROM's receipt
+  counter, reports checked locations, and reports goal completion at credits.
+  Room credentials and Internet access remain outside the custom core.
 
 ## Next decision
 

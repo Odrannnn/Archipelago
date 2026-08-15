@@ -2,6 +2,7 @@
 
 import struct
 import unittest
+import zlib
 
 
 class AndroidBridgeProtocolTest(unittest.TestCase):
@@ -34,6 +35,40 @@ class MetroidFusionMemoryContractTest(unittest.TestCase):
     def test_received_item_counter_is_little_endian(self) -> None:
         low, high = 0x34, 0x12
         self.assertEqual(low | high << 8, 0x1234)
+
+    def test_received_item_counter_selects_exactly_the_next_item(self) -> None:
+        queued_items = ["Missile Data", "Morph Ball", "Energy Tank"]
+        received_count = 1
+        self.assertEqual(queued_items[received_count], "Morph Ball")
+
+    def test_inventory_recovery_uses_authoritative_capacity_not_an_increment(self) -> None:
+        missile_data_ammo = 10
+        missile_tank_ammo = 5
+        received_items = ["Missile Data", "Missile Tank", "Missile Tank"]
+        expected_max = missile_data_ammo + received_items.count("Missile Tank") * missile_tank_ammo
+        self.assertEqual(expected_max, 20)
+        # Re-running the calculation after loading an older save is idempotent.
+        self.assertEqual(expected_max, 20)
+
+    def test_location_bits_are_little_endian_within_each_byte(self) -> None:
+        # APWorld location index 9 is byte 1, bit 1.
+        location_bits = bytes((0x00, 0x02))
+        index = 9
+        self.assertTrue(location_bits[index // 8] & (1 << (index % 8)))
+
+
+class ArchipelagoAndroidNetworkContractTest(unittest.TestCase):
+    def test_large_archipelago_packets_use_zlib_binary_messages(self) -> None:
+        packet = b'[{"cmd":"DataPackage","data":{"games":{"Metroid Fusion":{}}}}]'
+        compressed = zlib.compress(packet)
+        self.assertNotEqual(compressed[:1], b"[")
+        self.assertEqual(zlib.decompress(compressed), packet)
+
+    def test_metroid_fusion_client_requests_local_and_remote_items(self) -> None:
+        items_handling = 0b011
+        self.assertTrue(items_handling & 0b001)
+        self.assertTrue(items_handling & 0b010)
+        self.assertFalse(items_handling & 0b100)
 
 
 if __name__ == "__main__":

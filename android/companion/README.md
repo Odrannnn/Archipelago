@@ -10,12 +10,11 @@ game is running. `MainActivity` only starts the service and displays status,
 so closing or backgrounding the activity does not close the emulator socket.
 The persistent notification exposes an explicit Stop action.
 
-The first room-network vertical slice adds editable server/password settings
-and `ArchipelagoSession`. It supports `ws://` and `wss://`, waits for
-`RoomInfo`, and authenticates with a protocol `Connect` packet using the ROM's
-embedded token. This handshake build deliberately requests
-`items_handling = 0`; it observes but does not apply gameplay packets until
-received-item persistence and location-ID mapping are implemented.
+The room-network client adds editable server/password settings and
+`ArchipelagoSession`. It supports `ws://` and `wss://`, waits for `RoomInfo`,
+authenticates with the ROM's embedded token, requests the Metroid Fusion data
+package, and uses the APWorld's `items_handling = 0b011`. Binary zlib packets
+are decoded for large data-package and item messages.
 If a cleartext WebSocket handshake is closed by the host, the client retries
 the same host and port once with TLS (`wss://`), matching the desktop client's
 transport fallback behavior.
@@ -38,12 +37,16 @@ It implements the memory-facing half of that client:
   and credits; and applies every Metroid Fusion item effect defined by the
   APWorld client.
 
-The remaining companion component is intentionally explicit: an Archipelago
-WebSocket room client. It must authenticate with `RomInfo.auth`, map the two
-location bitfields through the room data package, send `LocationChecks`, and
-call `applyRemoteItemWhileInGame()` before advancing the receipt counter. It
-also owns reconnect and DeathLink. This separation keeps room credentials out
-of the custom RetroArch core.
+`BridgeService` calls the session's gameplay tick on its one bridge worker.
+The tick delivers one queued item at a time, advances the ROM's persistent
+receipt counter only after a successful guarded write, reports location bits
+as `LocationChecks`, and sends `StatusUpdate` when credits begin. On reconnect,
+the server's authoritative item queue and the ROM counter resume at the next
+undelivered item. Every three seconds it also reconstructs persistent upgrade,
+keycard, Metroid-count, and capacity-maximum state from the full item history;
+this restores AP items after loading an older in-game save even though the
+separate SRAM receipt counter remains current. DeathLink and player-facing
+item messages remain future work.
 
 The address and item rules were derived from the APWorld's GPL-3.0 client at
 the pinned `v1.22.4` source tag. If this companion is distributed together

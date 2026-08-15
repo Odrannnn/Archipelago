@@ -66,7 +66,8 @@ class BridgeService : Service() {
                 bridge.connect()
                 val (version, platform) = bridge.hello()
                 val sha1 = bridge.romSha1()
-                val fusion = MetroidFusionProfile(bridge).romInfoOrNull()
+                val fusionProfile = MetroidFusionProfile(bridge)
+                val fusion = fusionProfile.romInfoOrNull()
                 publish(
                     if (fusion == null) {
                         "mGBA connected · protocol $version · platform $platform · ROM $sha1"
@@ -91,6 +92,7 @@ class BridgeService : Service() {
                         session.connect()
                         nextSessionAttempt = now + TimeUnit.SECONDS.toMillis(5)
                     }
+                    if (fusion != null) session?.tick(fusionProfile)
                     bridge.ping()
                     TimeUnit.SECONDS.sleep(1)
                 }

@@ -137,6 +137,100 @@ class MetroidFusionProfile(private val bridge: MGBABridgeClient) {
         }
     }
 
+    /**
+     * Rebuilds persistent AP inventory state from the authoritative item
+     * history. This restores items after loading an older in-game save while
+     * the receipt counter in SRAM remains ahead of that save.
+     *
+     * Capacity maxima are assigned from totals rather than incremented, so
+     * running this every watcher tick cannot duplicate tanks.
+     */
+    fun reconcileInventoryWhileInGame(itemNames: List<String>, slotData: SlotData): Boolean {
+        if (!isInGame()) return false
+
+        var beamFlags = 0
+        var missileFlags = 0
+        var suitFlags = 0
+        var keycardFlags = 0x01
+        itemNames.toSet().forEach { itemName ->
+            when (itemName) {
+                "Charge Beam" -> beamFlags = beamFlags or (1 shl 0)
+                "Wide Beam" -> beamFlags = beamFlags or (1 shl 1)
+                "Plasma Beam" -> beamFlags = beamFlags or (1 shl 2)
+                "Wave Beam" -> beamFlags = beamFlags or (1 shl 3)
+                "Ice Beam" -> beamFlags = beamFlags or (1 shl 4)
+                "Missile Data" -> missileFlags = missileFlags or (1 shl 0)
+                "Super Missile" -> missileFlags = missileFlags or (1 shl 1)
+                "Ice Missile" -> missileFlags = missileFlags or (1 shl 2)
+                "Diffusion Missile" -> missileFlags = missileFlags or (1 shl 3)
+                "Bomb Data" -> missileFlags = missileFlags or (1 shl 4)
+                "Power Bomb Data" -> missileFlags = missileFlags or (1 shl 5)
+                "Hi-Jump" -> suitFlags = suitFlags or (1 shl 0)
+                "Speed Booster" -> suitFlags = suitFlags or (1 shl 1)
+                "Space Jump" -> suitFlags = suitFlags or (1 shl 2)
+                "Screw Attack" -> suitFlags = suitFlags or (1 shl 3)
+                "Varia Suit" -> suitFlags = suitFlags or (1 shl 4)
+                "Gravity Suit" -> suitFlags = suitFlags or (1 shl 5)
+                "Morph Ball" -> suitFlags = suitFlags or (1 shl 6)
+                "Level 1 Keycard" -> keycardFlags = keycardFlags or (1 shl 1)
+                "Level 2 Keycard" -> keycardFlags = keycardFlags or (1 shl 2)
+                "Level 3 Keycard" -> keycardFlags = keycardFlags or (1 shl 3)
+                "Level 4 Keycard" -> keycardFlags = keycardFlags or (1 shl 4)
+            }
+        }
+
+        val infantMetroids = itemNames.count { it == "Infant Metroid" }.coerceAtMost(0xff)
+        val missileMax = (
+            slotData.missileDataAmmo +
+                itemNames.count { it == "Missile Tank" } * slotData.missileTankAmmo
+            ).coerceAtMost(999)
+        val energyMax = (99 + itemNames.count { it == "Energy Tank" } * 100).coerceAtMost(2099)
+        val powerBombMax = (
+            slotData.powerBombDataAmmo +
+                itemNames.count { it == "Power Bomb Tank" } * slotData.powerBombTankAmmo
+            ).coerceAtMost(99)
+
+        // Three compact reads replace dozens of per-upgrade bridge round trips.
+        val inventory = bridge.read(GbaMemoryDomain.IWRAM, BEAM_INVENTORY, 4)
+        val capacityAndToggles = bridge.read(GbaMemoryDomain.IWRAM, ENERGY_MAX, 12)
+        val keycardFlash = bridge.read(GbaMemoryDomain.IWRAM, KEYCARD_FLASH_FLAGS, 1)[0].unsigned()
+        if (!isInGame()) return false
+
+        var success = true
+        fun restoreByte(offset: Long, oldValue: Int, requiredBits: Int) {
+            val restored = oldValue or requiredBits
+            if (restored != oldValue) success = success && writeIwramByteWhileInGame(offset, restored)
+        }
+        restoreByte(BEAM_INVENTORY, inventory[0].unsigned(), beamFlags)
+        restoreByte(MISSILE_INVENTORY, inventory[1].unsigned(), missileFlags)
+        restoreByte(SUIT_INVENTORY, inventory[2].unsigned(), suitFlags)
+        restoreByte(BEAM_TOGGLES, capacityAndToggles[8].unsigned(), beamFlags)
+        restoreByte(MISSILE_TOGGLES, capacityAndToggles[9].unsigned(), missileFlags)
+        restoreByte(SUIT_TOGGLES, capacityAndToggles[10].unsigned(), suitFlags)
+        restoreByte(KEYCARD_FLAGS, capacityAndToggles[11].unsigned(), keycardFlags)
+        restoreByte(KEYCARD_FLASH_FLAGS, keycardFlash, keycardFlags)
+
+        val oldInfantMetroids = inventory[3].unsigned()
+        if (infantMetroids > oldInfantMetroids) {
+            success = success && writeIwramByteWhileInGame(INFANT_METROID_COUNT, infantMetroids)
+        }
+        val oldEnergyMax = capacityAndToggles[0].unsigned() or (capacityAndToggles[1].unsigned() shl 8)
+        val oldMissileMax = capacityAndToggles[4].unsigned() or (capacityAndToggles[5].unsigned() shl 8)
+        val oldPowerBombMax = capacityAndToggles[7].unsigned()
+        if (energyMax > oldEnergyMax) success = success && writeLittleEndian16(ENERGY_MAX, energyMax)
+        if (missileMax > oldMissileMax) success = success && writeLittleEndian16(MISSILE_MAX, missileMax)
+        if (powerBombMax > oldPowerBombMax) {
+            success = success && writeIwramByteWhileInGame(POWER_BOMB_MAX, powerBombMax)
+        }
+        if (beamFlags != 0 &&
+            ((inventory[0].unsigned() and beamFlags) != beamFlags ||
+                (capacityAndToggles[8].unsigned() and beamFlags) != beamFlags)
+        ) {
+            success = success && writeIwramByteWhileInGame(GRAPHICS_RELOAD_FLAG, 1)
+        }
+        return success
+    }
+
     private fun isInGame(): Boolean = bridge.guard(
         GbaMemoryDomain.IWRAM,
         GAME_MODE,
@@ -191,6 +285,7 @@ class MetroidFusionProfile(private val bridge: MGBABridgeClient) {
             val missileTankAmmo: Int,
             val powerBombDataAmmo: Int,
             val powerBombTankAmmo: Int,
+            val startInventory: List<String>,
         )
 
         const val APWORLD_VERSION = "1.22.4"
@@ -211,8 +306,12 @@ class MetroidFusionProfile(private val bridge: MGBABridgeClient) {
         const val CURRENT_AREA = 0x2cL
         const val CURRENT_ROOM = 0x2dL
         const val ITEMS_RECEIVED_LOW = 0x0e01fffeL
+        const val BEAM_INVENTORY = 0x003bL
+        const val MISSILE_INVENTORY = 0x003cL
+        const val SUIT_INVENTORY = 0x003dL
         const val INFANT_METROID_COUNT = 0x003eL
         const val KEYCARD_FLAGS = 0x131dL
+        const val KEYCARD_FLASH_FLAGS = 0x001cL
         const val GRAPHICS_RELOAD_FLAG = 0x5671L
         const val ENERGY_CURRENT = 0x1310L
         const val ENERGY_MAX = 0x1312L
@@ -220,5 +319,8 @@ class MetroidFusionProfile(private val bridge: MGBABridgeClient) {
         const val MISSILE_MAX = 0x1316L
         const val POWER_BOMB_CURRENT = 0x1318L
         const val POWER_BOMB_MAX = 0x1319L
+        const val BEAM_TOGGLES = 0x131aL
+        const val MISSILE_TOGGLES = 0x131bL
+        const val SUIT_TOGGLES = 0x131cL
     }
 }
