@@ -86,6 +86,16 @@ class MetroidFusionMemoryContractTest(unittest.TestCase):
 
 
 class ArchipelagoAndroidNetworkContractTest(unittest.TestCase):
+    def test_rom_detection_retries_after_core_connects_before_content(self) -> None:
+        rom_probe_results = [None, None, "MFU-patched-rom"]
+        detected_rom = None
+        probes = 0
+        while detected_rom is None:
+            detected_rom = rom_probe_results[probes]
+            probes += 1
+        self.assertEqual(detected_rom, "MFU-patched-rom")
+        self.assertEqual(probes, 3)
+
     def test_large_archipelago_packets_use_zlib_binary_messages(self) -> None:
         packet = b'[{"cmd":"DataPackage","data":{"games":{"Metroid Fusion":{}}}}]'
         compressed = zlib.compress(packet)

@@ -65,34 +65,48 @@ class BridgeService : Service() {
                 publish("Waiting for the custom mGBA core on 127.0.0.1:${BridgeProtocol.PORT}…")
                 bridge.connect()
                 val (version, platform) = bridge.hello()
-                val sha1 = bridge.romSha1()
                 val fusionProfile = MetroidFusionProfile(bridge)
-                val fusion = fusionProfile.romInfoOrNull()
-                publish(
-                    if (fusion == null) {
-                        "mGBA connected · protocol $version · platform $platform · ROM $sha1"
-                    } else {
-                        "mGBA connected · Metroid Fusion APWorld ${MetroidFusionProfile.APWORLD_VERSION} · ${fusion.name}"
-                    },
-                )
+                var fusion: MetroidFusionProfile.RomInfo? = null
+                publish("mGBA connected · protocol $version · platform $platform · waiting for patched Metroid Fusion ROM…")
 
                 var session: ArchipelagoSession? = null
                 var nextSessionAttempt = 0L
+                var nextRomProbeAt = 0L
 
                 while (running && !Thread.currentThread().isInterrupted) {
-                    val settings = ServerSettings.load(this)
                     val now = System.currentTimeMillis()
-                    if (settings.isConfigured && fusion != null &&
+                    if (now >= nextRomProbeAt) {
+                        val detected = fusionProfile.romInfoOrNull()
+                        if (detected?.auth != fusion?.auth) {
+                            session?.close()
+                            if (activeSession === session) activeSession = null
+                            session = null
+                            fusion = detected
+                            nextSessionAttempt = 0L
+                            publish(
+                                if (detected == null) {
+                                    "mGBA connected · waiting for patched Metroid Fusion ROM…"
+                                } else {
+                                    "mGBA connected · Metroid Fusion APWorld ${MetroidFusionProfile.APWORLD_VERSION} · ${detected.name}"
+                                },
+                            )
+                        }
+                        nextRomProbeAt = now + TimeUnit.SECONDS.toMillis(1)
+                    }
+
+                    val detectedFusion = fusion
+                    val settings = ServerSettings.load(this)
+                    if (settings.isConfigured && detectedFusion != null &&
                         (session == null || session.isClosed) &&
                         now >= nextSessionAttempt
                     ) {
                         session?.close()
-                        session = ArchipelagoSession(settings, fusion, ::publish)
+                        session = ArchipelagoSession(settings, detectedFusion, ::publish)
                         activeSession = session
                         session.connect()
                         nextSessionAttempt = now + TimeUnit.SECONDS.toMillis(5)
                     }
-                    if (fusion != null) session?.tick(fusionProfile)
+                    if (detectedFusion != null) session?.tick(fusionProfile)
                     bridge.ping()
                     TimeUnit.SECONDS.sleep(1)
                 }

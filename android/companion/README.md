@@ -10,6 +10,11 @@ game is running. `MainActivity` only starts the service and displays status,
 so closing or backgrounding the activity does not close the emulator socket.
 The persistent notification exposes an explicit Stop action.
 
+The bridge can become available before RetroArch has loaded any content.
+`BridgeService` therefore re-probes the ROM marker once per second while the
+core remains connected. It starts a room session when a compatible patched ROM
+appears and closes that session if the content is unloaded or replaced.
+
 The room-network client adds editable server/password settings and
 `ArchipelagoSession`. It supports `ws://` and `wss://`, waits for `RoomInfo`,
 authenticates with the ROM's embedded token, requests the Metroid Fusion data
