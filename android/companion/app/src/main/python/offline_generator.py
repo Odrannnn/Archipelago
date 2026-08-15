@@ -119,6 +119,7 @@ def generate(yaml_text: str, work_directory: str, seed: str = "") -> str:
         arguments.extend(("--seed", seed.strip()))
     args = Generate.mystery_argparse(arguments)
     args, numeric_seed = Generate.main(args)
+    player_names = [args.name[player] for player in range(1, args.multi + 1)]
     from Main import main as generate_multiworld
 
     generate_multiworld(args, numeric_seed)
@@ -142,7 +143,12 @@ def generate(yaml_text: str, work_directory: str, seed: str = "") -> str:
 
     if not patches:
         raise RuntimeError("Generation completed, but no .apmetfus patch was produced")
-    return json.dumps({"seed": str(numeric_seed), "files": files, "patches": patches})
+    return json.dumps({
+        "seed": str(numeric_seed),
+        "players": player_names,
+        "files": files,
+        "patches": patches,
+    })
 
 
 def patch_rom(patch_bytes, base_rom_bytes, output_path: str) -> str:

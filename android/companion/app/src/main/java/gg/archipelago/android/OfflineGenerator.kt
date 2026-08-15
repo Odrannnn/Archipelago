@@ -10,6 +10,7 @@ data class GeneratedArtifact(val name: String, val path: String, val kind: Strin
 
 data class GenerationResult(
     val seed: String,
+    val players: List<String>,
     val files: List<GeneratedArtifact>,
     val patches: List<GeneratedArtifact>,
 )
@@ -44,7 +45,13 @@ object OfflineGenerator {
             }
         }
 
-        GenerationResult(root.getString("seed"), parseArtifacts("files"), parseArtifacts("patches"))
+        val players = root.getJSONArray("players")
+        GenerationResult(
+            seed = root.getString("seed"),
+            players = List(players.length()) { players.getString(it) },
+            files = parseArtifacts("files"),
+            patches = parseArtifacts("patches"),
+        )
     }
 
     fun patchRom(context: Context, patch: ByteArray, baseRom: ByteArray, output: File): File = synchronized(lock) {

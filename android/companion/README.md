@@ -73,10 +73,21 @@ loopback only and receives no Internet-facing configuration or credentials.
 
 The **Offline seed generator** screen embeds Python 3.12, the Archipelago 0.6.8
 generation core, and Metroid Fusion APWorld 1.22.4. It can edit/export player
-YAML, generate a one-player or multi-document seed without a network
-connection, export the room ZIP, and apply the generated `.apmetfus` to a
-user-selected base ROM. The app validates it against the checksums declared by
-the APWorld, supports a legacy 512-byte copier header, and never bundles a ROM.
+YAML and generate one-player or multiplayer seeds without a network
+connection. **Add player** duplicates the previous player's document under a
+unique name; each YAML document can then be edited independently before the
+multiworld is generated. Every player receives a separate `.apmetfus` patch.
+
+Completed runs are copied into persistent app-private seed history together
+with their source YAML, room ZIP, player names, and all player patches. A
+history entry can restore its exact generation settings, export the ZIP again,
+or select any player's patch for local ROM creation. Deleting an entry removes
+its stored files. Uninstalling the app or clearing its app data also removes
+the history.
+
+The app applies a selected `.apmetfus` to a user-selected base ROM, validates
+the ROM against the checksums declared by the APWorld, supports a legacy
+512-byte copier header, and never bundles a ROM.
 
 The pinned Python source is under `app/src/main/python`. Refresh it after
 updating the adjacent `ArchipelagoMine` checkout with:
