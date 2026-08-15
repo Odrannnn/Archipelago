@@ -199,3 +199,10 @@ _speedups.html
 .LSOverride
 Thumbs.db
 [Dd]esktop.ini
+
+# Android companion local/generated files
+android/companion/.android-user/
+android/companion/.gradle-user/
+android/companion/.gradle/
+android/companion/local.properties
+android/companion/**/build/

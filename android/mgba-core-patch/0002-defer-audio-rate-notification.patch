@@ -1,0 +1,45 @@
+diff --git a/src/platform/libretro/libretro.c b/src/platform/libretro/libretro.c
+--- a/src/platform/libretro/libretro.c
++++ b/src/platform/libretro/libretro.c
+@@ -103,6 +103,9 @@ static int32_t gyroZ = 0;
+ static bool audioLowPassEnabled = false;
+ static int32_t audioLowPassRange = 0;
+ static int32_t audioLowPassLeftPrev = 0;
++/* Defer frontend AV-info changes to avoid re-entering RetroArch while its
++ * Android video driver is still being created. */
++static bool updateAudioRate = false;
+ static struct APBridge apBridge;
+ static bool apBridgeReady = false;
+ static int32_t audioLowPassRightPrev = 0;
+@@ -433,5 +436,6 @@ void retro_get_system_av_info(struct retro_system_av_info* info) {
+ 
+ void retro_init(void) {
+ 	apBridgeReady = APBridgeInit(&apBridge, AP_MGBA_BRIDGE_PORT);
++	updateAudioRate = false;
+ 
+ 	enum retro_pixel_format fmt;
+@@ -552,5 +556,11 @@ void retro_run(void) {
+ 	if (deferredSetup) {
+ 		_doDeferredSetup();
+ 	}
++	if (updateAudioRate) {
++		struct retro_system_av_info info;
++		retro_get_system_av_info(&info);
++		environCallback(RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO, &info);
++		updateAudioRate = false;
++	}
+ 	if (apBridgeReady && core) {
+ 		APBridgePoll(&apBridge, core);
+@@ -1254,7 +1265,9 @@ static void _postAudioBuffer(struct mAVStream* stream, struct mAudioBuffer* buff
+ 
+ static void _audioRateChanged(struct mAVStream* stream, unsigned rate) {
+ 	UNUSED(stream);
+-	struct retro_system_av_info info;
+-	retro_get_system_av_info(&info);
+-	environCallback(RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO, &info);
++	UNUSED(rate);
++	/* Notify RetroArch safely from the next frame. This upstream core does
++	 * not use libretro/mGBA's fixed-rate GBA audio resampler, so GBA rate
++	 * changes must not be suppressed. */
++	updateAudioRate = true;
+ }
