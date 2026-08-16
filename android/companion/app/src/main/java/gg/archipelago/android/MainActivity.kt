@@ -113,6 +113,15 @@ class MainActivity : Activity() {
                 )
             }
         }
+        val manageRooms = Button(this).apply {
+            text = "Manage imported rooms"
+            setOnClickListener {
+                startActivityForResult(
+                    Intent(this@MainActivity, RoomLibraryActivity::class.java),
+                    REQUEST_MANAGE_ROOMS,
+                )
+            }
+        }
         inviteStatus = TextView(this).apply { textSize = 16f }
         joinedRoomContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val content = LinearLayout(this).apply {
@@ -127,8 +136,9 @@ class MainActivity : Activity() {
             addView(save, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             addView(generator, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             addView(openInvite, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            addView(manageRooms, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             addView(TextView(this@MainActivity).apply {
-                text = "Imported multiplayer room"
+                text = "Active multiplayer room"
                 textSize = 22f
                 setPadding(0, 24, 0, 8)
             })
@@ -154,10 +164,22 @@ class MainActivity : Activity() {
     @Deprecated("Uses the platform file picker result API available to android.app.Activity")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode != RESULT_OK || data?.data == null) {
+        if (resultCode != RESULT_OK) {
             if (requestCode == REQUEST_INVITE_BASE_ROM) pendingPlayerInvite = null
             return
         }
+        if (requestCode == REQUEST_MANAGE_ROOMS) {
+            val room = JoinedRoomStore.load(this)
+            renderJoinedRoom(room)
+            if (room == null) {
+                inviteStatus.text = "No imported multiplayer room is active."
+            } else {
+                inviteStatus.text = "Switching rooms · refreshing its current archipelago.gg server…"
+                resolveAndLoadRoom(room.roomId)
+            }
+            return
+        }
+        if (data?.data == null) return
         when (requestCode) {
             REQUEST_OPEN_INVITE -> handleInvite(Intent(Intent.ACTION_VIEW, data.data))
             REQUEST_INVITE_BASE_ROM -> patchInviteBaseRom(data.data!!)
@@ -389,7 +411,7 @@ class MainActivity : Activity() {
         joinedRoomContainer.removeAllViews()
         if (room == null) {
             joinedRoomContainer.addView(TextView(this).apply {
-                text = "Open a shared .apinvite file to load another player's room automatically."
+                text = "Open a shared .apinvite file to add a room, or choose one from Manage imported rooms."
             })
             return
         }
@@ -406,6 +428,28 @@ class MainActivity : Activity() {
         joinedRoomContainer.addView(Button(this).apply {
             text = "Refresh room and reconnect"
             setOnClickListener { resolveAndLoadRoom(room.roomId) }
+        }, matchWrapParams())
+        joinedRoomContainer.addView(Button(this).apply {
+            val playerName = room.playerName
+            text = when {
+                room.port <= 0 -> "Open in PopTracker (refresh room first)"
+                playerName.isNullOrBlank() -> "Open in PopTracker (player not selected)"
+                else -> "Open in PopTracker"
+            }
+            isEnabled = room.port > 0 && !playerName.isNullOrBlank()
+            setOnClickListener {
+                val host = "archipelago.gg:${room.port}"
+                val selectedPlayer = room.playerName ?: return@setOnClickListener
+                val roomPassword = password.text.toString()
+                runCatching {
+                    PopTrackerLauncher.launch(this@MainActivity, host, selectedPlayer, roomPassword)
+                }.onSuccess {
+                    inviteStatus.text = "Opening PopTracker for $selectedPlayer at $host…"
+                }.onFailure {
+                    inviteStatus.text =
+                        "Could not open PopTracker. Make sure the PopTracker Android app is installed and up to date."
+                }
+            }
         }, matchWrapParams())
         if (!room.patchedRomUri.isNullOrBlank()) {
             joinedRoomContainer.addView(Button(this).apply {
@@ -476,5 +520,6 @@ class MainActivity : Activity() {
         private const val REQUEST_INVITE_BASE_ROM = 302
         private const val REQUEST_SAVE_INVITE_ROM = 303
         private const val REQUEST_SELECT_PATCHED_ROM = 304
+        private const val REQUEST_MANAGE_ROOMS = 305
     }
 }

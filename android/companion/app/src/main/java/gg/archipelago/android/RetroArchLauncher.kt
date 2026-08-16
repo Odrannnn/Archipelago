@@ -22,17 +22,12 @@ object RetroArchLauncher {
         val storage = Environment.getExternalStorageDirectory()
         val romReference = localPath(savedRom) ?: savedRom.toString()
         val corePath = File(app.dataDir, "cores/$CORE_FILE_NAME").absolutePath
-        val configPath = File(
-            storage,
-            "Android/data/$PACKAGE_NAME/files/retroarch.cfg",
-        ).absolutePath
 
         val intent = Intent().apply {
             component = ComponentName(PACKAGE_NAME, ACTIVITY_NAME)
             addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
             putExtra("ROM", romReference)
             putExtra("LIBRETRO", corePath)
-            putExtra("CONFIGFILE", configPath)
             putExtra("IME", Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD))
             putExtra("DATADIR", app.dataDir)
             putExtra("APK", app.sourceDir)

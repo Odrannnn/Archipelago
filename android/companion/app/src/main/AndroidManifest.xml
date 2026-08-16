@@ -1,6 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <queries>
         <package android:name="com.retroarch.aarch64" />
+        <package android:name="io.github.poptracker.android" />
     </queries>
 
     <uses-permission android:name="android.permission.INTERNET" />
@@ -39,6 +40,9 @@
         </activity>
         <activity
             android:name=".GeneratorActivity"
+            android:exported="false" />
+        <activity
+            android:name=".RoomLibraryActivity"
             android:exported="false" />
         <provider
             android:name=".InviteFileProvider"

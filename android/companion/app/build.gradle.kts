@@ -12,8 +12,8 @@ android {
         applicationId = "gg.archipelago.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 23
-        versionName = "0.11.3"
+        versionCode = 27
+        versionName = "0.12.3"
 
         ndk {
             // The custom mGBA bridge currently targets 64-bit Android devices.

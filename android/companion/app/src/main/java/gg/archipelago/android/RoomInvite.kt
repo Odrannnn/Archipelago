@@ -238,10 +238,14 @@ data class JoinedRoom(
 
 object JoinedRoomStore {
     private const val PREFERENCES = "joined_archipelago_room"
-    private const val ROOM = "room"
+    private const val LEGACY_ROOM = "room"
+    private const val ROOMS = "rooms"
+    private const val ACTIVE_ROOM_ID = "active_room_id"
 
+    @Synchronized
     fun save(context: Context, room: HostedRoom, invite: RoomInvite? = null): JoinedRoom {
-        val previous = load(context)?.takeIf { it.roomId == room.roomId }
+        val rooms = loadAll(context).toMutableList()
+        val previous = rooms.firstOrNull { it.roomId == room.roomId }
         val selectedSlot = invite?.playerSlot ?: previous?.playerSlot
         val selectedName = invite?.playerName ?: previous?.playerName
         val previousPlayerRom = previous?.takeIf { it.playerSlot == selectedSlot }
@@ -256,54 +260,113 @@ object JoinedRoomStore {
             previousPlayerRom?.patchedRomName,
             previousPlayerRom?.patchedRomUri,
         )
-        persist(context, joined)
+        rooms.removeAll { it.roomId == joined.roomId }
+        rooms += joined
+        persist(context, rooms, joined.roomId)
         return joined
     }
 
+    @Synchronized
     fun rememberPatchedRom(context: Context, name: String, uri: Uri): JoinedRoom? {
         val current = load(context) ?: return null
         val updated = current.copy(
             patchedRomName = File(name).name,
             patchedRomUri = uri.toString(),
         )
-        persist(context, updated)
+        val rooms = loadAll(context).filterNot { it.roomId == updated.roomId } + updated
+        persist(context, rooms, updated.roomId)
         return updated
     }
 
-    private fun persist(context: Context, joined: JoinedRoom) {
-        val data = JSONObject().apply {
-            put("roomId", joined.roomId)
-            put("trackerId", joined.trackerId)
-            put("port", joined.port)
-            put("players", JSONArray(joined.players))
-            put("updatedAt", joined.updatedAt)
-            put("playerSlot", joined.playerSlot)
-            put("playerName", joined.playerName)
-            put("patchedRomName", joined.patchedRomName)
-            put("patchedRomUri", joined.patchedRomUri)
-        }
+    @Synchronized
+    fun select(context: Context, roomId: String): JoinedRoom? {
+        val selected = loadAll(context).firstOrNull { it.roomId == roomId } ?: return null
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-            .edit().putString(ROOM, data.toString()).apply()
+            .edit().putString(ACTIVE_ROOM_ID, selected.roomId).apply()
+        return selected
     }
 
-    fun load(context: Context): JoinedRoom? = runCatching {
-        val raw = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-            .getString(ROOM, null) ?: return null
-        val data = JSONObject(raw)
-        JoinedRoom(
-            data.getString("roomId"),
-            data.optString("trackerId"),
-            data.optInt("port", 0),
-            data.optJSONArray("players")?.let { players ->
-                List(players.length()) { players.getString(it) }
-            }.orEmpty(),
-            data.optLong("updatedAt", 0L),
-            data.optInt("playerSlot", 0).takeIf { it > 0 },
-            data.optString("playerName").takeIf { it.isNotBlank() && it != "null" },
-            data.optString("patchedRomName").takeIf { it.isNotBlank() && it != "null" },
-            data.optString("patchedRomUri").takeIf { it.isNotBlank() && it != "null" },
-        )
-    }.getOrNull()
+    @Synchronized
+    fun delete(context: Context, roomId: String): JoinedRoom? {
+        val rooms = loadAll(context).filterNot { it.roomId == roomId }
+        val activeId = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            .getString(ACTIVE_ROOM_ID, null)
+        val nextActive = if (activeId == roomId) {
+            rooms.maxByOrNull { it.updatedAt }
+        } else {
+            rooms.firstOrNull { it.roomId == activeId } ?: rooms.maxByOrNull { it.updatedAt }
+        }
+        persist(context, rooms, nextActive?.roomId)
+        return nextActive
+    }
+
+    @Synchronized
+    fun load(context: Context): JoinedRoom? {
+        val rooms = loadAll(context)
+        val activeId = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            .getString(ACTIVE_ROOM_ID, null)
+        return rooms.firstOrNull { it.roomId == activeId } ?: rooms.maxByOrNull { it.updatedAt }
+    }
+
+    @Synchronized
+    fun loadAll(context: Context): List<JoinedRoom> {
+        val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+        val storedRooms = preferences.getString(ROOMS, null)
+        if (storedRooms != null) {
+            return runCatching {
+                val data = JSONArray(storedRooms)
+                List(data.length()) { index -> roomFromJson(data.getJSONObject(index)) }
+                    .distinctBy { it.roomId }
+                    .sortedByDescending { it.updatedAt }
+            }.getOrDefault(emptyList())
+        }
+
+        val legacy = preferences.getString(LEGACY_ROOM, null)?.let { raw ->
+            runCatching { roomFromJson(JSONObject(raw)) }.getOrNull()
+        }
+        val migrated = listOfNotNull(legacy)
+        persist(context, migrated, legacy?.roomId)
+        return migrated
+    }
+
+    private fun persist(context: Context, rooms: List<JoinedRoom>, activeRoomId: String?) {
+        val data = JSONArray().apply {
+            rooms.sortedByDescending { it.updatedAt }.forEach { put(it.toJson()) }
+        }
+        val editor = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            .edit()
+            .putString(ROOMS, data.toString())
+            .remove(LEGACY_ROOM)
+        if (activeRoomId == null) editor.remove(ACTIVE_ROOM_ID)
+        else editor.putString(ACTIVE_ROOM_ID, activeRoomId)
+        editor.apply()
+    }
+
+    private fun JoinedRoom.toJson() = JSONObject().apply {
+        put("roomId", roomId)
+        put("trackerId", trackerId)
+        put("port", port)
+        put("players", JSONArray(players))
+        put("updatedAt", updatedAt)
+        put("playerSlot", playerSlot)
+        put("playerName", playerName)
+        put("patchedRomName", patchedRomName)
+        put("patchedRomUri", patchedRomUri)
+    }
+
+    private fun roomFromJson(data: JSONObject) = JoinedRoom(
+        data.getString("roomId"),
+        data.optString("trackerId"),
+        data.optInt("port", 0),
+        data.optJSONArray("players")?.let { players ->
+            List(players.length()) { players.getString(it) }
+        }.orEmpty(),
+        data.optLong("updatedAt", 0L),
+        data.optInt("playerSlot", 0).takeIf { it > 0 },
+        data.optString("playerName").takeIf { it.isNotBlank() && it != "null" },
+        data.optString("patchedRomName").takeIf { it.isNotBlank() && it != "null" },
+        data.optString("patchedRomUri").takeIf { it.isNotBlank() && it != "null" },
+    )
 }
 
 /** Remembers which local generated seed supplied each website-hosted room. */

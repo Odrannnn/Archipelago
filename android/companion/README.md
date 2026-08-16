@@ -117,17 +117,25 @@ data, or uninstalling removes the copy. The app never bundles a ROM.
 
 After a patched `.gba` is saved, the companion offers to launch it directly in
 the installed 64-bit RetroArch package. The launch intent selects the custom
-`mgba_apbridge_v5_libretro_android.so` core and RetroArch's existing config, so
-the game opens with the emulator-memory bridge enabled instead of requiring a
-second content/core selection.
+`mgba_apbridge_v5_libretro_android.so` core without forcing a configuration-file
+path, allowing RetroArch to retain its normal global or per-core configuration,
+controller mappings, overrides, and remaps. The game therefore opens with the
+emulator-memory bridge enabled without requiring a second content/core selection.
 
-For imported player-specific rooms, the companion also remembers the saved ROM
-document and retains its Android document permission. The imported-room section
-can therefore launch that player's existing ROM in RetroArch on later app runs
-without applying the `.apmetfus` patch again. Selecting a different player slot
-does not carry the previous player's ROM shortcut across. **Choose existing
-patched ROM** can register a `.gba` created before this shortcut was available,
-or replace a reference after its file was moved.
+Imported multiplayer rooms are kept in a persistent room library instead of
+replacing one another. **Manage imported rooms** lists them, marks the active
+room, switches the companion and bridge to another room's current server, and
+deletes local room records without affecting hosted rooms or ROM files. Existing
+single-room data is migrated automatically. **Open in PopTracker** launches the
+PopTracker Android app with the active room's current host and port, selected
+player name, saved room password, and `Metroid Fusion` game identifier so the
+matching tracker pack can load automatically. For player-specific rooms, the
+companion also remembers the saved ROM document and retains its Android document
+permission, so the active-room section can launch that player's existing ROM in
+RetroArch without applying the `.apmetfus` patch again. Selecting a different
+player slot does not carry the previous player's ROM shortcut across. **Choose
+existing patched ROM** can register a `.gba` created before this shortcut was
+available, or replace a reference after its file was moved.
 
 The pinned Python source is under `app/src/main/python`. Refresh it after
 updating the adjacent `ArchipelagoMine` checkout with:
