@@ -157,3 +157,36 @@ Windows `py`/`python` commands, build with:
 Only `arm64-v8a` is packaged, matching the custom mGBA core. Local generation
 remains fully offline; direct upload and website room management require an
 Internet connection.
+
+## Release signing
+
+Release APKs use a permanent self-managed signing key for direct distribution.
+The key and its credentials must never be committed. By default, Gradle reads
+them from `%USERPROFILE%/.android/eu.odran.archipelago-release.properties`;
+another file can be selected with
+`-Parchipelago.releaseSigningProperties=C:/secure/path/release.properties`.
+
+The properties file uses this format:
+
+```properties
+storeFile=C:/secure/path/eu.odran.archipelago-release.p12
+storePassword=replace-with-secret
+keyAlias=archipelago-release
+keyPassword=replace-with-secret
+```
+
+Build the signed APK with `./gradlew app:assembleRelease`. Gradle's signing
+validation fails the release build when the file, key, or credentials are not
+available. Back up both the keystore and its credentials in at least two secure
+locations: losing them permanently prevents updates to existing installations.
+
+The direct-distribution certificate SHA-256 fingerprint is:
+
+```text
+24:A2:9C:FB:18:31:14:12:29:40:A4:A5:C6:57:C6:05:54:71:C6:D1:90:97:C1:6B:3C:C8:DA:56:F4:64:27:E4
+```
+
+This production certificate intentionally differs from the debug certificate
+used by older development APKs. Android requires those installations to be
+uninstalled before installing the first production-signed release; subsequent
+production releases can update normally.
