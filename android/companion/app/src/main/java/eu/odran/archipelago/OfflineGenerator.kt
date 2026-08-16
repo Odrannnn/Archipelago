@@ -31,13 +31,6 @@ data class GenerationResult(
 object OfflineGenerator {
     /** Chaquopy uses one interpreter. Generation and live clients share this lock. */
     internal val runtimeLock = Any()
-    private val templateAssets = linkedMapOf(
-        "Metroid Fusion" to "templates/metroid_fusion.yaml",
-        "The Minish Cap" to "templates/the_minish_cap.yaml",
-    )
-
-    val builtInGames: List<String>
-        get() = templateAssets.keys.toList()
     @Volatile private var catalog: List<WorldCapability> = emptyList()
     @Volatile private var worldFailures: Map<String, String> = emptyMap()
 
@@ -50,15 +43,11 @@ object OfflineGenerator {
 
     internal fun workDirectory(context: Context): File = ImportedApWorldStore.runtimeRoot(context)
 
-    fun availableGames(context: Context): List<String> = (
-        builtInGames + ImportedApWorldStore.list(context).map { it.game }
-    ).distinct()
+    fun availableGames(context: Context): List<String> =
+        ImportedApWorldStore.list(context).map { it.game }.distinct()
 
-    fun defaultYaml(context: Context, game: String = builtInGames.first()): String = synchronized(runtimeLock) {
-        val asset = templateAssets[game]
-        if (asset != null) {
-            return@synchronized context.assets.open(asset).bufferedReader(Charsets.UTF_8).use { it.readText() }
-        }
+    fun defaultYaml(context: Context, game: String): String = synchronized(runtimeLock) {
+        require(game in availableGames(context)) { "Install the $game APWorld before loading its template" }
         python(context).getModule("offline_generator")
             .callAttr("template_for_game", workDirectory(context).absolutePath, game)
             .toString()

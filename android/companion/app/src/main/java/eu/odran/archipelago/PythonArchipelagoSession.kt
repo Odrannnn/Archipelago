@@ -13,13 +13,13 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit
 import java.util.zip.InflaterInputStream
 
-/** Archipelago transport for an unmodified imported standard GBA client. */
+/** Archipelago transport for an unmodified standard GBA APWorld client. */
 class PythonArchipelagoSession(
     private val settings: ServerSettings,
     private val runtime: PythonGbaRuntime,
     private val romInfo: ImportedGbaRomInfo,
     private val onStatus: (String) -> Unit,
-    private val onConnectionState: (ArchipelagoSession.ConnectionState, String?) -> Unit,
+    private val onConnectionState: (RoomConnectionState, String?) -> Unit,
 ) : WebSocketListener(), RoomSession {
     private val client = OkHttpClient.Builder()
         .pingInterval(30, TimeUnit.SECONDS)
@@ -48,14 +48,14 @@ class PythonArchipelagoSession(
         currentAddress = address
         val message = "Connecting ${romInfo.game} to Archipelago at $address…"
         onStatus(message)
-        onConnectionState(ArchipelagoSession.ConnectionState.CONNECTING, message)
+        onConnectionState(RoomConnectionState.CONNECTING, message)
         try {
             socket = client.newWebSocket(Request.Builder().url(address).build(), this)
         } catch (error: Exception) {
             isClosed = true
             val messageError = "Invalid Archipelago server address · ${error.message}"
             onStatus(messageError)
-            onConnectionState(ArchipelagoSession.ConnectionState.DISCONNECTED, messageError)
+            onConnectionState(RoomConnectionState.DISCONNECTED, messageError)
         }
     }
 
@@ -84,14 +84,14 @@ class PythonArchipelagoSession(
         client.dispatcher.executorService.shutdown()
         client.connectionPool.evictAll()
         runtime.resetConnection()
-        onConnectionState(ArchipelagoSession.ConnectionState.DISCONNECTED, "Archipelago session closed")
+        onConnectionState(RoomConnectionState.DISCONNECTED, "Archipelago session closed")
     }
 
     override fun onOpen(webSocket: WebSocket, response: Response) {
         if (webSocket !== socket) return
         val message = "Archipelago transport connected · waiting for room information…"
         onStatus(message)
-        onConnectionState(ArchipelagoSession.ConnectionState.CONNECTING, message)
+        onConnectionState(RoomConnectionState.CONNECTING, message)
     }
 
     override fun onMessage(webSocket: WebSocket, text: String) {
@@ -129,14 +129,14 @@ class PythonArchipelagoSession(
                 val missing = packet.optJSONArray("missing_locations")?.length() ?: 0
                 val message = "Archipelago authenticated · ${romInfo.game} · slot $slot · $missing locations remaining"
                 onStatus(message)
-                onConnectionState(ArchipelagoSession.ConnectionState.CONNECTED, message)
+                onConnectionState(RoomConnectionState.CONNECTED, message)
             }
             "ConnectionRefused" -> {
                 val errors = packet.optJSONArray("errors") ?: JSONArray()
                 val message = "Archipelago login refused · " +
                     (0 until errors.length()).joinToString(", ") { errors.optString(it) }
                 onStatus(message)
-                onConnectionState(ArchipelagoSession.ConnectionState.DISCONNECTED, message)
+                onConnectionState(RoomConnectionState.DISCONNECTED, message)
                 isClosed = true
                 webSocket.close(1000, "Login refused")
             }
@@ -172,13 +172,13 @@ class PythonArchipelagoSession(
         isClosed = true
         val message = "Archipelago disconnected · ${error.message ?: error.javaClass.simpleName}"
         onStatus(message)
-        onConnectionState(ArchipelagoSession.ConnectionState.DISCONNECTED, message)
+        onConnectionState(RoomConnectionState.DISCONNECTED, message)
     }
 
     override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
         if (webSocket !== socket) return
         isClosed = true
         slot = null
-        onConnectionState(ArchipelagoSession.ConnectionState.DISCONNECTED, "Archipelago connection closed · code $code")
+        onConnectionState(RoomConnectionState.DISCONNECTED, "Archipelago connection closed · code $code")
     }
 }

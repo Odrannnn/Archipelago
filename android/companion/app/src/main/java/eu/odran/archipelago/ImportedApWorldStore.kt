@@ -30,7 +30,6 @@ object ImportedApWorldStore {
     private const val MAX_ENTRY_BYTES = 64L * 1024L * 1024L
     private const val MAX_TOTAL_BYTES = 128L * 1024L * 1024L
     private val packagePattern = Regex("[A-Za-z_][A-Za-z0-9_]*")
-    private val builtInGames = setOf("Metroid Fusion", "The Minish Cap")
 
     fun runtimeRoot(context: Context): File = File(context.filesDir, "offline_generator").apply { mkdirs() }
 
@@ -91,7 +90,6 @@ object ImportedApWorldStore {
                 if (maximum != null && compareVersions(maximum, CORE_VERSION) < 0) {
                     error("$game supports Archipelago only through $maximum; this app embeds $CORE_VERSION")
                 }
-                if (game in builtInGames) error("$game is bundled with the app and cannot be replaced by an import")
                 if (list(context).none { it.game == game } &&
                     OfflineGenerator.cachedCatalog().any { it.game == game && it.source == "imported" }
                 ) {

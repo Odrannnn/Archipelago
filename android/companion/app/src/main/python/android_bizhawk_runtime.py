@@ -32,10 +32,17 @@ class AndroidClientContext:
         self.items_handling = 0b111
         self.want_slot_data = True
         self.seed_name = None
+        self.server_seed_name = None
+        self.server = None
+        self.watcher_timeout = 0.5
         self.server_locations: set[int] = set()
         self.checked_locations: set[int] = set()
+        self.locations_checked: set[int] = set()
+        self.missing_locations: set[int] = set()
         self.items_received: list[NetworkItem] = []
         self.locations_info: dict[int, NetworkItem] = {}
+        self.item_names = _NameLookup()
+        self.location_names = _NameLookup()
         self.player_names: dict[int, str] = {0: "Archipelago"}
         self.slot_data: dict = {}
         self.stored_data: dict[str, Any] = {}
@@ -45,6 +52,7 @@ class AndroidClientContext:
         self.tags: set[str] = set()
         self.outgoing: list[dict] = []
         self.disconnect_requested = False
+        self.last_death_link = 0.0
 
     async def send_msgs(self, messages: list[dict]) -> None:
         for message in messages:
@@ -59,13 +67,24 @@ class AndroidClientContext:
             self.tags.discard("DeathLink")
         self.outgoing.append({"cmd": "ConnectUpdate", "tags": sorted(self.tags)})
 
+    async def check_locations(self, locations: set[int]) -> set[int]:
+        found = ({int(location) for location in locations} & self.missing_locations) - self.locations_checked
+        if found:
+            self.locations_checked.update(found)
+            self.outgoing.append({"cmd": "LocationChecks", "locations": sorted(found)})
+        return found
+
+    def on_deathlink(self, data: dict) -> None:
+        self.last_death_link = max(self.last_death_link, float(data.get("time", time.time())))
+
     async def send_death(self, death_text: str = "") -> None:
         source = self.auth or "Android player"
+        self.last_death_link = time.time()
         self.outgoing.append({
             "cmd": "Bounce",
             "tags": ["DeathLink"],
             "data": {
-                "time": time.time(),
+                "time": self.last_death_link,
                 "source": source,
                 "cause": death_text or f"{source} died",
             },
@@ -73,6 +92,25 @@ class AndroidClientContext:
 
     async def disconnect(self, allow_autoreconnect: bool = False) -> None:
         self.disconnect_requested = True
+
+
+class _NameLookup:
+    def __init__(self) -> None:
+        self.by_game: dict[str, dict[int, str]] = {}
+
+    def replace(self, games: dict, key: str) -> None:
+        self.by_game.clear()
+        for game, data in games.items():
+            names = data.get(key, {}) if isinstance(data, dict) else {}
+            self.by_game[str(game)] = {int(identifier): str(name) for name, identifier in names.items()}
+
+    def lookup_in_game(self, identifier: int, game: str | None = None) -> str:
+        if game is not None:
+            return self.by_game.get(game, {}).get(int(identifier), str(identifier))
+        for names in self.by_game.values():
+            if int(identifier) in names:
+                return names[int(identifier)]
+        return str(identifier)
 
 
 class AndroidBizHawkRuntime:
@@ -86,8 +124,8 @@ class AndroidBizHawkRuntime:
         self._load_worlds()
 
     def _load_worlds(self) -> None:
-        from offline_generator import _load_worlds
-        _load_worlds(self.work_directory)
+        from offline_generator import _load_standard_gba_clients
+        _load_standard_gba_clients(self.work_directory)
 
     def _run(self, awaitable):
         result = self.loop.run_until_complete(awaitable)
@@ -163,18 +201,32 @@ class AndroidBizHawkRuntime:
         ctx = self.ctx
 
         if cmd == "RoomInfo":
-            pass
+            ctx.seed_name = args.get("seed_name")
+            ctx.server_seed_name = args.get("seed_name")
+        elif cmd == "DataPackage":
+            games = args.get("data", {}).get("games", {})
+            ctx.item_names.replace(games, "item_name_to_id")
+            ctx.location_names.replace(games, "location_name_to_id")
         elif cmd == "Connected":
             ctx.team = int(args.get("team", 0))
             ctx.slot = int(args.get("slot", 0))
             checked = {int(item) for item in args.get("checked_locations", [])}
             missing = {int(item) for item in args.get("missing_locations", [])}
-            ctx.checked_locations = checked
+            ctx.checked_locations.clear()
+            ctx.checked_locations.update(checked)
+            ctx.locations_checked.clear()
+            ctx.locations_checked.update(checked)
+            ctx.missing_locations.clear()
+            ctx.missing_locations.update(missing)
             ctx.server_locations = checked | missing
             ctx.slot_data = args.get("slot_data", {})
+            ctx.server = SimpleNamespace(socket=SimpleNamespace(closed=False))
             self._update_players(args.get("players", []))
         elif cmd == "RoomUpdate":
-            ctx.checked_locations.update(int(item) for item in args.get("checked_locations", []))
+            newly_checked = {int(item) for item in args.get("checked_locations", [])}
+            ctx.checked_locations.update(newly_checked)
+            ctx.locations_checked.update(newly_checked)
+            ctx.missing_locations.difference_update(newly_checked)
             if "players" in args:
                 self._update_players(args["players"])
         elif cmd == "ReceivedItems":
@@ -193,6 +245,11 @@ class AndroidBizHawkRuntime:
             ctx.stored_data.update(args.get("keys", {}))
             if "key" in args:
                 ctx.stored_data[str(args["key"])] = args.get("value")
+
+        if cmd == "Bounced" and "DeathLink" in args.get("tags", []):
+            data = args.get("data", {})
+            if float(data.get("time", 0)) > ctx.last_death_link:
+                ctx.on_deathlink(data)
 
         self.handler.on_package(ctx, cmd, args)
 
@@ -216,6 +273,8 @@ class AndroidBizHawkRuntime:
             return
         self.ctx.server_locations.clear()
         self.ctx.checked_locations.clear()
+        self.ctx.locations_checked.clear()
+        self.ctx.missing_locations.clear()
         self.ctx.items_received.clear()
         self.ctx.locations_info.clear()
         self.ctx.player_names.clear()
@@ -224,6 +283,9 @@ class AndroidBizHawkRuntime:
         self.ctx.stored_data.clear()
         self.ctx.slot = None
         self.ctx.team = None
+        self.ctx.seed_name = None
+        self.ctx.server_seed_name = None
+        self.ctx.server = None
         self.ctx.finished_game = False
         self.ctx.outgoing.clear()
         self.ctx.disconnect_requested = False
@@ -238,6 +300,8 @@ class AndroidBizHawkRuntime:
 
     def _update_players(self, players: list[dict]) -> None:
         for player in players:
+            if self.ctx.team is not None and int(player.get("team", self.ctx.team)) != self.ctx.team:
+                continue
             slot = int(player.get("slot", 0))
             self.ctx.player_names[slot] = player.get("alias") or player.get("name") or str(slot)
 

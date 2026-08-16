@@ -9,7 +9,7 @@ object PopTrackerLauncher {
     private const val PACKAGE_NAME = "io.github.poptracker.android"
     private const val ACTIVITY_NAME = "io.github.poptracker.android.PopTrackerActivity"
     fun launch(context: Context, game: String, host: String, slot: String, password: String) {
-        require(game in GameRegistry.supportedGameNames) { "The room has an unsupported game." }
+        require(game.isNotBlank()) { "The room has no game information." }
         require(host.isNotBlank()) { "The room has no active server address." }
         require(slot.isNotBlank()) { "The room has no selected player." }
         context.startActivity(

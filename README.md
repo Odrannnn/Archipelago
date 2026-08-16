@@ -14,7 +14,7 @@
 
 This disclaimer does not apply to the upstream Archipelago project or to
 third-party components and source incorporated from Archipelago, mGBA,
-RetroArch, ArchipelagoMine, or the bundled APWorlds. Those projects retain
+RetroArch, ArchipelagoMine, or imported APWorlds. Those projects retain
 their original authorship, history, and licenses.
 
 This fork adds a self-contained Android workflow for playing GBA multiworlds
@@ -22,13 +22,11 @@ with [Archipelago](https://archipelago.gg). It combines an Android companion app
 with a custom mGBA libretro core so RetroArch can exchange game state with an
 Archipelago room without a PC.
 
-The Android app includes native live adapters for the Metroid Fusion APWorld from
-[ArchipelagoMine 1.22.4](https://github.com/StalledStorm/ArchipelagoMine/releases/tag/v1.22.4)
-and The Minish Cap APWorld
-[v0.3.1](https://github.com/eternalcode0/Archipelago/releases/tag/v0.3.1). It
-can also run standard GBA `BizHawkClient` implementations from trusted imported
-APWorlds through a reusable Python-to-mGBA compatibility layer; Wario Land 4
-APWorld 3.4.0 is the first checked example.
+The app does not bundle any game APWorld. Install trusted `.apworld` files in
+the companion before generating, patching, or playing a game. Compatible GBA
+worlds use their standard `BizHawkClient` through a reusable Python-to-mGBA
+path; Metroid Fusion 1.22.4, The Minish Cap 0.3.1, and Wario Land 4 3.4.0 are
+the checked examples.
 The rest of this repository remains based on the upstream
 [Archipelago project](https://github.com/ArchipelagoMW/Archipelago).
 
@@ -41,13 +39,13 @@ The rest of this repository remains based on the upstream
 
 - Connects RetroArch's emulated GBA memory to the companion through a
   loopback-only bridge at `127.0.0.1:43056`.
-- Detects compatible built-in ROMs and imported standard GBA APWorld clients,
+- Detects compatible ROMs using imported standard GBA APWorld clients,
   then reads the authentication data defined by each client.
 - Connects to Archipelago rooms over WebSockets, including TLS fallback.
 - Reports checked locations and game completion.
 - Receives and applies items, upgrades, capacities, keycards, Metroid count,
   and persistent state.
-- The Metroid Fusion adapter restores received upgrades after an older in-game save is loaded.
+- The Metroid Fusion APWorld client restores received upgrades after an older in-game save is loaded.
 - Displays new item messages through RetroArch's
   on-screen display.
 - Reconnects after RetroArch restarts, ROM reloads, app switching, suspension,
@@ -58,13 +56,13 @@ required.
 
 ### Generate and patch seeds without a PC
 
-The companion embeds Python 3.12, the Archipelago 0.6.8 generation components,
-and both supported APWorlds. On the phone it can:
+The companion embeds Python 3.12 and the Archipelago 0.6.8 generation core.
+After importing compatible game APWorlds, on the phone it can:
 
 - create and edit per-player YAML documents with an independent game choice;
 - generate single-player, same-game multiplayer, or mixed-game multiworld seeds offline;
-- retain seed history, settings, ZIPs, and player-specific `.apmetfus` or `.aptmc` patches;
-- validate the correct legally obtained clean ROM for either game, including ROMs with a
+- retain seed history, settings, ZIPs, and player-specific APWorld patches;
+- validate the correct legally obtained clean ROM for the selected game, including ROMs with a
   legacy 512-byte copier header;
 - cache the validated base ROM privately for later patches; and
 - save a ready-to-run `.gba` for each player.
@@ -125,8 +123,8 @@ Supported GBA game in RetroArch
 
 The custom core performs memory access only on mGBA's emulation thread. It
 does not receive room credentials or connect to the Internet. The Android app
-owns authentication, room networking, reconnection, and game-specific
-logic. The emulator bridge is bound only to the local device and is never
+owns authentication, room networking, reconnection, and APWorld client
+execution. The emulator bridge is bound only to the local device and is never
 exposed to the LAN.
 
 ## Requirements
@@ -135,7 +133,8 @@ exposed to the LAN.
 - Android companion package `eu.odran.archipelago`
 - 64-bit RetroArch (`com.retroarch.aarch64`)
 - The custom mGBA Archipelago bridge core installed in RetroArch
-- A legally obtained clean ROM for the selected game (US Metroid Fusion or European The Minish Cap)
+- A legally obtained clean ROM accepted by the selected imported APWorld
+- A trusted, compatible `.apworld` for every game being generated or played
 - An Archipelago room when playing online
 
 Offline generation and ROM patching do not require an Internet connection.

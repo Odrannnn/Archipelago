@@ -1,6 +1,8 @@
 package eu.odran.archipelago
 
-/** Common lifecycle for native adapters and imported standard APWorld clients. */
+enum class RoomConnectionState { CONNECTING, CONNECTED, DISCONNECTED }
+
+/** Common lifecycle for a standard APWorld client connected to a room. */
 interface RoomSession {
     val isClosed: Boolean
     val connectedSlot: Int?

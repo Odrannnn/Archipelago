@@ -1,6 +1,6 @@
 """Small pure-Python BSDIFF40 patch reader for Android generation.
 
-The Minish Cap APWorld ships a static bsdiff base patch. Creating new bsdiff
+Some GBA APWorlds ship a static bsdiff base patch. Creating new bsdiff
 files is intentionally unsupported, but applying that patch needs no native
 extension.
 """

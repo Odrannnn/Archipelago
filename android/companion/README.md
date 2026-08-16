@@ -1,4 +1,4 @@
-# Android companion: GBA game adapters
+# Android companion: standard GBA APWorld runtime
 
 The Android application ID and Kotlin namespace are both `eu.odran.archipelago`.
 
@@ -22,9 +22,9 @@ adopts the newest queued loopback connection on resume, avoiding a stale client
 which could otherwise prevent reconnection after switching apps.
 
 The room-network client adds editable server/password settings and
-`ArchipelagoSession`. It supports `ws://` and `wss://`, waits for `RoomInfo`,
+`PythonArchipelagoSession`. It supports `ws://` and `wss://`, waits for `RoomInfo`,
 authenticates with the ROM's embedded token, requests the detected game's data
-package, and uses that adapter's item-handling flags. Binary zlib packets
+package, and uses that APWorld client's item-handling flags. Binary zlib packets
 are decoded for large data-package and item messages.
 If a cleartext WebSocket handshake is closed by the host, the client retries
 the same host and port once with TLS (`wss://`), matching the desktop client's
@@ -34,57 +34,28 @@ Enter the game server as `archipelago.gg:PORT` (for example,
 `archipelago.gg:45657`), not as a room-page URL. A pasted numeric path such as
 `archipelago.gg/45657` is normalized to the equivalent port form.
 
-`MetroidFusionProfile` targets the client in
-[`ArchipelagoMine` v1.22.4](https://github.com/StalledStorm/ArchipelagoMine/releases/tag/v1.22.4).
-It implements the memory-facing half of that client:
+## Standard GBA APWorld clients
 
-- validates the 20-byte ROM marker at ROM offset `0x7fff00` (`MFU...`) and
-  produces the base64 authentication token used by Archipelago;
-- converts BizHawk's EWRAM, IWRAM, ROM and System Bus offsets into mGBA GBA
-  bus addresses;
-- guards all mutable reads/writes with IWRAM `0x0bde == 1`, matching the
-  APWorld client so state is never changed in menus, loading, or the title;
-- polls minor/major location bitfields, received-item state, map location,
-  and credits; and applies every Metroid Fusion item effect defined by the
-  APWorld client.
+There is one live path for imported games. At startup the Python
+runtime discovers conventional `client.py` and `Client.py` modules, registers
+their standard Archipelago `BizHawkClient` implementations, and asks each GBA
+client to validate the loaded ROM. The selected client owns ROM detection,
+authentication, slot-data handling, location checks, item application,
+DeathLink, completion, and any game-specific save reconciliation.
 
-`BridgeService` calls the session's gameplay tick on its one bridge worker.
-The tick delivers one queued item at a time, advances the ROM's persistent
-receipt counter only after a successful guarded write, reports location bits
-as `LocationChecks`, and sends `StatusUpdate` when credits begin. On reconnect,
-the server's authoritative item queue and the ROM counter resume at the next
-undelivered item. Every three seconds it also reconstructs persistent upgrade,
-keycard, Metroid-count, and capacity-maximum state from the full item history;
-this restores AP items after loading an older in-game save even though the
-separate SRAM receipt counter remains current. Player-facing item messages are
-shown through RetroArch's on-screen display. Only newly
-delivered remote/server items produce an OSD message, so reconnect and
-older-save reconciliation cannot replay notification history. Sender aliases
-come from the room's `players` metadata and follow later alias updates.
+Kotlin owns the WebSocket and forwards Archipelago packets to that client.
+The Android BizHawk compatibility layer translates its reads, guarded reads,
+writes, guarded writes, hashes, and on-screen messages into version-4 atomic
+transactions handled by the custom mGBA core. Imported Metroid Fusion `1.22.4`,
+The Minish Cap `0.3.1`, and Wario Land 4 `3.4.0` use the same runtime. Other
+console families still need a compatible libretro-core bridge.
 
-The address and item rules were derived from the APWorld's GPL-3.0 client at
-the pinned `v1.22.4` source tag. If this companion is distributed together
-with a port of further APWorld code or data, review the APWorld's GPL-3.0
-license and publish the required corresponding source.
+No game APWorld is bundled in the APK. Generation, ROM patching, and live play
+remain unavailable for a game until the user imports its trusted `.apworld`.
 
-## Game adapters
-
-The live bridge and Archipelago room client use a game-adapter registry. A
-`GameAdapter` owns ROM detection, authentication, slot-data parsing, location
-state, item application, persistent inventory reconciliation, and completion
-detection for one game. `ArchipelagoSession` handles the shared WebSocket
-protocol without depending on Metroid Fusion memory types.
-
-The native registered adapters are Metroid Fusion APWorld `1.22.4` and The Minish Cap
-APWorld `0.3.1`. The latter validates `GBAZELDA`, authenticates with the player
-name at ROM `0x600`, verifies the room seed at `0x620`, polls its EWRAM location
-flags (including special Goron/Cucco state), and injects received item IDs into
-the patched game's guarded item queue. Other console families will also need a
-compatible libretro-core implementation of the loopback bridge. Imported GBA
-worlds which register a standard Archipelago `BizHawkClient` use a parallel
-generic runtime: their Python client remains unchanged, Kotlin owns the room
-WebSocket, and version-4 atomic memory transactions are forwarded to mGBA.
-Wario Land 4 APWorld `3.4.0` is the first compatibility-checked imported client.
+APWorlds contain executable code and retain their own licenses. Review an
+APWorld's license and publish corresponding source when redistribution requires
+it.
 
 The main screen exposes independent mGBA and Archipelago connection indicators.
 The server indicator distinguishes connecting, authenticated, and disconnected
@@ -97,21 +68,20 @@ loopback only and receives no Internet-facing configuration or credentials.
 
 ## Offline generation
 
-The **Offline seed generator** screen embeds Python 3.12, the Archipelago 0.6.8
-generation core, Metroid Fusion APWorld 1.22.4, and The Minish Cap APWorld
-0.3.1. It can edit/export player YAML and generate one-player, same-game
-multiplayer, or mixed-game multiworld seeds without a network connection.
+The **Offline seed generator** screen embeds Python 3.12 and the Archipelago
+0.6.8 generation core. It can edit/export player YAML and generate one-player,
+same-game multiplayer, or mixed-game multiworld seeds without a network
+connection after the required game APWorlds have been imported.
 **Add player** asks which supported game the new player will use and appends its
 template under a unique name. **Change player game** selects one existing player
 and replaces only that player's template, preserving every other YAML document.
-Both game templates are development-time assets generated from their bundled
-APWorld definitions with Archipelago's standard YAML generator. They expose all
-documented common and game-specific options, including weighted choices, ranges,
-tricks, and filler distribution where applicable. The Python generation module
-contains no game-template text, and the Android picker reads its game list from
-the asset registry. Each document's options remain independently editable before
-generation. Every player receives a separate `.apmetfus` or `.aptmc` patch
-according to their game.
+Game templates are generated at runtime from the imported APWorld definitions.
+They expose documented common and game-specific options, including weighted
+choices, ranges, tricks, and filler distribution where applicable. The Python
+generation module contains no game-template text, and the Android picker reads
+its game list from the imported-world registry. Each document's options remain
+independently editable before generation. Every player receives the patch format
+registered by their selected APWorld.
 
 **Manage installed APWorlds** imports additional trusted `.apworld` files into
 `filesDir/offline_generator/worlds`. Installation rejects absolute/traversal
@@ -122,7 +92,7 @@ are extracted rather than imported directly from ZIP so worlds which use
 then supplies the game list, complete visible option model, player patch suffix,
 and output format dynamically. Imported templates use readable scalar defaults
 generated from the APWorld's option classes, and can participate in the same
-mixed-game YAML and seed flow as bundled games. Updating a world consists of
+mixed-game YAML and seed flow as other imported games. Updating a world consists of
 removing it and importing the newer package; after removing an already-loaded
 world, fully restart the app before importing another version.
 

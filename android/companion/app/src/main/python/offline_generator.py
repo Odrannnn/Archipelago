@@ -7,6 +7,7 @@ import importlib
 import inspect
 import json
 import os
+import pkgutil
 import shutil
 import sys
 import tempfile
@@ -32,7 +33,7 @@ def _prepare_runtime(work_directory: str) -> tuple[Path, Path]:
 
 
 def _load_worlds(work_directory: str):
-    """Load bundled worlds and any safely extracted user APWorld packages."""
+    """Load safely extracted user APWorld packages into the embedded AP core."""
     _prepare_runtime(work_directory)
     import worlds
     from Utils import tuplize_version
@@ -72,6 +73,24 @@ def _load_worlds(work_directory: str):
         except Exception as error:
             worlds.failed_world_loads[package.name] = f"{type(error).__name__}: {error}"
     return worlds, AutoWorldRegister
+
+
+def _load_standard_gba_clients(work_directory: str):
+    """Register conventional BizHawk client modules from every loaded world."""
+    worlds, registry = _load_worlds(work_directory)
+    for module in pkgutil.iter_modules(worlds.__path__, "worlds."):
+        if module.name.rsplit(".", 1)[-1].startswith("_"):
+            continue
+        for suffix in ("client", "Client"):
+            try:
+                client_module = f"{module.name}.{suffix}"
+                if importlib.util.find_spec(client_module) is not None:
+                    importlib.import_module(client_module)
+            except Exception:
+                # Generation-only worlds remain available when an optional
+                # desktop client needs modules which Android does not bundle.
+                continue
+    return worlds, registry
 
 
 def _yaml_scalar(value) -> str:
@@ -140,7 +159,7 @@ def template_for_game(work_directory: str, game: str) -> str:
 
 def world_catalog(work_directory: str) -> str:
     """Describe loaded world capabilities without promising a live adapter."""
-    worlds, registry = _load_worlds(work_directory)
+    worlds, registry = _load_standard_gba_clients(work_directory)
     from worlds.Files import AutoPatchRegister
     from worlds._bizhawk.client import AutoBizHawkClientRegister
 
@@ -169,7 +188,7 @@ def world_catalog(work_directory: str) -> str:
             "generation": True,
             "template": True,
             "rom_patch": bool(patch_type and result_extension.lower() == ".gba"),
-            "live_bridge": game in ("Metroid Fusion", "The Minish Cap") or game in standard_gba_clients,
+            "live_bridge": game in standard_gba_clients,
         })
     return json.dumps({"worlds": result, "failures": worlds.failed_world_loads})
 
@@ -413,6 +432,9 @@ def patch_rom(patch_bytes, base_rom_bytes, output_path: str, work_directory: str
     rom = raw_rom[0x200:] if len(raw_rom) % 0x400 == 0x200 else raw_rom
     stripped_md5 = hashlib.md5(rom).hexdigest()
     game = patch_game(patch_data_bytes, work_directory)
+    _, registry = _load_worlds(work_directory)
+    if game not in registry.world_types:
+        raise ValueError(f"Install the {game} APWorld before patching this ROM")
     destination = Path(output_path).resolve()
     destination.parent.mkdir(parents=True, exist_ok=True)
     if game == "The Minish Cap":

@@ -174,34 +174,6 @@ class MGBABridgeClient {
         request(BridgeProtocol.MESSAGE, payload = boundedUtf8(message))
     }
 
-    /**
-     * The mGBA bridge addresses the GBA system bus.  APWorld clients normally
-     * use offsets into emulator-specific memory domains, so game profiles use
-     * this helper instead of leaking those offsets into transport code.
-     */
-    fun read(domain: GbaMemoryDomain, offset: Long, length: Int): ByteArray =
-        read(domain.toBusAddress(offset), length)
-
-    fun guard(domain: GbaMemoryDomain, offset: Long, expected: ByteArray): Boolean =
-        guard(domain.toBusAddress(offset), expected)
-
-    fun write(domain: GbaMemoryDomain, offset: Long, value: ByteArray) {
-        write(domain.toBusAddress(offset), value)
-    }
-
-    fun guardedWrite(
-        domain: GbaMemoryDomain,
-        offset: Long,
-        value: ByteArray,
-        guards: List<Triple<GbaMemoryDomain, Long, ByteArray>>,
-    ): Boolean = guardedWrite(
-        domain.toBusAddress(offset),
-        value,
-        guards.map { (guardDomain, guardOffset, expected) ->
-            MemoryGuard(guardDomain.toBusAddress(guardOffset), expected)
-        },
-    )
-
     private fun boundedUtf8(message: String): ByteArray {
         val bytes = message.encodeToByteArray()
         if (bytes.size <= BridgeProtocol.MAX_MESSAGE_BYTES) return bytes
@@ -220,7 +192,7 @@ class MGBABridgeClient {
 
     private fun checkAtomicBatchProtocol() {
         check(protocolVersion >= BridgeProtocol.ATOMIC_BATCH_PROTOCOL_VERSION) {
-            "Imported APWorld clients require mGBA Archipelago bridge protocol " +
+            "Standard APWorld clients require mGBA Archipelago bridge protocol " +
                 BridgeProtocol.ATOMIC_BATCH_PROTOCOL_VERSION
         }
     }

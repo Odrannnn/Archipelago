@@ -90,19 +90,17 @@ class BridgeService : Service() {
                 publish("Waiting for the custom mGBA core on 127.0.0.1:${BridgeProtocol.PORT}…")
                 bridge.connect()
                 val (version, platform) = bridge.hello()
-                val adapters = GameRegistry.createAdapters(bridge)
-                if (version >= BridgeProtocol.ATOMIC_BATCH_PROTOCOL_VERSION) {
-                    pythonRuntime = try {
-                        PythonGbaRuntime(this, bridge)
-                    } catch (error: Exception) {
-                        Log.w(TAG, "Imported APWorld runtime unavailable", error)
-                        null
-                    }
+                if (version < BridgeProtocol.ATOMIC_BATCH_PROTOCOL_VERSION) {
+                    throw IllegalStateException(
+                        "The installed custom mGBA core reports bridge protocol $version; " +
+                            "standard APWorld clients require protocol ${BridgeProtocol.ATOMIC_BATCH_PROTOCOL_VERSION}",
+                    )
                 }
-                var activeNativeGame: DetectedGame? = null
-                var activeImportedGame: ImportedGbaRomInfo? = null
+                val runtime = PythonGbaRuntime(this, bridge)
+                pythonRuntime = runtime
+                var activeGame: ImportedGbaRomInfo? = null
                 var activeIdentity: Pair<String, String>? = null
-                publish("mGBA connected · protocol $version · platform $platform · waiting for ${GameRegistry.patchedRomDescription()}…")
+                publish("mGBA connected · protocol $version · platform $platform · waiting for $PATCHED_ROM_DESCRIPTION…")
 
                 var nextSessionAttempt = 0L
                 var nextRomProbeAt = 0L
@@ -111,25 +109,20 @@ class BridgeService : Service() {
                 while (running && !Thread.currentThread().isInterrupted) {
                     val now = System.currentTimeMillis()
                     if (now >= nextRomProbeAt) {
-                        val detectedNative = GameRegistry.detect(adapters)
-                        val detectedImported = if (detectedNative != null) {
-                            null
-                        } else if (activeImportedGame?.let { pythonRuntime?.validateActive(it) } == true) {
-                            activeImportedGame
+                        val detected = if (activeGame?.let { runtime.validateActive(it) } == true) {
+                            activeGame
                         } else {
-                            pythonRuntime?.probe()
+                            runtime.probe()
                         }
-                        val detectedIdentity = detectedNative?.identity
-                            ?: detectedImported?.let { it.game to it.auth }
+                        val detectedIdentity = detected?.let { it.game to it.auth }
                         if (detectedIdentity != activeIdentity) {
                             session?.close()
                             if (activeSession === session) activeSession = null
                             session = null
                             sessionAddress = null
-                            activeNativeGame = detectedNative
-                            activeImportedGame = detectedImported
+                            activeGame = detected
                             activeIdentity = detectedIdentity
-                            val detectedGameName = detectedNative?.adapter?.gameName ?: detectedImported?.game
+                            val detectedGameName = detected?.game
                             detectedGameName?.let {
                                 if (activeGameName != detectedGameName) {
                                     activeGameName = detectedGameName
@@ -142,53 +135,35 @@ class BridgeService : Service() {
                             if (detectedIdentity == null) publishServerWaitingForRom()
                             publish(
                                 if (detectedIdentity == null) {
-                                    "mGBA connected · waiting for ${GameRegistry.patchedRomDescription()}…"
-                                } else if (detectedNative != null && version < detectedNative.adapter.requiredBridgeProtocol) {
-                                    "⚠️ ${detectedNative.adapter.gameName} needs custom mGBA bridge protocol " +
-                                        "${detectedNative.adapter.requiredBridgeProtocol}; installed core reports $version"
-                                } else if (detectedImported != null) {
-                                    "mGBA connected · ${detectedImported.game} · standard imported APWorld client"
+                                    "mGBA connected · waiting for $PATCHED_ROM_DESCRIPTION…"
                                 } else {
-                                    "mGBA connected · ${detectedNative!!.adapter.gameName} APWorld " +
-                                        "${detectedNative.adapter.apWorldVersion} · ${detectedNative.romInfo.name}"
+                                    "mGBA connected · ${detected!!.game} · standard APWorld client"
                                 },
                             )
                         }
                         nextRomProbeAt = now + TimeUnit.SECONDS.toMillis(1)
                     }
 
-                    val detectedNative = activeNativeGame
-                    val detectedImported = activeImportedGame
+                    val detected = activeGame
                     val settings = ServerSettings.load(this)
-                    if (settings.isConfigured && (detectedNative != null || detectedImported != null) &&
-                        (detectedNative == null || version >= detectedNative.adapter.requiredBridgeProtocol) &&
+                    if (settings.isConfigured && detected != null &&
                         (session == null || session.isClosed) &&
                         now >= nextSessionAttempt
                     ) {
                         session?.close()
-                        session = if (detectedNative != null) {
-                            ArchipelagoSession(
-                                settings,
-                                detectedNative.adapter,
-                                detectedNative.romInfo,
-                                ::publishServerDetails,
-                                ::publishServerState,
-                            )
-                        } else {
-                            PythonArchipelagoSession(
-                                settings,
-                                checkNotNull(pythonRuntime),
-                                checkNotNull(detectedImported),
-                                ::publishServerDetails,
-                                ::publishServerState,
-                            )
-                        }
+                        session = PythonArchipelagoSession(
+                            settings,
+                            runtime,
+                            detected,
+                            ::publishServerDetails,
+                            ::publishServerState,
+                        )
                         sessionAddress = settings.address
                         activeSession = session
                         session.connect()
                         nextSessionAttempt = now + TimeUnit.SECONDS.toMillis(5)
                     }
-                    if (detectedNative != null || detectedImported != null) session?.tick()
+                    if (detected != null) session?.tick()
                     session?.connectedSlot?.let { connectedSlot ->
                         if (activePlayerSlot != connectedSlot || activeServerAddress != sessionAddress) {
                             activePlayerSlot = connectedSlot
@@ -200,7 +175,7 @@ class BridgeService : Service() {
                         bridge.ping()
                         nextPingAt = now + TimeUnit.SECONDS.toMillis(1)
                     }
-                    if (detectedImported != null) {
+                    if (detected != null) {
                         TimeUnit.MILLISECONDS.sleep(125)
                     } else {
                         TimeUnit.SECONDS.sleep(1)
@@ -250,24 +225,24 @@ class BridgeService : Service() {
         lastServerState = null
         serverStatusText = "💤 Archipelago waiting for ROM"
         serverStatusDetails =
-            "Archipelago will connect after you load a ${GameRegistry.patchedRomDescription()} " +
+            "Archipelago will connect after you load a $PATCHED_ROM_DESCRIPTION " +
                 "in RetroArch using the custom mGBA core."
         updateNotification()
     }
 
-    private fun publishServerState(state: ArchipelagoSession.ConnectionState, details: String?) {
+    private fun publishServerState(state: RoomConnectionState, details: String?) {
         if (stopping) return
         val previousState = lastServerState
         lastServerState = state
         serverStatusText = when (state) {
-            ArchipelagoSession.ConnectionState.CONNECTING -> "⏳ Archipelago connecting"
-            ArchipelagoSession.ConnectionState.CONNECTED -> "✅ Archipelago connected"
-            ArchipelagoSession.ConnectionState.DISCONNECTED -> "⚠️ Archipelago not connected"
+            RoomConnectionState.CONNECTING -> "⏳ Archipelago connecting"
+            RoomConnectionState.CONNECTED -> "✅ Archipelago connected"
+            RoomConnectionState.DISCONNECTED -> "⚠️ Archipelago not connected"
         }
         serverStatusDetails = details
         updateNotification()
-        if (state == ArchipelagoSession.ConnectionState.CONNECTED &&
-            previousState != ArchipelagoSession.ConnectionState.CONNECTED
+        if (state == RoomConnectionState.CONNECTED &&
+            previousState != RoomConnectionState.CONNECTED
         ) {
             mainHandler.post {
                 Toast.makeText(this, "Archipelago connected", Toast.LENGTH_SHORT).show()
@@ -340,10 +315,11 @@ class BridgeService : Service() {
         private const val ACTIVE_ROM_GAME = "game"
         private const val ACTIVE_ROM_SLOT = "slot"
         private const val ACTIVE_ROM_SERVER = "server"
+        private const val PATCHED_ROM_DESCRIPTION = "compatible patched GBA ROM"
         const val ACTION_RECONNECT = "eu.odran.archipelago.RECONNECT_BRIDGE"
 
         @Volatile
-        private var lastServerState: ArchipelagoSession.ConnectionState? = null
+        private var lastServerState: RoomConnectionState? = null
 
         @Volatile
         var activeGameName: String? = null

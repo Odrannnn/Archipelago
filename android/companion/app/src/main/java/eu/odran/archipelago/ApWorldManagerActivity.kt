@@ -32,8 +32,8 @@ class ApWorldManagerActivity : Activity() {
             addView(TextView(this@ApWorldManagerActivity).apply {
                 text = "Imported worlds can add games, complete YAML templates, mixed-seed generation, and " +
                     "standard GBA patching. An APWorld is executable Python code and cannot be sandboxed here: " +
-                    "install files only from authors you trust. Live emulator synchronization still needs a " +
-                    "game-specific bridge adapter; currently Metroid Fusion and The Minish Cap have one."
+                    "install files only from authors you trust. Live emulator synchronization is available when " +
+                    "the world provides a standard GBA BizHawk client compatible with the Android bridge."
             })
             addView(Button(this@ApWorldManagerActivity).apply {
                 text = "Import trusted .apworld"
@@ -97,7 +97,9 @@ class ApWorldManagerActivity : Activity() {
         worldsContainer.removeAllViews()
         val installed = ImportedApWorldStore.list(this)
         if (installed.isEmpty()) {
-            worldsContainer.addView(TextView(this).apply { text = "No additional APWorlds installed." })
+            worldsContainer.addView(TextView(this).apply {
+                text = "No game APWorlds installed. Import one before generating, patching, or playing."
+            })
             return
         }
         val capabilities = OfflineGenerator.cachedCatalog().associateBy { it.game }

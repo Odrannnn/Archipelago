@@ -51,7 +51,7 @@ class GeneratorActivity : Activity() {
     private var historySettingsLoaded = false
     private var currentHistoryId: String? = null
     private var hostingInProgress = false
-    private var currentTemplateGame = OfflineGenerator.builtInGames.first()
+    private var currentTemplateGame = ""
     private var templateLoadInProgress = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -139,7 +139,7 @@ class GeneratorActivity : Activity() {
         }
         forgetBaseRomButton = Button(this).apply {
             text = "Forget cached base ROM"
-            isEnabled = BaseRomCache.isPresent(this@GeneratorActivity, currentTemplateGame)
+            isEnabled = false
             setOnClickListener {
                 val game = selectedPatchGame()
                 if (BaseRomCache.forget(this@GeneratorActivity, game)) {
@@ -237,16 +237,21 @@ class GeneratorActivity : Activity() {
         thread(name = "offline-generator-startup") {
             runCatching {
                 val catalog = OfflineGenerator.refreshCatalog(this)
-                OfflineGenerator.defaultYaml(this, currentTemplateGame) to catalog
+                val firstGame = catalog.firstOrNull { it.source == "imported" && it.template }?.game
+                Triple(firstGame?.let { OfflineGenerator.defaultYaml(this, it) }, firstGame, catalog)
             }
-                .onSuccess { (template, catalog) ->
+                .onSuccess { (template, firstGame, catalog) ->
                     runOnUiThread {
-                        if (!historySettingsLoaded) yamlEditor.setText(template)
+                        if (firstGame != null) currentTemplateGame = firstGame
+                        if (!historySettingsLoaded) yamlEditor.setText(template.orEmpty())
                         yamlEditor.isEnabled = true
-                        generateButton.isEnabled = true
+                        generateButton.isEnabled = template != null
                         val imported = catalog.count { it.source == "imported" }
-                        status.text = "Ready · ${catalog.size} worlds loaded" +
-                            if (imported > 0) " · $imported imported" else ""
+                        status.text = if (template == null) {
+                            "No game APWorlds installed. Open Manage installed APWorlds and import a trusted .apworld."
+                        } else {
+                            "Ready · ${catalog.size} worlds loaded · $imported imported"
+                        }
                     }
                 }
                 .onFailure { showError("Could not start the offline generator", it) }
@@ -291,6 +296,10 @@ class GeneratorActivity : Activity() {
 
     private fun chooseGame(title: String, onSelected: (String) -> Unit) {
         val games = OfflineGenerator.availableGames(this).toTypedArray()
+        if (games.isEmpty()) {
+            status.text = "Install a trusted game .apworld first."
+            return
+        }
         AlertDialog.Builder(this)
             .setTitle(title)
             .setItems(games) { _, index -> onSelected(games[index]) }
@@ -433,8 +442,7 @@ class GeneratorActivity : Activity() {
     private fun canPatchSelectedRom(): Boolean {
         if (patchFile == null) return false
         val game = selectedPatchGame()
-        return game in OfflineGenerator.builtInGames ||
-            OfflineGenerator.cachedCatalog().any { it.game == game && it.romPatch }
+        return OfflineGenerator.cachedCatalog().any { it.game == game && it.romPatch }
     }
 
     private fun gameFromPatchFile(patch: File): String? = runCatching {
