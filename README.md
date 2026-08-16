@@ -1,149 +1,179 @@
-# [Archipelago](https://archipelago.gg) ![Discord Shield](https://discordapp.com/api/guilds/731205301247803413/widget.png?style=shield) | [Install](https://github.com/ArchipelagoMW/Archipelago/releases)
+# Archipelago Android Companion for Metroid Fusion
 
-Archipelago provides a generic framework for developing multiworld capability for game randomizers. In all cases,
-presently, Archipelago is also the randomizer itself.
+## ⚠️ AI-generated code disclaimer
 
-Currently, the following games are supported:
+> **All Android-specific code, emulator-bridge changes, companion features, and
+> project documentation introduced by this fork were generated with OpenAI
+> Codex under human direction. The generated code may contain defects,
+> security issues, or incomplete assumptions and should be independently
+> reviewed and tested before production use or redistribution.**
 
-* The Legend of Zelda: A Link to the Past
-* Factorio
-* Subnautica
-* Risk of Rain 2
-* The Legend of Zelda: Ocarina of Time
-* Timespinner
-* Super Metroid
-* Secret of Evermore
-* Final Fantasy
-* VVVVVV
-* Raft
-* Super Mario 64
-* Meritous
-* Super Metroid/Link to the Past combo randomizer (SMZ3)
-* ChecksFinder
-* Hollow Knight
-* The Witness
-* Sonic Adventure 2: Battle
-* Starcraft 2
-* Dark Souls 3
-* Super Mario World
-* Pokémon Red and Blue
-* Hylics 2
-* Overcooked! 2
-* Zillion
-* Lufia II Ancient Cave
-* Blasphemous
-* Wargroove
-* Stardew Valley
-* The Legend of Zelda
-* The Messenger
-* Kingdom Hearts 2
-* The Legend of Zelda: Link's Awakening DX
-* Adventure
-* DLC Quest
-* Noita
-* Undertale
-* Bumper Stickers
-* Mega Man Battle Network 3: Blue Version
-* Muse Dash
-* DOOM 1993
-* Terraria
-* Lingo
-* Pokémon Emerald
-* DOOM II
-* Shivers
-* Heretic
-* Landstalker: The Treasures of King Nole
-* Final Fantasy Mystic Quest
-* TUNIC
-* Kirby's Dream Land 3
-* Celeste 64
-* Castlevania 64
-* A Short Hike
-* Yoshi's Island
-* Mario & Luigi: Superstar Saga
-* Bomb Rush Cyberfunk
-* Aquaria
-* Yu-Gi-Oh! Ultimate Masters: World Championship Tournament 2006
-* A Hat in Time
-* Old School Runescape
-* Kingdom Hearts 1
-* Mega Man 2
-* Yacht Dice
-* Faxanadu
-* Saving Princess
-* Castlevania: Circle of the Moon
-* Inscryption
-* Civilization VI
-* The Legend of Zelda: The Wind Waker
-* Jak and Daxter: The Precursor Legacy
-* Super Mario Land 2: 6 Golden Coins
-* shapez
-* Paint
-* Celeste (Open World)
-* Choo-Choo Charles
-* APQuest
-* Satisfactory
-* EarthBound
-* Mega Man 3
-* Gauntlet Legends
+This disclaimer does not apply to the upstream Archipelago project or to
+third-party components and source incorporated from Archipelago, mGBA,
+RetroArch, ArchipelagoMine, or the Metroid Fusion APWorld. Those projects retain
+their original authorship, history, and licenses.
 
-For setup and instructions check out our [tutorials page](https://archipelago.gg/tutorial/).
-Downloads can be found at [Releases](https://github.com/ArchipelagoMW/Archipelago/releases), including compiled
-windows binaries.
+This fork adds a self-contained Android workflow for playing
+[Metroid Fusion](https://en.wikipedia.org/wiki/Metroid_Fusion) multiworlds with
+[Archipelago](https://archipelago.gg). It combines an Android companion app
+with a custom mGBA libretro core so RetroArch can exchange game state with an
+Archipelago room without a PC.
 
-## History
+The Android work currently targets the Metroid Fusion APWorld from
+[ArchipelagoMine 1.22.4](https://github.com/StalledStorm/ArchipelagoMine/releases/tag/v1.22.4).
+The rest of this repository remains based on the upstream
+[Archipelago project](https://github.com/ArchipelagoMW/Archipelago).
 
-Archipelago is built upon a strong legacy of brilliant hobbyists. We want to honor that legacy by showing it here.
-The repositories which Archipelago is built upon, inspired by, or otherwise owes its gratitude to are:
+> This is an independent fork and is not an official Archipelago Android
+> client. It does not include Metroid Fusion or any other commercial ROM.
 
-* [bonta0's MultiWorld](https://github.com/Bonta0/ALttPEntranceRandomizer/tree/multiworld_31)
-* [AmazingAmpharos' Entrance Randomizer](https://github.com/AmazingAmpharos/ALttPEntranceRandomizer)
-* [VT Web Randomizer](https://github.com/sporchia/alttp_vt_randomizer)
-* [Dessyreqt's alttprandomizer](https://github.com/Dessyreqt/alttprandomizer)
-* [Zarby89's](https://github.com/Ijwu/Enemizer/commits?author=Zarby89)
-  and [sosuke3's](https://github.com/Ijwu/Enemizer/commits?author=sosuke3) contributions to Enemizer, which make up the
-  vast majority of Enemizer contributions.
+## What it does
 
-We recognize that there is a strong community of incredibly smart people that have come before us and helped pave the
-path. Just because one person's name may be in a repository title does not mean that only one person made that project
-happen. We can't hope to perfectly cover every single contribution that lead up to Archipelago, but we hope to honor
-them fairly.
+### Play Metroid Fusion multiworlds on Android
 
-### Path to the Archipelago
+- Connects RetroArch's emulated GBA memory to the companion through a
+  loopback-only bridge at `127.0.0.1:43056`.
+- Detects compatible Archipelago-patched Metroid Fusion ROMs and reads their
+  embedded authentication token.
+- Connects to Archipelago rooms over WebSockets, including TLS fallback.
+- Reports checked locations and game completion.
+- Receives and applies items, upgrades, capacities, keycards, Metroid count,
+  and persistent state.
+- Restores received upgrades after an older in-game save is loaded.
+- Supports DeathLink and displays new item messages through RetroArch's
+  on-screen display.
+- Reconnects after RetroArch restarts, ROM reloads, app switching, suspension,
+  and stale bridge connections.
 
-Archipelago was directly forked from bonta0's `multiworld_31` branch of ALttPEntranceRandomizer (this project has a
-long legacy of its own, please check it out linked above) on January 12, 2020. The repository was then named to
-_MultiWorld-Utilities_ to better encompass its intended function. As Archipelago matured, then known as
-"Berserker's MultiWorld" by some, we found it necessary to transform our repository into a root level repository
-(as opposed to a 'forked repo') and change the name (which came later) to better reflect our project.
+The bridge runs as an Android foreground service, so split-screen mode is not
+required.
 
-## Running Archipelago
+### Generate and patch seeds without a PC
 
-For most people, all you need to do is head over to
-the [releases page](https://github.com/ArchipelagoMW/Archipelago/releases), then download and run the appropriate
-installer, or AppImage for Linux-based systems.
+The companion embeds Python 3.12, the Archipelago 0.6.8 generation components,
+and the Metroid Fusion APWorld. On the phone it can:
 
-If you are a developer or are running on a platform with no compiled releases available, please see our doc on
-[running Archipelago from source](docs/running%20from%20source.md).
+- create and edit multiple player YAML files;
+- generate single-player or multiplayer seeds offline;
+- retain seed history, settings, ZIPs, and player-specific `.apmetfus` patches;
+- validate a legally obtained clean Metroid Fusion ROM, including ROMs with a
+  legacy 512-byte copier header;
+- cache the validated base ROM privately for later patches; and
+- save a ready-to-run `.gba` for each player.
 
-## Related Repositories
+No base ROM is bundled, uploaded, or placed in an invitation.
 
-This project makes use of multiple other projects. We wouldn't be here without these other repositories and the
-contributions of their developers, past and present.
+### Host and share multiplayer rooms
 
-* [z3randomizer](https://github.com/ArchipelagoMW/z3randomizer)
-* [Enemizer](https://github.com/Ijwu/Enemizer)
-* [Ocarina of Time Randomizer](https://github.com/TestRunnerSRL/OoT-Randomizer)
+The app has a private, persistent `archipelago.gg` website session. It can
+upload generated seed ZIPs, create and start hosted rooms, refresh their
+status, open room controls and trackers, and synchronize its website session
+with a browser.
 
-## Contributing
+Player-specific `.apinvite` files contain the public room identifiers, the
+selected player and slot, that player's `.apmetfus` patch, and a SHA-256
+integrity hash. A recipient can open the invite to wake the room, resolve its
+current port, configure the companion, patch their own clean ROM locally, and
+save the finished game. Invitations never contain a base ROM, website-session
+credentials, or private hosting controls.
 
-To contribute to Archipelago, including the WebHost, core program, or by adding a new game, see our
-[Contributing guidelines](/docs/contributing.md).
+Imported rooms are stored in a room library. The user can switch active rooms,
+refresh their current server ports, retain a separate saved-ROM shortcut for
+each player, or remove a local room record without deleting the hosted room.
 
-## FAQ
+### Launch related Android apps
 
-For Frequently asked questions, please see the website's [FAQ Page](https://archipelago.gg/faq/en/).
+- Launches a saved patched ROM in 64-bit RetroArch with the custom mGBA bridge
+  core while allowing RetroArch to retain its normal configuration, controller
+  mappings, overrides, and remaps.
+- Opens the PopTracker Android app with the `Metroid Fusion` game identifier,
+  active server address, selected player name, and room password.
 
-## Code of Conduct
+## How it is structured
 
-Please refer to our [code of conduct](/docs/code_of_conduct.md).
+```text
+Archipelago room
+        ↕ WebSocket
+Android companion app
+        ↕ 127.0.0.1:43056 only
+Custom mGBA libretro core
+        ↕ emulated GBA memory
+Metroid Fusion in RetroArch
+```
+
+The custom core performs memory access only on mGBA's emulation thread. It
+does not receive room credentials or connect to the Internet. The Android app
+owns authentication, room networking, reconnection, and Metroid Fusion game
+logic. The emulator bridge is bound only to the local device and is never
+exposed to the LAN.
+
+## Requirements
+
+- A 64-bit ARM Android device (`arm64-v8a`)
+- 64-bit RetroArch (`com.retroarch.aarch64`)
+- The custom mGBA Archipelago bridge core installed in RetroArch
+- A legally obtained clean US Metroid Fusion GBA ROM
+- An Archipelago room when playing online
+
+Offline generation and ROM patching do not require an Internet connection.
+Hosting, invitations, and live multiworld play do.
+
+## Repository layout
+
+- [`android/companion/`](android/companion/) — Android companion application,
+  embedded offline generator, hosting client, invitations, and room library
+- [`android/mgba-core-patch/`](android/mgba-core-patch/) — loopback bridge source
+  and patches for the mGBA libretro core
+- [`android/README.md`](android/README.md) — Android architecture and core
+  installation overview
+- [`android/companion/README.md`](android/companion/README.md) — detailed
+  implementation, protocol, generator, and build documentation
+
+## Building the Android companion
+
+The app targets JDK 17 and packages only `arm64-v8a`. From
+`android/companion`, build the debug APK with:
+
+```powershell
+.\gradlew.bat :app:assembleDebug
+```
+
+Chaquopy requires a Python 3.12 build interpreter. If it is not discoverable
+automatically, provide it explicitly:
+
+```powershell
+.\gradlew.bat :app:assembleDebug "-Pchaquopy.buildPython=C:\path\to\python.exe"
+```
+
+See the [companion documentation](android/companion/README.md) for further
+details. The custom core is built separately from mGBA and installed through
+RetroArch's **Load Core > Install or Restore a Core** command.
+
+## Privacy and legal notes
+
+- No commercial ROM is included in this repository or the Android APK.
+- The cached base ROM stays in private app storage and can be forgotten from
+  the companion.
+- The native emulator bridge listens only on Android loopback.
+- The secret `archipelago.gg` website-session identifier is never included in
+  ordinary invitations.
+- Public room identifiers and player patches are shared only when the user
+  explicitly creates an invitation.
+
+Metroid Fusion is a Nintendo property. Archipelago, mGBA, RetroArch, and the
+Metroid Fusion APWorld retain their respective licenses and ownership. Review
+the included license files before redistributing binaries or modified source.
+
+## Upstream Archipelago
+
+[Archipelago](https://archipelago.gg) is a framework for multiworld game
+randomizers. For the official desktop application, supported-game list,
+tutorials, releases, contribution guide, and community resources, use the
+upstream project:
+
+- [Official website](https://archipelago.gg)
+- [Official repository](https://github.com/ArchipelagoMW/Archipelago)
+- [Tutorials](https://archipelago.gg/tutorial/)
+- [Official releases](https://github.com/ArchipelagoMW/Archipelago/releases)
+- [Contributing guidelines](docs/contributing.md)
+- [Code of conduct](docs/code_of_conduct.md)
