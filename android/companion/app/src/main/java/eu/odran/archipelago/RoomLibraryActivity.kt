@@ -3,7 +3,6 @@ package eu.odran.archipelago
 import android.app.Activity
 import android.app.AlertDialog
 import android.os.Bundle
-import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
@@ -20,23 +19,18 @@ class RoomLibraryActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         roomsContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(48, 48, 48, 48)
-            addView(TextView(this@RoomLibraryActivity).apply {
-                text = "Imported multiplayer rooms"
-                textSize = 24f
-            })
-            addView(TextView(this@RoomLibraryActivity).apply {
-                text = "Choose the room the companion should use. Imported rooms and saved-ROM shortcuts remain here until you delete them."
-                textSize = 16f
-                setPadding(0, 8, 0, 20)
-            })
-            addView(roomsContainer, matchWrapParams())
+        val content = CompanionUi.screen(this).apply {
+            addView(CompanionUi.pageTitle(
+                this@RoomLibraryActivity,
+                "Saved rooms",
+                "Choose which multiplayer room the companion should use.",
+            ), CompanionUi.fullWidth())
+            addView(roomsContainer, CompanionUi.cardParams(this@RoomLibraryActivity))
             addView(Button(this@RoomLibraryActivity).apply {
                 text = "Back"
+                CompanionUi.styleQuiet(this)
                 setOnClickListener { finish() }
-            }, matchWrapParams())
+            }, CompanionUi.cardParams(this@RoomLibraryActivity, 12))
         }
         val scrollView = ScrollView(this).apply { addView(content) }
         SystemBarInsets.apply(window, scrollView)
@@ -57,21 +51,22 @@ class RoomLibraryActivity : Activity() {
             return
         }
 
-        rooms.forEachIndexed { index, room ->
-            if (index > 0) roomsContainer.addView(View(this).apply {
-                setBackgroundColor(0x22000000)
-            }, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1))
-            roomsContainer.addView(roomView(room, room.roomId == active?.roomId), matchWrapParams())
+        rooms.forEach { room ->
+            roomsContainer.addView(
+                roomView(room, room.roomId == active?.roomId),
+                CompanionUi.cardParams(this, 10),
+            )
         }
     }
 
-    private fun roomView(room: JoinedRoom, isActive: Boolean) = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(0, 20, 0, 20)
+    private fun roomView(room: JoinedRoom, isActive: Boolean) = CompanionUi.card(
+        this,
+        if (isActive) "Active room" else (room.playerName ?: "Imported room"),
+    ).apply {
         addView(TextView(this@RoomLibraryActivity).apply {
             text = buildString {
-                if (isActive) append("✓ Active room\n")
-                append(room.playerName?.let { "$it · slot ${room.playerSlot}" } ?: "Imported room")
+                if (isActive && !room.playerName.isNullOrBlank()) append("${room.playerName} · slot ${room.playerSlot}")
+                else if (!room.playerName.isNullOrBlank()) append("Slot ${room.playerSlot}")
                 append("\nRoom ${room.roomId.take(12)}…")
                 append(if (room.port > 0) "\narchipelago.gg:${room.port}" else "\nNo active server port")
                 if (room.players.isNotEmpty()) append("\nPlayers: ${room.players.joinToString()}")
@@ -80,17 +75,19 @@ class RoomLibraryActivity : Activity() {
                     append("\nUpdated ${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(room.updatedAt))}")
                 }
             }
-            textSize = 17f
+            CompanionUi.styleMuted(this)
         }, matchWrapParams())
         addView(Button(this@RoomLibraryActivity).apply {
             text = if (isActive) "Currently active" else "Switch to this room"
             isEnabled = !isActive
+            if (isActive) CompanionUi.styleQuiet(this) else CompanionUi.stylePrimary(this)
             setOnClickListener { activate(room.roomId) }
-        }, matchWrapParams())
+        }, CompanionUi.insetTop(this, this@RoomLibraryActivity, 8))
         addView(Button(this@RoomLibraryActivity).apply {
             text = "Delete saved room"
+            CompanionUi.styleDanger(this)
             setOnClickListener { confirmDelete(room) }
-        }, matchWrapParams())
+        }, CompanionUi.insetTop(this, this@RoomLibraryActivity, 4))
     }
 
     private fun activate(roomId: String) {

@@ -3,6 +3,7 @@ package eu.odran.archipelago
 import android.content.Context
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
@@ -25,6 +26,35 @@ data class GenerationResult(
     val players: List<String>,
     val files: List<GeneratedArtifact>,
     val patches: List<GeneratedArtifact>,
+)
+
+data class FormChoice(val value: String, val label: String)
+
+data class FormOption(
+    val key: String,
+    val label: String,
+    val description: String,
+    val kind: String,
+    val defaultValue: Any?,
+    val choices: List<FormChoice>,
+    val specialValues: List<FormChoice>,
+    val minimum: Int?,
+    val maximum: Int?,
+)
+
+data class FormOptionGroup(
+    val name: String,
+    val startCollapsed: Boolean,
+    val options: List<FormOption>,
+)
+
+data class GameOptionSchema(val game: String, val groups: List<FormOptionGroup>)
+
+data class PlayerFormData(
+    var name: String,
+    var game: String,
+    val values: JSONObject,
+    val extras: JSONObject,
 )
 
 /** Serialized access to the embedded Archipelago Python runtime. */
@@ -50,6 +80,78 @@ object OfflineGenerator {
         require(game in availableGames(context)) { "Install the $game APWorld before loading its template" }
         python(context).getModule("offline_generator")
             .callAttr("template_for_game", workDirectory(context).absolutePath, game)
+            .toString()
+    }
+
+    fun optionSchema(context: Context, game: String): GameOptionSchema = synchronized(runtimeLock) {
+        require(game in availableGames(context)) { "Install the $game APWorld before loading its options" }
+        val root = JSONObject(
+            python(context).getModule("offline_generator")
+                .callAttr("option_schema_for_game", workDirectory(context).absolutePath, game)
+                .toString(),
+        )
+        val groupsJson = root.getJSONArray("groups")
+        GameOptionSchema(
+            game = root.getString("game"),
+            groups = List(groupsJson.length()) { groupIndex ->
+                val group = groupsJson.getJSONObject(groupIndex)
+                val options = group.getJSONArray("options")
+                FormOptionGroup(
+                    name = group.getString("name"),
+                    startCollapsed = group.optBoolean("start_collapsed"),
+                    options = List(options.length()) { optionIndex ->
+                        val option = options.getJSONObject(optionIndex)
+                        FormOption(
+                            key = option.getString("key"),
+                            label = option.getString("label"),
+                            description = option.optString("description"),
+                            kind = option.getString("kind"),
+                            defaultValue = option.opt("default").takeUnless { it == JSONObject.NULL },
+                            choices = parseChoices(option.optJSONArray("choices")),
+                            specialValues = parseChoices(option.optJSONArray("special_values")),
+                            minimum = (option.opt("minimum") as? Number)?.toInt(),
+                            maximum = (option.opt("maximum") as? Number)?.toInt(),
+                        )
+                    },
+                )
+            },
+        )
+    }
+
+    fun playerFormsFromYaml(context: Context, yaml: String): List<PlayerFormData> = synchronized(runtimeLock) {
+        val root = JSONObject(
+            python(context).getModule("offline_generator")
+                .callAttr("player_forms_from_yaml", workDirectory(context).absolutePath, yaml)
+                .toString(),
+        )
+        val players = root.getJSONArray("players")
+        List(players.length()) { index ->
+            val player = players.getJSONObject(index)
+            PlayerFormData(
+                name = player.getString("name"),
+                game = player.getString("game"),
+                values = player.getJSONObject("values"),
+                extras = player.optJSONObject("extras") ?: JSONObject(),
+            )
+        }
+    }
+
+    fun encodePlayerForms(players: List<PlayerFormData>): String = JSONObject().apply {
+        put("players", JSONArray().apply {
+            players.forEach { player ->
+                put(JSONObject().apply {
+                    put("name", player.name)
+                    put("game", player.game)
+                    put("values", JSONObject(player.values.toString()))
+                    put("extras", JSONObject(player.extras.toString()))
+                })
+            }
+        })
+    }.toString()
+
+    fun yamlFromPlayerForms(context: Context, playersJson: String): String = synchronized(runtimeLock) {
+        python(context).getModule("offline_generator")
+            .callAttr("yaml_from_player_forms", playersJson)
             .toString()
     }
 
@@ -121,5 +223,14 @@ object OfflineGenerator {
         python(context).getModule("offline_generator")
             .callAttr("patch_rom", patch, baseRom, output.absolutePath, workDirectory.absolutePath)
         output
+    }
+
+    private fun parseChoices(array: JSONArray?): List<FormChoice> = if (array == null) {
+        emptyList()
+    } else {
+        List(array.length()) { index ->
+            val choice = array.getJSONObject(index)
+            FormChoice(choice.getString("value"), choice.getString("label"))
+        }
     }
 }

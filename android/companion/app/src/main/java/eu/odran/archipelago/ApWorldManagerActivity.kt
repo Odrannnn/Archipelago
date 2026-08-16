@@ -21,26 +21,32 @@ class ApWorldManagerActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         worldsContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        status = TextView(this).apply { textSize = 16f }
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(32, 32, 32, 32)
-            addView(TextView(this@ApWorldManagerActivity).apply {
-                text = "Installed APWorlds"
-                textSize = 24f
-            })
-            addView(TextView(this@ApWorldManagerActivity).apply {
-                text = "Imported worlds can add games, complete YAML templates, mixed-seed generation, and " +
-                    "standard GBA patching. An APWorld is executable Python code and cannot be sandboxed here: " +
-                    "install files only from authors you trust. Live emulator synchronization is available when " +
-                    "the world provides a standard GBA BizHawk client compatible with the Android bridge."
-            })
-            addView(Button(this@ApWorldManagerActivity).apply {
-                text = "Import trusted .apworld"
-                setOnClickListener { confirmImport() }
-            }, matchWrap())
-            addView(worldsContainer, matchWrap())
-            addView(status, matchWrap())
+        status = TextView(this).apply { CompanionUi.styleBody(this) }
+        val content = CompanionUi.screen(this).apply {
+            addView(CompanionUi.pageTitle(
+                this@ApWorldManagerActivity,
+                "Installed APWorlds",
+                "Add and inspect the game packages available to the companion.",
+            ), CompanionUi.fullWidth())
+            addView(CompanionUi.card(
+                this@ApWorldManagerActivity,
+                "Import a game",
+                "APWorlds contain executable Python. Only install files from authors you trust.",
+            ).apply {
+                addView(Button(this@ApWorldManagerActivity).apply {
+                    text = "Import trusted .apworld"
+                    CompanionUi.stylePrimary(this)
+                    setOnClickListener { confirmImport() }
+                }, matchWrap())
+                addView(status, CompanionUi.insetTop(status, this@ApWorldManagerActivity, 8))
+            }, CompanionUi.cardParams(this@ApWorldManagerActivity))
+            addView(CompanionUi.card(
+                this@ApWorldManagerActivity,
+                "Available games",
+                "Capabilities depend on the package's generator, patch handler, and live client.",
+            ).apply {
+                addView(worldsContainer, matchWrap())
+            }, CompanionUi.cardParams(this@ApWorldManagerActivity))
         }
         val scroll = ScrollView(this).apply { addView(content) }
         SystemBarInsets.apply(window, scroll)
@@ -109,10 +115,11 @@ class ApWorldManagerActivity : Activity() {
             val failure = failures[world.packageName]
             worldsContainer.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(0, 24, 0, 24)
+                setPadding(0, CompanionUi.dp(this@ApWorldManagerActivity, 12), 0, CompanionUi.dp(this@ApWorldManagerActivity, 8))
                 addView(TextView(this@ApWorldManagerActivity).apply {
                     text = "${world.game} ${world.worldVersion}"
                     textSize = 19f
+                    setTextColor(CompanionUi.text)
                 })
                 addView(TextView(this@ApWorldManagerActivity).apply {
                     val installedDate = DateFormat.getDateTimeInstance().format(Date(world.installedAt))
@@ -124,10 +131,13 @@ class ApWorldManagerActivity : Activity() {
                     }
                     text = "$capabilityText\nPackage ${world.packageName} · installed $installedDate\n" +
                         "SHA-256 ${world.sha256.take(16)}…"
+                    CompanionUi.styleMuted(this)
+                    setPadding(0, CompanionUi.dp(this@ApWorldManagerActivity, 4), 0, CompanionUi.dp(this@ApWorldManagerActivity, 6))
                 })
                 if (failure != null) {
                     addView(Button(this@ApWorldManagerActivity).apply {
                         text = "Show full load error"
+                        CompanionUi.styleQuiet(this)
                         setOnClickListener {
                             AlertDialog.Builder(this@ApWorldManagerActivity)
                                 .setTitle("${world.game} load error")
@@ -139,6 +149,7 @@ class ApWorldManagerActivity : Activity() {
                 }
                 addView(Button(this@ApWorldManagerActivity).apply {
                     text = "Remove ${world.game}"
+                    CompanionUi.styleDanger(this)
                     setOnClickListener { confirmRemove(world) }
                 })
             })

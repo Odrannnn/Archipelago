@@ -25,6 +25,13 @@ def _prepare_runtime(work_directory: str) -> tuple[Path, Path]:
     players.mkdir(parents=True, exist_ok=True)
     output.mkdir(parents=True, exist_ok=True)
 
+    # Android starts Python in a read-only working directory. Imported APWorlds
+    # occasionally write diagnostics or other incidental files using relative
+    # paths, so give them a stable app-private directory. Keep this separate
+    # from `output`: everything in that folder is treated as a generated seed
+    # artifact and may be cleared before the next generation.
+    os.chdir(root)
+
     import Utils
 
     Utils.user_path.cached_path = str(root)
@@ -155,6 +162,197 @@ def template_for_game(work_directory: str, game: str) -> str:
                 lines.append(f"  {option_key}: {dumped}")
     lines.append("")
     return "\n".join(lines)
+
+
+def _json_value(value):
+    """Convert option defaults and YAML values into JSON-compatible data."""
+    if isinstance(value, dict):
+        return {str(key): _json_value(content) for key, content in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_json_value(content) for content in value]
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    return str(value)
+
+
+def _form_option_value(option, value):
+    """Normalize ordinary scalar values while preserving weighted/custom structures."""
+    from Options import Choice, NamedRange, TextChoice, Toggle
+
+    if isinstance(value, (dict, list, tuple, set, frozenset)):
+        return _json_value(value)
+    if isinstance(value, str) and (
+            value.lower() == "random" or value.lower().startswith("random-")):
+        return value
+    try:
+        parsed = option.from_any(value)
+    except Exception:
+        return _json_value(value)
+    if issubclass(option, Toggle):
+        return bool(parsed.value)
+    if issubclass(option, Choice):
+        if not issubclass(option, TextChoice) or isinstance(parsed.value, int):
+            return parsed.current_key
+    if issubclass(option, NamedRange):
+        for name, number in option.special_range_names.items():
+            if parsed.value == number:
+                return name
+    return _json_value(parsed.value)
+
+
+def _option_schema(world) -> dict:
+    from Options import (Choice, FreeText, NamedRange, OptionDict, OptionList,
+                         OptionSet, Range, TextChoice, Toggle, get_option_groups)
+
+    collapsed_groups = {
+        group.name: bool(group.start_collapsed)
+        for group in world.web.option_groups
+    }
+    groups = []
+    for group_name, options in get_option_groups(world).items():
+        fields = []
+        for key, option in options.items():
+            choices = []
+            special_values = []
+            if issubclass(option, Toggle):
+                kind = "toggle"
+            elif issubclass(option, TextChoice):
+                kind = "text_choice"
+                choices = [
+                    {"value": name, "label": option.get_option_name(number)}
+                    for number, name in option.name_lookup.items()
+                ]
+            elif issubclass(option, Choice):
+                kind = "choice"
+                choices = [
+                    {"value": name, "label": option.get_option_name(number)}
+                    for number, name in option.name_lookup.items()
+                ]
+                if "random" not in option.options:
+                    choices.append({"value": "random", "label": "Random"})
+            elif issubclass(option, NamedRange):
+                kind = "range"
+                special_values = [
+                    {"value": name, "label": name.replace("_", " ").title()}
+                    for name in option.special_range_names
+                ]
+            elif issubclass(option, Range):
+                kind = "range"
+            elif issubclass(option, FreeText):
+                kind = "text"
+            elif issubclass(option, OptionDict):
+                kind = "dict"
+            elif issubclass(option, OptionList):
+                kind = "list"
+            elif issubclass(option, OptionSet):
+                kind = "set"
+            else:
+                kind = "custom"
+
+            field = {
+                "key": key,
+                "label": getattr(option, "display_name", None) or key.replace("_", " ").title(),
+                "description": inspect.cleandoc(option.__doc__ or "").strip(),
+                "kind": kind,
+                "default": _form_option_value(option, option.default),
+                "choices": choices,
+                "special_values": special_values,
+                "supports_weighting": bool(getattr(option, "supports_weighting", False)),
+            }
+            if issubclass(option, Range):
+                field["minimum"] = option.range_start
+                field["maximum"] = option.range_end
+            fields.append(field)
+        groups.append({
+            "name": group_name,
+            "start_collapsed": collapsed_groups.get(group_name, False),
+            "options": fields,
+        })
+    return {"game": world.game, "groups": groups}
+
+
+def option_schema_for_game(work_directory: str, game: str) -> str:
+    """Return the native-form description for an installed APWorld."""
+    _, registry = _load_worlds(work_directory)
+    world = registry.world_types.get(game)
+    if world is None:
+        raise ValueError(f"No installed world handles game {game}")
+    return json.dumps(_option_schema(world))
+
+
+def player_forms_from_yaml(work_directory: str, yaml_text: str) -> str:
+    """Parse one or more player YAML documents into normalized native-form data."""
+    import yaml
+
+    _, registry = _load_worlds(work_directory)
+    players = []
+    for index, document in enumerate(yaml.safe_load_all(yaml_text), start=1):
+        if not isinstance(document, dict):
+            continue
+        game = str(document.get("game", "")).strip()
+        world = registry.world_types.get(game)
+        if world is None:
+            raise ValueError(f"Player {index} uses unavailable game {game or '(missing)'}")
+        supplied = document.get(game, {})
+        if supplied is None:
+            supplied = {}
+        if not isinstance(supplied, dict):
+            raise ValueError(f"{game} options for player {index} must be a mapping")
+        values = {}
+        for key, option in world.options_dataclass.type_hints.items():
+            values[key] = _form_option_value(option, supplied.get(key, option.default))
+        # Preserve fields from future or custom APWorlds even if this embedded
+        # Archipelago core does not yet expose them in the form schema.
+        for key, value in supplied.items():
+            if key not in values:
+                values[str(key)] = _json_value(value)
+        extras = {
+            str(key): _json_value(value)
+            for key, value in document.items()
+            if key not in {"name", "game", game}
+        }
+        players.append({
+            "name": str(document.get("name") or f"Player {index}"),
+            "game": game,
+            "values": values,
+            "extras": extras,
+        })
+    if not players:
+        raise ValueError("Add at least one player before generating")
+    return json.dumps({"players": players})
+
+
+def yaml_from_player_forms(players_json: str) -> str:
+    """Serialize native-form data into standard multi-document Archipelago YAML."""
+    import yaml
+
+    payload = json.loads(players_json)
+    documents = []
+    for index, player in enumerate(payload.get("players", []), start=1):
+        game = str(player.get("game", "")).strip()
+        if not game:
+            raise ValueError(f"Player {index} has no game")
+        name = str(player.get("name", "")).strip()
+        if not name:
+            raise ValueError(f"Player {index} has no name")
+        extras = dict(player.get("extras") or {})
+        document = {"name": name}
+        if "description" in extras:
+            document["description"] = extras.pop("description")
+        document["game"] = game
+        if "requires" in extras:
+            document["requires"] = extras.pop("requires")
+        document.update(extras)
+        document[game] = dict(player.get("values") or {})
+        documents.append(document)
+    if not documents:
+        raise ValueError("Add at least one player before generating")
+    return yaml.safe_dump_all(
+        documents,
+        sort_keys=False,
+        allow_unicode=True,
+        default_flow_style=False,
+    ).strip() + "\n"
 
 
 def world_catalog(work_directory: str) -> str:
