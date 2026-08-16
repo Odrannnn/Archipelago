@@ -155,7 +155,7 @@ class MainActivity : Activity() {
                 CompanionUi.pageTitle(
                     this@MainActivity,
                     "Archipelago Companion",
-                    "Play, generate, and manage GBA multiworlds from your phone.",
+                    "Play, generate, and manage mGBA multiworlds from your phone.",
                 ),
                 CompanionUi.fullWidth(),
             )
@@ -273,9 +273,9 @@ class MainActivity : Activity() {
             contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) cursor.getString(0) else null
             }
-        }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('/') ?: "Patched GBA game.gba"
-        if (!name.endsWith(".gba", ignoreCase = true)) {
-            inviteStatus.text = "Select a patched .gba file."
+        }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('/') ?: "Patched game ROM"
+        if (!isSupportedRomName(name)) {
+            inviteStatus.text = "Select a patched .gba or .gbc file."
             return
         }
         val room = JoinedRoomStore.load(this)
@@ -331,12 +331,15 @@ class MainActivity : Activity() {
             if (count < 0) break
             if (count == 0) continue
             totalBytes += count
-            require(totalBytes <= MAX_GBA_ROM_BYTES) { "The selected file is too large to be a GBA ROM." }
+            require(totalBytes <= MAX_ROM_BYTES) { "The selected file is too large to be a supported ROM." }
             digest.update(buffer, 0, count)
         }
         require(totalBytes > 0) { "The selected ROM is empty." }
         digest.digest().toHexString()
     } ?: error("Could not read the selected ROM.")
+
+    private fun isSupportedRomName(name: String): Boolean =
+        name.endsWith(".gba", ignoreCase = true) || name.endsWith(".gbc", ignoreCase = true)
 
     private fun ByteArray.sha256Hex(): String = MessageDigest.getInstance("SHA-256")
         .digest(this)
@@ -428,7 +431,7 @@ class MainActivity : Activity() {
             inviteStatus.text = "Could not load invitation: its player patch does not declare a game."
             return
         }
-        if (ImportedApWorldStore.list(this).any { it.game == game }) {
+        if (OfflineGenerator.isBundledGame(game) || ImportedApWorldStore.list(this).any { it.game == game }) {
             resolveAndLoadRoom(invite)
             return
         }
@@ -477,7 +480,7 @@ class MainActivity : Activity() {
                             shortWorldFailure(OfflineGenerator.cachedWorldFailures()[installed.packageName]),
                     )
                 require(capability.romPatch) {
-                    "The installed $requiredGame APWorld does not provide compatible GBA ROM patching."
+                    "The installed $requiredGame APWorld does not provide compatible ROM patching."
                 }
                 require(capability.liveBridge) {
                     "The installed $requiredGame APWorld does not provide compatible Android live synchronization."
@@ -498,7 +501,7 @@ class MainActivity : Activity() {
                         AlertDialog.Builder(this)
                             .setTitle("Required APWorld unavailable")
                             .setMessage(
-                                "${error.message}\n\nOpen Manage installed APWorlds to inspect or remove it. " +
+                                "${error.message}\n\nOpen Game worlds to inspect or remove it. " +
                                     "A failed world may require restarting the companion before installing another version.",
                             )
                             .setPositiveButton("Close", null)
@@ -633,7 +636,9 @@ class MainActivity : Activity() {
         }
         thread(name = "shared-invite-rom-patching") {
             runCatching {
-                val outputName = "${File(invite.patchName ?: "Player${invite.playerSlot}.patch").nameWithoutExtension}.gba"
+                val extension = OfflineGenerator.patchResultExtension(this, patchBytes)
+                val outputName =
+                    "${File(invite.patchName ?: "Player${invite.playerSlot}.patch").nameWithoutExtension}$extension"
                 val output = File(filesDir, "imported_invites/output/$outputName").apply {
                     parentFile?.mkdirs()
                 }
@@ -775,7 +780,7 @@ class MainActivity : Activity() {
                         AlertDialog.Builder(this@MainActivity)
                             .setTitle("Change saved ROM shortcut?")
                             .setMessage(
-                                "Choose another copy of the exact patched .gba already saved for this room. " +
+                                "Choose another copy of the exact patched ROM already saved for this room. " +
                                     "The app will verify its SHA-256 fingerprint before changing the shortcut. " +
                                     "It does not modify or delete the current ROM.",
                             )
@@ -871,6 +876,6 @@ class MainActivity : Activity() {
         private const val REQUEST_SELECT_PATCHED_ROM = 304
         private const val REQUEST_MANAGE_ROOMS = 305
         private const val REQUEST_INVITE_APWORLD = 306
-        private const val MAX_GBA_ROM_BYTES = 32L * 1024 * 1024 + 512
+        private const val MAX_ROM_BYTES = 32L * 1024 * 1024 + 512
     }
 }

@@ -13,7 +13,12 @@ game-specific Archipelago logic. No memory port is exposed to the LAN.
 ## Current state
 
 - `mgba-core-patch/` is a source patch for mGBA's libretro core.
-- `companion/` connects to that bridge and validates a loaded GBA ROM.
+- `companion/` connects to that bridge and validates a loaded GBA or GBC ROM.
+- `companion/` bundles the compatible upstream Castlevania: Circle of the Moon,
+  Link's Awakening DX, Mario & Luigi: Superstar Saga, Pokémon Emerald, and
+  Yu-Gi-Oh! 2006 worlds for generation, ROM patching, and live-client execution.
+- Link's Awakening DX uses an Android adapter for its custom client protocol,
+  carried over the same loopback bridge without RetroArch Network Commands.
 - `companion/` now has a Metroid Fusion profile for ArchipelagoMine APWorld
   `v1.22.4`: it recognizes the patched `MFU` ROM identifier, produces the AP
   authentication token, reads checks/area/room/receipt state, detects credits,
@@ -34,17 +39,17 @@ game-specific Archipelago logic. No memory port is exposed to the LAN.
   with the sending player's current alias.
   Room credentials and Internet access remain outside the custom core.
 
-Both supported client protocols are documented in `companion/README.md`.
+The supported client runtime is documented in `companion/README.md`.
 
 ## Installing the custom RetroArch core on Android
 
 Do not configure RetroArch's Core directory to shared storage and run the
 library directly from `/sdcard`. Modern Android versions restrict executable
-native code in shared writable storage. Package the compiled core as a ZIP,
-copy that ZIP to Downloads, and use RetroArch's **Load Core > Install or
-Restore a Core** command. RetroArch then extracts the library into its private
-core directory. Keep a distinct filename such as
-`mgba_apbridge_v7_libretro_android.so` so the stock mGBA core is not overwritten.
+native code in shared writable storage. Copy the uncompressed `.so` to
+Downloads, then use RetroArch's **Load Core > Install or Restore a Core**
+command to copy it into RetroArch's private core directory. Keep a distinct
+filename such as
+`mgba_apbridge_v8_libretro_android.so` so the stock mGBA core is not overwritten.
 
 For NDK r27 and older, configure CMake with:
 

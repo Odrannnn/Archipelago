@@ -232,7 +232,7 @@ class GeneratorActivity : Activity() {
             setOnClickListener { seedFile?.let { hostSeed(it, currentHistoryId) } }
         }
         patchButton = Button(this).apply {
-            text = "Create patched GBA"
+            text = "Create patched ROM"
             CompanionUi.stylePrimary(this)
             isEnabled = false
             setOnClickListener { patchWithCachedBaseRomOrChoose() }
@@ -283,7 +283,7 @@ class GeneratorActivity : Activity() {
         }
 
         val manageWorldsButton = Button(this).apply {
-            text = "Installed APWorlds"
+            text = "Game worlds"
             CompanionUi.styleQuiet(this)
             setOnClickListener {
                 startActivity(Intent(this@GeneratorActivity, ApWorldManagerActivity::class.java))
@@ -402,7 +402,10 @@ class GeneratorActivity : Activity() {
         thread(name = "offline-generator-startup") {
             runCatching {
                 val catalog = OfflineGenerator.refreshCatalog(this)
-                val firstGame = catalog.firstOrNull { it.source == "imported" && it.template }?.game
+                val firstGame = (
+                    catalog.firstOrNull { it.source == "imported" && it.template }
+                        ?: catalog.firstOrNull { it.source == "bundled" && it.template }
+                    )?.game
                 val template = firstGame?.let { OfflineGenerator.defaultYaml(this, it) }
                 val forms = template?.let { OfflineGenerator.playerFormsFromYaml(this, it) }.orEmpty()
                 val schemas = forms.map { it.game }.distinct().associateWith {
@@ -416,10 +419,11 @@ class GeneratorActivity : Activity() {
                         yamlEditor.isEnabled = forms.isNotEmpty()
                         generateButton.isEnabled = forms.isNotEmpty()
                         val imported = catalog.count { it.source == "imported" }
+                        val bundled = catalog.count { it.source == "bundled" }
                         status.text = if (forms.isEmpty()) {
-                            "No game APWorlds installed. Open Manage installed APWorlds and import a trusted .apworld."
+                            "No compatible game worlds loaded. Open Game worlds for details."
                         } else {
-                            "Ready · ${catalog.size} worlds loaded · $imported imported"
+                            "Ready · $bundled built in · $imported imported"
                         }
                     }
                 }
@@ -599,7 +603,7 @@ class GeneratorActivity : Activity() {
         playerNameEditor.setText(player?.name.orEmpty())
         if (player == null) {
             playerOptionsContainer.addView(TextView(this).apply {
-                text = "Install an APWorld to create the first player."
+                text = "No compatible game world is available."
                 CompanionUi.styleMuted(this)
             })
             renderingPlayer = false
@@ -1058,7 +1062,7 @@ class GeneratorActivity : Activity() {
             } else {
                 "Choose which player's ROM to create:"
             }
-            text = if (canPatchSelectedRom()) heading else "$heading\nThis world's output is export-only in the GBA companion."
+            text = if (canPatchSelectedRom()) heading else "$heading\nThis world's output is export-only in the companion."
         })
         if (availablePatches.size > 1) {
             availablePatches.forEach { patch ->
@@ -1552,8 +1556,10 @@ class GeneratorActivity : Activity() {
     }
 
     private fun createPatchedRom(selectedPatch: File, baseBytes: ByteArray): File {
-        val output = File(filesDir, "offline_generator/output/${selectedPatch.nameWithoutExtension}.gba")
-        return OfflineGenerator.patchRom(this, selectedPatch.readBytes(), baseBytes, output)
+        val patchBytes = selectedPatch.readBytes()
+        val extension = OfflineGenerator.patchResultExtension(this, patchBytes)
+        val output = File(filesDir, "offline_generator/output/${selectedPatch.nameWithoutExtension}$extension")
+        return OfflineGenerator.patchRom(this, patchBytes, baseBytes, output)
     }
 
     private fun beginExport(name: String, bytes: ByteArray) {
@@ -1590,7 +1596,9 @@ class GeneratorActivity : Activity() {
                         ?: error("Could not open the selected destination")
                 }.onSuccess {
                     status.text = "Saved ${export.first}"
-                    if (export.first.endsWith(".gba", ignoreCase = true)) {
+                    if (export.first.endsWith(".gba", ignoreCase = true) ||
+                        export.first.endsWith(".gbc", ignoreCase = true)
+                    ) {
                         offerRetroArchLaunch(export.first, destination)
                     }
                 }.onFailure { showError("Could not save ${export.first}", it) }

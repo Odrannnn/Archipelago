@@ -7,6 +7,6 @@ interface RoomSession {
     val isClosed: Boolean
     val connectedSlot: Int?
     fun connect()
-    fun tick()
+    fun tick(emulatorAvailable: Boolean = true)
     fun close()
 }

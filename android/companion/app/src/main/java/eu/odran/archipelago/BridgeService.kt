@@ -80,128 +80,200 @@ class BridgeService : Service() {
     }
 
     private fun connectionLoop() {
-        while (running && !Thread.currentThread().isInterrupted) {
-            val bridge = MGBABridgeClient()
-            var session: RoomSession? = null
-            var pythonRuntime: PythonGbaRuntime? = null
-            var sessionAddress: String? = null
-            activeBridge = bridge
-            try {
-                publish("Waiting for the custom mGBA core on 127.0.0.1:${BridgeProtocol.PORT}…")
-                bridge.connect()
-                val (version, platform) = bridge.hello()
-                if (version < BridgeProtocol.ATOMIC_BATCH_PROTOCOL_VERSION) {
-                    throw IllegalStateException(
-                        "The installed custom mGBA core reports bridge protocol $version; " +
-                            "standard APWorld clients require protocol ${BridgeProtocol.ATOMIC_BATCH_PROTOCOL_VERSION}",
-                    )
-                }
-                val runtime = PythonGbaRuntime(this, bridge)
-                pythonRuntime = runtime
-                var activeGame: ImportedGbaRomInfo? = null
-                var activeIdentity: Pair<String, String>? = null
-                publish("mGBA connected · protocol $version · platform $platform · waiting for $PATCHED_ROM_DESCRIPTION…")
+        var bridge: MGBABridgeClient? = null
+        var runtime: PythonGbaRuntime? = null
+        var session: RoomSession? = null
+        var sessionSettings: ServerSettings? = null
+        var activeGame: ImportedGbaRomInfo? = null
+        var activeIdentity: Pair<String, String>? = null
+        var nextBridgeAttempt = 0L
+        var nextSessionAttempt = 0L
+        var nextRomProbeAt = 0L
+        var nextPingAt = 0L
 
-                var nextSessionAttempt = 0L
-                var nextRomProbeAt = 0L
-                var nextPingAt = 0L
+        try {
+            while (running && !Thread.currentThread().isInterrupted) {
+                val now = System.currentTimeMillis()
 
-                while (running && !Thread.currentThread().isInterrupted) {
-                    val now = System.currentTimeMillis()
-                    if (now >= nextRomProbeAt) {
-                        val detected = if (activeGame?.let { runtime.validateActive(it) } == true) {
-                            activeGame
-                        } else {
-                            runtime.probe()
-                        }
-                        val detectedIdentity = detected?.let { it.game to it.auth }
-                        if (detectedIdentity != activeIdentity) {
-                            session?.close()
-                            if (activeSession === session) activeSession = null
-                            session = null
-                            sessionAddress = null
-                            activeGame = detected
-                            activeIdentity = detectedIdentity
-                            val detectedGameName = detected?.game
-                            detectedGameName?.let {
-                                if (activeGameName != detectedGameName) {
-                                    activeGameName = detectedGameName
-                                    activePlayerSlot = null
-                                    activeServerAddress = null
-                                    rememberActiveRom()
-                                }
-                            }
-                            nextSessionAttempt = 0L
-                            if (detectedIdentity == null) publishServerWaitingForRom()
-                            publish(
-                                if (detectedIdentity == null) {
-                                    "mGBA connected · waiting for $PATCHED_ROM_DESCRIPTION…"
-                                } else {
-                                    "mGBA connected · ${detected!!.game} · standard APWorld client"
-                                },
+                if (bridge == null && now >= nextBridgeAttempt) {
+                    val candidate = MGBABridgeClient()
+                    activeBridge = candidate
+                    try {
+                        publish("Waiting for the custom mGBA core on 127.0.0.1:${BridgeProtocol.PORT}…")
+                        candidate.connect()
+                        val (version, platform) = candidate.hello()
+                        if (version < BridgeProtocol.SAVEDATA_READ_PROTOCOL_VERSION) {
+                            throw IllegalStateException(
+                                "The installed custom mGBA core reports bridge protocol $version; " +
+                                    "supported live clients require protocol ${BridgeProtocol.SAVEDATA_READ_PROTOCOL_VERSION}",
                             )
                         }
-                        nextRomProbeAt = now + TimeUnit.SECONDS.toMillis(1)
-                    }
 
-                    val detected = activeGame
+                        val existingRuntime = runtime
+                        if (existingRuntime != null && existingRuntime.acceptsPlatform(platform)) {
+                            existingRuntime.attachBridge(candidate, platform)
+                            if (activeIdentity?.first == "Links Awakening DX") {
+                                existingRuntime.bridgeReconnected()
+                            }
+                        } else {
+                            val oldSession = session
+                            oldSession?.close()
+                            if (activeSession === oldSession) activeSession = null
+                            session = null
+                            sessionSettings = null
+                            existingRuntime?.close()
+                            runtime = PythonGbaRuntime(this, candidate, platform)
+                            activeGame = null
+                            activeIdentity = null
+                        }
+
+                        bridge = candidate
+                        activeBridge = candidate
+                        nextRomProbeAt = 0L
+                        nextPingAt = now + TimeUnit.SECONDS.toMillis(1)
+                        publish(
+                            activeGame?.let { "mGBA reconnected · ${it.game} · room session preserved" }
+                                ?: "mGBA connected · protocol $version · platform $platform · waiting for $PATCHED_ROM_DESCRIPTION…",
+                        )
+                    } catch (error: Exception) {
+                        candidate.close()
+                        if (activeBridge === candidate) activeBridge = null
+                        nextBridgeAttempt = now + TimeUnit.SECONDS.toMillis(1)
+                        if (running) {
+                            Log.w(TAG, "mGBA unavailable; reconnecting local bridge", error)
+                            publish("⚠️ mGBA paused or unavailable · Archipelago session retained")
+                        }
+                    }
+                }
+
+                val connectedBridge = bridge
+                val activeRuntime = runtime
+                if (connectedBridge != null && activeRuntime != null) {
+                    try {
+                        // Check the transport before probing the ROM. A paused
+                        // RetroArch core cannot answer until retro_run resumes.
+                        if (now >= nextPingAt) {
+                            connectedBridge.ping()
+                            nextPingAt = now + TimeUnit.SECONDS.toMillis(1)
+                        }
+
+                        if (now >= nextRomProbeAt) {
+                            val detected = if (activeGame?.let { activeRuntime.validateActive(it) } == true) {
+                                activeGame
+                            } else {
+                                activeRuntime.probe()
+                            }
+                            if (!connectedBridge.isConnected) {
+                                error("mGBA stopped responding while the ROM was being inspected")
+                            }
+                            val detectedIdentity = detected?.let { it.game to it.auth }
+                            if (detectedIdentity != activeIdentity) {
+                                val oldSession = session
+                                oldSession?.close()
+                                if (activeSession === oldSession) activeSession = null
+                                session = null
+                                sessionSettings = null
+                                activeGame = detected
+                                activeIdentity = detectedIdentity
+                                detected?.game?.let { detectedGameName ->
+                                    if (activeGameName != detectedGameName) {
+                                        activeGameName = detectedGameName
+                                        activePlayerSlot = null
+                                        activeServerAddress = null
+                                        rememberActiveRom()
+                                    }
+                                }
+                                nextSessionAttempt = 0L
+                                if (detectedIdentity == null) publishServerWaitingForRom()
+                                publish(
+                                    detected?.let { "mGBA connected · ${it.game} · live bridge client" }
+                                        ?: "mGBA connected · waiting for $PATCHED_ROM_DESCRIPTION…",
+                                )
+                            }
+                            nextRomProbeAt = now + TimeUnit.SECONDS.toMillis(1)
+                        }
+                    } catch (error: Exception) {
+                        activeRuntime.detachBridge(connectedBridge)
+                        connectedBridge.close()
+                        if (activeBridge === connectedBridge) activeBridge = null
+                        bridge = null
+                        nextBridgeAttempt = now + TimeUnit.SECONDS.toMillis(1)
+                        Log.w(TAG, "Local mGBA bridge paused; preserving room session", error)
+                        publish("⚠️ mGBA paused or unavailable · Archipelago session retained")
+                    }
+                }
+
+                val detected = activeGame
+                val currentRuntime = runtime
+                if (detected != null && currentRuntime != null) {
                     val settings = ServerSettings.load(this)
-                    if (settings.isConfigured && detected != null &&
-                        (session == null || session.isClosed) &&
-                        now >= nextSessionAttempt
-                    ) {
-                        session?.close()
+                    if (session != null && (session!!.isClosed || sessionSettings != settings)) {
+                        val oldSession = session
+                        oldSession?.close()
+                        if (activeSession === oldSession) activeSession = null
+                        session = null
+                        sessionSettings = null
+                    }
+                    if (settings.isConfigured && session == null && now >= nextSessionAttempt) {
                         session = PythonArchipelagoSession(
+                            this,
                             settings,
-                            runtime,
+                            currentRuntime,
                             detected,
                             ::publishServerDetails,
                             ::publishServerState,
                         )
-                        sessionAddress = settings.address
+                        sessionSettings = settings
                         activeSession = session
-                        session.connect()
+                        session?.connect()
                         nextSessionAttempt = now + TimeUnit.SECONDS.toMillis(5)
                     }
-                    if (detected != null) session?.tick()
+
+                    try {
+                        session?.tick(bridge != null)
+                        val currentBridge = bridge
+                        if (currentBridge != null && !currentBridge.isConnected) {
+                            currentRuntime.detachBridge(currentBridge)
+                            if (activeBridge === currentBridge) activeBridge = null
+                            bridge = null
+                            nextBridgeAttempt = now + TimeUnit.SECONDS.toMillis(1)
+                            publish("⚠️ mGBA paused or unavailable · Archipelago session retained")
+                        }
+                    } catch (error: Exception) {
+                        Log.w(TAG, "Archipelago session tick failed; reconnecting room", error)
+                        val oldSession = session
+                        oldSession?.close()
+                        if (activeSession === oldSession) activeSession = null
+                        session = null
+                        sessionSettings = null
+                        nextSessionAttempt = now + TimeUnit.SECONDS.toMillis(1)
+                    }
+
                     session?.connectedSlot?.let { connectedSlot ->
-                        if (activePlayerSlot != connectedSlot || activeServerAddress != sessionAddress) {
+                        val address = sessionSettings?.address
+                        if (activePlayerSlot != connectedSlot || activeServerAddress != address) {
                             activePlayerSlot = connectedSlot
-                            activeServerAddress = sessionAddress
+                            activeServerAddress = address
                             rememberActiveRom()
                         }
                     }
-                    if (now >= nextPingAt) {
-                        bridge.ping()
-                        nextPingAt = now + TimeUnit.SECONDS.toMillis(1)
-                    }
-                    if (detected != null) {
-                        TimeUnit.MILLISECONDS.sleep(125)
-                    } else {
-                        TimeUnit.SECONDS.sleep(1)
-                    }
                 }
-            } catch (error: Exception) {
-                if (running) {
-                    Log.w(TAG, "mGBA unavailable; reconnecting", error)
-                    publish(
-                        "⚠️ mGBA not connected",
-                        Log.getStackTraceString(error),
-                    )
-                    try {
-                        TimeUnit.SECONDS.sleep(1)
-                    } catch (_: InterruptedException) {
-                        Thread.currentThread().interrupt()
-                    }
+
+                if (bridge != null || session != null) {
+                    TimeUnit.MILLISECONDS.sleep(125)
+                } else {
+                    TimeUnit.MILLISECONDS.sleep(500)
                 }
-            } finally {
-                session?.close()
-                if (activeSession === session) activeSession = null
-                pythonRuntime?.close()
-                bridge.close()
-                if (activeBridge === bridge) activeBridge = null
-                if (running) publishServerWaitingForRom()
             }
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        } finally {
+            val oldSession = session
+            oldSession?.close()
+            if (activeSession === oldSession) activeSession = null
+            runtime?.close()
+            bridge?.close()
+            if (activeBridge === bridge) activeBridge = null
         }
     }
 
@@ -315,7 +387,7 @@ class BridgeService : Service() {
         private const val ACTIVE_ROM_GAME = "game"
         private const val ACTIVE_ROM_SLOT = "slot"
         private const val ACTIVE_ROM_SERVER = "server"
-        private const val PATCHED_ROM_DESCRIPTION = "compatible patched GBA ROM"
+        private const val PATCHED_ROM_DESCRIPTION = "compatible patched GBA or GBC ROM"
         const val ACTION_RECONNECT = "eu.odran.archipelago.RECONNECT_BRIDGE"
 
         @Volatile
@@ -347,7 +419,7 @@ class BridgeService : Service() {
 
         @Volatile
         var serverStatusDetails: String? =
-            "Archipelago will connect after you load a compatible patched GBA ROM " +
+            "Archipelago will connect after you load a compatible patched GBA or GBC ROM " +
                 "in RetroArch using the custom mGBA core."
             private set
 

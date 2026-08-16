@@ -1,5 +1,7 @@
 package eu.odran.archipelago
 
+import android.content.Context
+import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -13,14 +15,16 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit
 import java.util.zip.InflaterInputStream
 
-/** Archipelago transport for an unmodified standard GBA APWorld client. */
+/** Archipelago transport for a supported client running over the mGBA bridge. */
 class PythonArchipelagoSession(
+    context: Context,
     private val settings: ServerSettings,
     private val runtime: PythonGbaRuntime,
     private val romInfo: ImportedGbaRomInfo,
     private val onStatus: (String) -> Unit,
     private val onConnectionState: (RoomConnectionState, String?) -> Unit,
 ) : WebSocketListener(), RoomSession {
+    private val snapshotStore = ArchipelagoServerSnapshotStore(context)
     private val client = OkHttpClient.Builder()
         .pingInterval(30, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
@@ -33,6 +37,9 @@ class PythonArchipelagoSession(
     private var currentAddress = settings.address
     private var triedSecureFallback = false
     private var lastRuntimeError = ""
+    private var lastRuntimeDiagnostic = ""
+    private var restoredSnapshot: JSONObject? = null
+    @Volatile private var handshakeDeadline = Long.MAX_VALUE
 
     override val connectedSlot: Int?
         get() = slot
@@ -41,11 +48,24 @@ class PythonArchipelagoSession(
         isClosed = false
         triedSecureFallback = settings.address.startsWith("wss://", ignoreCase = true)
         runtime.resetConnection()
+        restoredSnapshot = snapshotStore.load(romInfo)?.takeIf { snapshot ->
+            runtime.restoreServerSnapshot(snapshot)
+        }
+        restoredSnapshot?.let { snapshot ->
+            Log.i(
+                DIAGNOSTIC_TAG,
+                "Restored cached Archipelago state " +
+                    "slot=${snapshot.optInt("slot")} " +
+                    "checks=${snapshot.optJSONArray("checked_locations")?.length() ?: 0} " +
+                    "items=${snapshot.optJSONArray("items_received")?.length() ?: 0}",
+            )
+        }
         open(settings.address)
     }
 
     private fun open(address: String) {
         currentAddress = address
+        handshakeDeadline = System.currentTimeMillis() + HANDSHAKE_TIMEOUT_MS
         val message = "Connecting ${romInfo.game} to Archipelago at $address…"
         onStatus(message)
         onConnectionState(RoomConnectionState.CONNECTING, message)
@@ -59,16 +79,37 @@ class PythonArchipelagoSession(
         }
     }
 
-    override fun tick() {
+    override fun tick(emulatorAvailable: Boolean) {
+        if (!isClosed && slot == null && System.currentTimeMillis() >= handshakeDeadline) {
+            val timedOutSocket = socket
+            if (!triedSecureFallback && currentAddress.startsWith("ws://", ignoreCase = true)) {
+                triedSecureFallback = true
+                timedOutSocket?.cancel()
+                open("wss://${currentAddress.substringAfter("://")}")
+            } else {
+                isClosed = true
+                timedOutSocket?.cancel()
+                socket = null
+                val message = "Archipelago connection timed out before authentication"
+                onStatus(message)
+                onConnectionState(RoomConnectionState.DISCONNECTED, message)
+            }
+        }
         while (true) {
             val packet = packets.poll() ?: break
+            discardSnapshotForDifferentSeed(packet)
             runtime.processPacket(packet)
+            if (packet.optString("cmd") in SNAPSHOT_PACKETS) persistServerSnapshot()
         }
-        val result = runtime.tick()
+        val result = runtime.tick(emulatorAvailable)
         result.messages.forEach(::sendPacket)
         if (result.error.isNotBlank() && result.error != lastRuntimeError) {
             lastRuntimeError = result.error
             onStatus("${romInfo.game} client warning · ${result.error}")
+        }
+        if (result.diagnostic.isNotBlank() && result.diagnostic != lastRuntimeDiagnostic) {
+            lastRuntimeDiagnostic = result.diagnostic
+            Log.i(DIAGNOSTIC_TAG, result.diagnostic)
         }
         if (result.disconnect) {
             onStatus("${romInfo.game} client rejected this room or ROM")
@@ -126,6 +167,7 @@ class PythonArchipelagoSession(
             }
             "Connected" -> {
                 slot = packet.getInt("slot")
+                handshakeDeadline = Long.MAX_VALUE
                 val missing = packet.optJSONArray("missing_locations")?.length() ?: 0
                 val message = "Archipelago authenticated · ${romInfo.game} · slot $slot · $missing locations remaining"
                 onStatus(message)
@@ -146,6 +188,36 @@ class PythonArchipelagoSession(
 
     private fun sendPacket(packet: JSONObject): Boolean =
         socket?.send(JSONArray().put(packet).toString()) == true
+
+    private fun discardSnapshotForDifferentSeed(packet: JSONObject) {
+        if (packet.optString("cmd") != "RoomInfo") return
+        val cached = restoredSnapshot ?: return
+        val cachedSeed = cached.optString("server_seed_name")
+        val serverSeed = packet.optString("seed_name")
+        if (cachedSeed.isBlank() || serverSeed.isBlank() || cachedSeed == serverSeed) return
+
+        runtime.resetConnection()
+        snapshotStore.remove(romInfo)
+        restoredSnapshot = null
+        Log.w(
+            DIAGNOSTIC_TAG,
+            "Discarded cached Archipelago state for a different seed " +
+                "cached=$cachedSeed server=$serverSeed",
+        )
+    }
+
+    private fun persistServerSnapshot() {
+        val snapshot = runtime.serverSnapshot() ?: return
+        snapshotStore.save(romInfo, snapshot)
+        restoredSnapshot = snapshot
+        Log.d(
+            DIAGNOSTIC_TAG,
+            "Saved authoritative Archipelago state " +
+                "slot=${snapshot.optInt("slot")} " +
+                "checks=${snapshot.optJSONArray("checked_locations")?.length() ?: 0} " +
+                "items=${snapshot.optJSONArray("items_received")?.length() ?: 0}",
+        )
+    }
 
     private fun dataPackagePacket(): JSONObject = JSONObject()
         .put("cmd", "GetDataPackage")
@@ -180,5 +252,11 @@ class PythonArchipelagoSession(
         isClosed = true
         slot = null
         onConnectionState(RoomConnectionState.DISCONNECTED, "Archipelago connection closed · code $code")
+    }
+
+    companion object {
+        private const val DIAGNOSTIC_TAG = "LadxRecovery"
+        private val HANDSHAKE_TIMEOUT_MS = TimeUnit.SECONDS.toMillis(15)
+        private val SNAPSHOT_PACKETS = setOf("Connected", "RoomUpdate", "ReceivedItems", "LocationInfo")
     }
 }

@@ -75,6 +75,10 @@ async def guarded_write(ctx: Any, write_list: Sequence[Any], guard_list: Sequenc
     return bool(_call(_backend(ctx).guardedWrite, _encode_writes(write_list), _encode_writes(guard_list)))
 
 
+async def read_savedata(ctx: Any, offset: int, length: int) -> bytes:
+    return bytes(_call(_backend(ctx).readSavedata, int(offset), int(length)))
+
+
 async def display_message(ctx: Any, message: str) -> None:
     _call(_backend(ctx).displayMessage, message)
 

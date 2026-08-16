@@ -78,6 +78,9 @@ object ImportedApWorldStore {
                 }
                 val game = manifest.optString("game").trim().takeIf { it.isNotEmpty() }
                     ?: error("archipelago.json does not declare a game")
+                if (OfflineGenerator.isBundledGame(game)) {
+                    error("$game is built into the companion and does not need to be imported")
+                }
                 val compatible = manifest.optInt("compatible_version", CONTAINER_VERSION)
                 if (compatible > CONTAINER_VERSION) {
                     error("$game needs APWorld container $compatible; this app supports $CONTAINER_VERSION")

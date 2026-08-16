@@ -16,7 +16,7 @@ class MGBABridgeClient {
     data class ReadRequest(val address: Long, val length: Int)
     data class WriteRequest(val address: Long, val value: ByteArray)
 
-    private var socket: Socket? = null
+    @Volatile private var socket: Socket? = null
     private var input: DataInputStream? = null
     private var output: DataOutputStream? = null
     private var nextId = 1
@@ -39,6 +39,9 @@ class MGBABridgeClient {
         output = null
     }
 
+    val isConnected: Boolean
+        get() = socket?.let { it.isConnected && !it.isClosed } == true
+
     fun hello(): Pair<Int, Int> {
         val response = request(BridgeProtocol.HELLO)
         require(response.payload.size == 2) { "Invalid HELLO response" }
@@ -53,6 +56,20 @@ class MGBABridgeClient {
         val requestLength = ByteBuffer.allocate(Int.SIZE_BYTES).putInt(length).array()
         return request(BridgeProtocol.READ, address, requestLength).also { response ->
             require(response.payload.size == length) { "Short bridge read" }
+        }.payload
+    }
+
+    /** Reads the core's battery-save snapshot without relying on cartridge RAM being mapped. */
+    fun savedataRead(offset: Long, length: Int): ByteArray {
+        check(protocolVersion >= BridgeProtocol.SAVEDATA_READ_PROTOCOL_VERSION) {
+            "Save recovery requires mGBA Archipelago bridge protocol " +
+                BridgeProtocol.SAVEDATA_READ_PROTOCOL_VERSION
+        }
+        require(offset >= 0) { "Savedata offset must be positive" }
+        require(length in 0..BridgeProtocol.MAX_PAYLOAD)
+        val requestLength = ByteBuffer.allocate(Int.SIZE_BYTES).putInt(length).array()
+        return request(BridgeProtocol.SAVEDATA_READ, offset, requestLength).also { response ->
+            require(response.payload.size == length) { "Short bridge savedata read" }
         }.payload
     }
 
@@ -192,7 +209,7 @@ class MGBABridgeClient {
 
     private fun checkAtomicBatchProtocol() {
         check(protocolVersion >= BridgeProtocol.ATOMIC_BATCH_PROTOCOL_VERSION) {
-            "Standard APWorld clients require mGBA Archipelago bridge protocol " +
+            "Supported live clients require mGBA Archipelago bridge protocol " +
                 BridgeProtocol.ATOMIC_BATCH_PROTOCOL_VERSION
         }
     }
@@ -225,9 +242,19 @@ class MGBABridgeClient {
         val id = nextId++
         val out = checkNotNull(output) { "Not connected" }
         val inStream = checkNotNull(input) { "Not connected" }
-        BridgeProtocol.write(out, BridgeProtocol.Frame(type, id = id, address = address, payload = payload))
-        val response = BridgeProtocol.read(inStream)
-        require(response.type == type && response.id == id) { "Mismatched bridge response" }
+        val response = try {
+            BridgeProtocol.write(out, BridgeProtocol.Frame(type, id = id, address = address, payload = payload))
+            BridgeProtocol.read(inStream)
+        } catch (error: Exception) {
+            // Once a request has timed out, a later response would leave the
+            // stream out of phase with the next request. Reconnect instead.
+            close()
+            throw error
+        }
+        if (response.type != type || response.id != id) {
+            close()
+            error("Mismatched bridge response")
+        }
         if (response.status != BridgeProtocol.OK && !(allowGuardFailure && response.status == BridgeProtocol.GUARD_FAILED)) {
             error("mGBA bridge request failed: ${response.status}")
         }

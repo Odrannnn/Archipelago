@@ -1,4 +1,4 @@
-"""Android-facing entry points for offline GBA Archipelago generation."""
+"""Android-facing entry points for offline mGBA Archipelago generation."""
 
 from __future__ import annotations
 
@@ -385,8 +385,8 @@ def world_catalog(work_directory: str) -> str:
             "result_extension": result_extension,
             "generation": True,
             "template": True,
-            "rom_patch": bool(patch_type and result_extension.lower() == ".gba"),
-            "live_bridge": game in standard_gba_clients,
+            "rom_patch": bool(patch_type and result_extension.lower() in {".gba", ".gbc"}),
+            "live_bridge": game in standard_gba_clients or game == "Links Awakening DX",
         })
     return json.dumps({"worlds": result, "failures": worlds.failed_world_loads})
 
@@ -481,6 +481,28 @@ def patch_game(patch_bytes, work_directory: str = "") -> str:
         return game.strip()
 
 
+def patch_result_extension(patch_bytes, work_directory: str = "") -> str:
+    """Return the emulator ROM extension produced by a player patch."""
+    if work_directory:
+        _load_worlds(work_directory)
+    with zipfile.ZipFile(BytesIO(bytes(patch_bytes)), "r") as archive:
+        if "patch_file.json" in archive.namelist():
+            return ".gba"
+        try:
+            manifest = json.loads(archive.read("archipelago.json"))
+        except KeyError as error:
+            raise ValueError("The selected file is not a supported Archipelago ROM patch") from error
+    game = manifest.get("game")
+    from worlds.Files import AutoPatchRegister
+    handler = AutoPatchRegister.patch_types.get(game)
+    if handler is None:
+        raise ValueError(f"The installed {game} world does not register a ROM patch handler")
+    extension = str(getattr(handler, "result_file_ending", "")).lower()
+    if extension not in {".gba", ".gbc"}:
+        raise ValueError(f"{game} produces {extension or 'an unsupported ROM format'}")
+    return extension
+
+
 def _matching_base_rom(raw_rom: bytes, checksum: str) -> bytes:
     """Validate common AP checksums, accepting a legacy 512-byte copier header."""
     expected = checksum.lower()
@@ -512,8 +534,11 @@ def _apply_procedure_patch(patch_data: bytes, raw_rom: bytes, work_directory: st
     handler = AutoPatchRegister.patch_types.get(game)
     if handler is None:
         raise ValueError(f"The installed {game} world does not register a ROM patch handler")
-    if getattr(handler, "result_file_ending", "").lower() != ".gba":
-        raise ValueError(f"{game} produces {getattr(handler, 'result_file_ending', 'an unsupported format')}, not a GBA ROM")
+    result_extension = getattr(handler, "result_file_ending", "").lower()
+    if result_extension not in {".gba", ".gbc"}:
+        raise ValueError(
+            f"{game} produces {getattr(handler, 'result_file_ending', 'an unsupported ROM format')}"
+        )
     checksum = manifest.get("base_checksum")
     if not isinstance(checksum, str) or not checksum:
         raise ValueError(f"The {game} patch does not declare a base ROM checksum")
@@ -617,7 +642,7 @@ def _patch_minish_cap(patch_data: bytes, rom: bytes) -> bytes:
 
 
 def patch_rom(patch_bytes, base_rom_bytes, output_path: str, work_directory: str) -> str:
-    """Apply a supported GBA player patch to a legally supplied base ROM."""
+    """Apply a supported mGBA player patch to a legally supplied base ROM."""
     # Invite patching can be the first Python operation after the Android process
     # starts. Configure Archipelago's writable paths before importing the APWorld;
     # otherwise its default relative Players path resolves against Android's `/`.

@@ -1,5 +1,5 @@
 diff --git a/src/platform/libretro/libretro.c b/src/platform/libretro/libretro.c
-index 12e7913..f9138af 100644
+index d4de13f..fe02c4e 100644
 --- a/src/platform/libretro/libretro.c
 +++ b/src/platform/libretro/libretro.c
 @@ -4,6 +4,7 @@
@@ -10,18 +10,31 @@ index 12e7913..f9138af 100644
  
  #include <mgba-util/common.h>
  
-@@ -103,6 +104,23 @@ static int32_t gyroZ = 0;
- static bool audioLowPassEnabled = false;
+@@ -131,6 +132,37 @@ static bool audioLowPassEnabled = false;
  static int32_t audioLowPassRange = 0;
  static int32_t audioLowPassLeftPrev = 0;
+ static int32_t audioLowPassRightPrev = 0;
 +static struct APBridge apBridge;
 +static bool apBridgeReady = false;
- static int32_t audioLowPassRightPrev = 0;
- 
++static unsigned apBridgeRetryFrames = 0;
++
++#define AP_BRIDGE_RETRY_INTERVAL_FRAMES 60
++
 +static void _pollAPBridge(void) {
 +	char messageText[AP_MGBA_MESSAGE_MAX];
-+	if (!apBridgeReady || !core) {
++	if (!core) {
 +		return;
++	}
++	if (!apBridgeReady) {
++		if (apBridgeRetryFrames) {
++			--apBridgeRetryFrames;
++			return;
++		}
++		apBridgeReady = APBridgeInit(&apBridge, AP_MGBA_BRIDGE_PORT);
++		if (!apBridgeReady) {
++			apBridgeRetryFrames = AP_BRIDGE_RETRY_INTERVAL_FRAMES;
++			return;
++		}
 +	}
 +	APBridgePoll(&apBridge, core);
 +	if (APBridgeTakeMessage(&apBridge, messageText, sizeof(messageText))) {
@@ -32,18 +45,23 @@ index 12e7913..f9138af 100644
 +		environCallback(RETRO_ENVIRONMENT_SET_MESSAGE, &message);
 +	}
 +}
-+
+ 
  static const int keymap[] = {
-@@ -428,6 +446,8 @@ void retro_get_system_av_info(struct retro_system_av_info* info) {
+ 	RETRO_DEVICE_ID_JOYPAD_A,
+@@ -1367,6 +1399,12 @@ void retro_get_system_av_info(struct retro_system_av_info* info) {
  }
  
  void retro_init(void) {
++	apBridgeRetryFrames = 0;
 +	apBridgeReady = APBridgeInit(&apBridge, AP_MGBA_BRIDGE_PORT);
++	if (!apBridgeReady) {
++		apBridgeRetryFrames = AP_BRIDGE_RETRY_INTERVAL_FRAMES;
++	}
 +
  	enum retro_pixel_format fmt;
  #ifdef COLOR_16_BIT
- #ifdef COLOR_5_6_5
-@@ -513,6 +533,10 @@ void retro_init(void) {
+ #if defined(COLOR_5_6_5) || defined(PS2)
+@@ -1466,6 +1504,12 @@ void retro_init(void) {
  }
  
  void retro_deinit(void) {
@@ -51,22 +69,25 @@ index 12e7913..f9138af 100644
 +		APBridgeDeinit(&apBridge);
 +		apBridgeReady = false;
 +	}
- 	free(outputBuffer);
- 
- 	if (audioSampleBuffer) {
-@@ -546,6 +570,7 @@ void retro_run(void) {
++	apBridgeRetryFrames = 0;
++
+ 	if (outputBuffer) {
+ #ifdef _3DS
+ 		linearFree(outputBuffer);
+@@ -1538,6 +1582,7 @@ void retro_run(void) {
  	if (deferredSetup) {
  		_doDeferredSetup();
  	}
-+    _pollAPBridge();
++	_pollAPBridge();
  	uint16_t keys;
+ 	bool skipFrame = false;
  
- 	inputPollCallback();
-@@ -613,6 +638,7 @@ void retro_run(void) {
+@@ -1704,6 +1749,8 @@ void retro_run(void) {
+ 		videoCallback(NULL, width, height, VIDEO_WIDTH_MAX * sizeof(mColor));
  	}
  
- 	core->runFrame(core);
 +	_pollAPBridge();
- 	unsigned width, height;
- 	core->currentVideoSize(core, &width, &height);
- 	videoCallback(outputBuffer, width, height, BYTES_PER_PIXEL * 256);
++
+ 	/* Check whether audio sample rate has changed */
+ 	if (updateAudioRate) {
+ 		struct retro_system_av_info info;

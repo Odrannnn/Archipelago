@@ -5,18 +5,22 @@
  *   u32 magic ("APB1"), u16 type, u16 status, u32 id, u32 address, u32 length
  *
  * The server binds only to 127.0.0.1. READ, WRITE, and GUARD operate on the
- * emulated system bus, not host-process memory. The maximum transfer is kept
- * intentionally small so polling it from retro_run never introduces a frame
- * hitch. The Android companion may batch adjacent requests.
+ * emulated system bus, while SAVEDATA_READ snapshots the core's battery-save
+ * backing store independently of the cartridge's current SRAM mapping. The
+ * maximum transfer is kept intentionally small so polling it from retro_run
+ * never introduces a frame hitch. The Android companion may batch adjacent
+ * requests.
  */
 #include "archipelago_bridge.h"
 
 #include <mgba/core/core.h>
 
+#include <stdlib.h>
+
 #define APB_MAGIC 0x41504231u
 #define APB_HEADER_SIZE 20u
 #define APB_MAX_PAYLOAD 4096u
-#define APB_PROTOCOL_VERSION 4u
+#define APB_PROTOCOL_VERSION 5u
 
 enum APBType {
 	APB_HELLO = 1,
@@ -30,6 +34,7 @@ enum APBType {
 	APB_BATCH_READ = 9,
 	APB_GUARDED_READ = 10,
 	APB_GUARDED_WRITES = 11,
+	APB_SAVEDATA_READ = 12,
 };
 
 enum APBStatus {
@@ -103,7 +108,7 @@ static bool _processRequest(struct APBridge* bridge, struct mCore* core, const s
 
 	switch (request->type) {
 	case APB_HELLO:
-		/* Protocol version 2 (OSD messages), GBA platform id. */
+		/* Current protocol version and the active mPlatform identifier. */
 		data[0] = APB_PROTOCOL_VERSION;
 		data[1] = (uint8_t) core->platform(core);
 		return _sendResponse(bridge, request, APB_OK, data, 2);
@@ -126,6 +131,33 @@ static bool _processRequest(struct APBridge* bridge, struct mCore* core, const s
 			data[i] = core->busRead8(core, request->address + i);
 		}
 		return _sendResponse(bridge, request, APB_OK, data, readLength);
+	case APB_SAVEDATA_READ: {
+		/* SAVEDATA_READ uses a byte offset in the header and a four-byte
+		 * requested-length payload. savedataClone bypasses the emulated MBC's
+		 * RAM-enable state, which makes battery-save reads reliable while a Game
+		 * Boy title has its external SRAM unmapped. */
+		void* savedata = NULL;
+		size_t savedataSize;
+		if (request->length != 4) {
+			return _sendResponse(bridge, request, APB_BAD_REQUEST, NULL, 0);
+		}
+		readLength = _readU32(payload);
+		if (readLength > APB_MAX_PAYLOAD) {
+			return _sendResponse(bridge, request, APB_TOO_LARGE, NULL, 0);
+		}
+		if (!core->savedataClone) {
+			return _sendResponse(bridge, request, APB_UNSUPPORTED, NULL, 0);
+		}
+		savedataSize = core->savedataClone(core, &savedata);
+		if (!savedata || request->address > savedataSize ||
+				readLength > savedataSize - request->address) {
+			free(savedata);
+			return _sendResponse(bridge, request, APB_BAD_REQUEST, NULL, 0);
+		}
+		memcpy(data, (const uint8_t*) savedata + request->address, readLength);
+		free(savedata);
+		return _sendResponse(bridge, request, APB_OK, data, readLength);
+	}
 	case APB_GUARD:
 		for (i = 0; i < request->length; ++i) {
 			if (core->busRead8(core, request->address + i) != payload[i]) {

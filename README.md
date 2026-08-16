@@ -1,4 +1,4 @@
-# Archipelago Android Companion for GBA
+# Archipelago Android Companion for mGBA
 
 <p align="center">
   ☕ <a href="https://ko-fi.com/odrannnn">Support this little Android adventure on Ko-fi</a> 💙
@@ -17,16 +17,18 @@ third-party components and source incorporated from Archipelago, mGBA,
 RetroArch, ArchipelagoMine, or imported APWorlds. Those projects retain
 their original authorship, history, and licenses.
 
-This fork adds a self-contained Android workflow for playing GBA multiworlds
+This fork adds a self-contained Android workflow for playing GBA and GBC multiworlds
 with [Archipelago](https://archipelago.gg). It combines an Android companion app
 with a custom mGBA libretro core so RetroArch can exchange game state with an
 Archipelago room without a PC.
 
-The app does not bundle any game APWorld. Install trusted `.apworld` files in
-the companion before generating, patching, or playing a game. Compatible GBA
-worlds use their standard `BizHawkClient` through a reusable Python-to-mGBA
-path; Metroid Fusion 1.22.4, The Minish Cap 0.3.1, and Wario Land 4 3.4.0 are
-the checked examples.
+The app bundles five compatible worlds from the pinned Archipelago core:
+Castlevania: Circle of the Moon, Link's Awakening DX, Mario & Luigi: Superstar
+Saga, Pokémon Emerald, and Yu-Gi-Oh! 2006. They can generate, patch, and play
+without a manual APWorld import. Other compatible GBA worlds can still be added as
+trusted `.apworld` files. The GBA worlds use their standard `BizHawkClient`
+through the reusable Python-to-mGBA path; Link's Awakening DX uses a dedicated
+Android adapter over the same bridge and does not require Network Commands.
 The rest of this repository remains based on the upstream
 [Archipelago project](https://github.com/ArchipelagoMW/Archipelago).
 
@@ -35,12 +37,12 @@ The rest of this repository remains based on the upstream
 
 ## What it does
 
-### Play supported GBA multiworlds on Android
+### Play supported mGBA multiworlds on Android
 
-- Connects RetroArch's emulated GBA memory to the companion through a
+- Connects RetroArch's emulated GBA or GBC memory to the companion through a
   loopback-only bridge at `127.0.0.1:43056`.
-- Detects compatible ROMs using imported standard GBA APWorld clients,
-  then reads the authentication data defined by each client.
+- Detects compatible ROMs using built-in or imported bridge clients, then reads
+  the authentication data defined by each game.
 - Connects to Archipelago rooms over WebSockets, including TLS fallback.
 - Reports checked locations and game completion.
 - Receives and applies items, upgrades, capacities, keycards, Metroid count,
@@ -57,7 +59,7 @@ required.
 ### Generate and patch seeds without a PC
 
 The companion embeds Python 3.12 and the Archipelago 0.6.8 generation core.
-After importing compatible game APWorlds, on the phone it can:
+With a built-in or imported compatible game world, on the phone it can:
 
 - create and edit per-player YAML documents with an independent game choice;
 - generate single-player, same-game multiplayer, or mixed-game multiworld seeds offline;
@@ -65,14 +67,14 @@ After importing compatible game APWorlds, on the phone it can:
 - validate the correct legally obtained clean ROM for the selected game, including ROMs with a
   legacy 512-byte copier header;
 - cache the validated base ROM privately for later patches; and
-- save a ready-to-run `.gba` for each player.
+- save a ready-to-run `.gba` or `.gbc` for each player.
 
-The on-device APWorld manager can also import trusted `.apworld` packages into
-app-private storage. It validates archive paths, extraction limits, manifest
+The on-device game-world manager lists the built-ins and can also import trusted
+`.apworld` packages into app-private storage. It validates archive paths, extraction limits, manifest
 structure, and compatibility with the embedded Archipelago 0.6.8 core, then
 loads the world's full option model for YAML editing and mixed-game generation.
 Generated player patches are discovered through Archipelago's patch registry;
-standard procedure patches which produce `.gba` files can be applied to a
+standard procedure patches which produce `.gba` or `.gbc` files can be applied to a
 checksum-validated user ROM without app-specific patch code. APWorlds are
 executable Python and are not sandboxed, so only packages from trusted authors
 should be installed. Imported worlds with a standard GBA `BizHawkClient` can
@@ -117,8 +119,8 @@ Archipelago room
 Android companion app
         ↕ 127.0.0.1:43056 only
 Custom mGBA libretro core
-        ↕ emulated GBA memory
-Supported GBA game in RetroArch
+        ↕ emulated GBA/GBC memory
+Supported game in RetroArch
 ```
 
 The custom core performs memory access only on mGBA's emulation thread. It
@@ -133,8 +135,8 @@ exposed to the LAN.
 - Android companion package `eu.odran.archipelago`
 - 64-bit RetroArch (`com.retroarch.aarch64`)
 - The custom mGBA Archipelago bridge core installed in RetroArch
-- A legally obtained clean ROM accepted by the selected imported APWorld
-- A trusted, compatible `.apworld` for every game being generated or played
+- A legally obtained clean ROM accepted by the selected game world
+- For games not built in, a trusted and compatible `.apworld`
 - An Archipelago room when playing online
 
 Offline generation and ROM patching do not require an Internet connection.
@@ -182,7 +184,7 @@ RetroArch's **Load Core > Install or Restore a Core** command.
 - Public room identifiers and player patches are shared only when the user
   explicitly creates an invitation.
 
-Metroid Fusion and The Minish Cap are Nintendo properties. Archipelago, mGBA,
+Metroid Fusion, The Minish Cap, and Link's Awakening DX are Nintendo properties. Archipelago, mGBA,
 RetroArch, and the APWorlds retain their respective licenses and ownership. Review
 the included license files before redistributing binaries or modified source.
 

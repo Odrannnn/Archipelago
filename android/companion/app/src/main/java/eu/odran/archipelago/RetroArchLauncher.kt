@@ -16,7 +16,7 @@ import java.io.File
 object RetroArchLauncher {
     private const val PACKAGE_NAME = "com.retroarch.aarch64"
     private const val ACTIVITY_NAME = "com.retroarch.browser.retroactivity.RetroActivityFuture"
-    private const val CORE_FILE_NAME = "mgba_apbridge_v7_libretro_android.so"
+    private const val CORE_FILE_NAME = "mgba_apbridge_v8_libretro_android.so"
     private const val EXTERNAL_STORAGE_AUTHORITY = "com.android.externalstorage.documents"
     private const val DOWNLOADS_AUTHORITY = "com.android.providers.downloads.documents"
 
@@ -72,7 +72,7 @@ object RetroArchLauncher {
             putExtra("CONFIGFILE", configPath)
 
             if (romReference == savedRom.toString() && savedRom.scheme == "content") {
-                clipData = ClipData.newRawUri("Patched Archipelago GBA ROM", savedRom)
+                clipData = ClipData.newRawUri("Patched Archipelago ROM", savedRom)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
         }

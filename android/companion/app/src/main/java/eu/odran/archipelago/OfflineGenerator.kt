@@ -9,6 +9,8 @@ import java.io.File
 
 data class GeneratedArtifact(val name: String, val path: String, val kind: String)
 
+data class BundledWorld(val game: String, val packageName: String)
+
 data class WorldCapability(
     val game: String,
     val version: String,
@@ -61,6 +63,14 @@ data class PlayerFormData(
 object OfflineGenerator {
     /** Chaquopy uses one interpreter. Generation and live clients share this lock. */
     internal val runtimeLock = Any()
+    private val bundledWorlds = listOf(
+        BundledWorld("Castlevania - Circle of the Moon", "cvcotm"),
+        BundledWorld("Links Awakening DX", "ladx"),
+        BundledWorld("Mario & Luigi Superstar Saga", "mlss"),
+        BundledWorld("Pokemon Emerald", "pokemon_emerald"),
+        BundledWorld("Yu-Gi-Oh! 2006", "yugioh06"),
+    )
+    private val bundledGameNames = bundledWorlds.mapTo(mutableSetOf()) { it.game }
     @Volatile private var catalog: List<WorldCapability> = emptyList()
     @Volatile private var worldFailures: Map<String, String> = emptyMap()
 
@@ -73,18 +83,22 @@ object OfflineGenerator {
 
     internal fun workDirectory(context: Context): File = ImportedApWorldStore.runtimeRoot(context)
 
+    fun bundledWorlds(): List<BundledWorld> = bundledWorlds.toList()
+
+    fun isBundledGame(game: String): Boolean = game in bundledGameNames
+
     fun availableGames(context: Context): List<String> =
-        ImportedApWorldStore.list(context).map { it.game }.distinct()
+        (bundledGameNames + ImportedApWorldStore.list(context).map { it.game }).sorted()
 
     fun defaultYaml(context: Context, game: String): String = synchronized(runtimeLock) {
-        require(game in availableGames(context)) { "Install the $game APWorld before loading its template" }
+        require(game in availableGames(context)) { "$game is not available; import its APWorld first" }
         python(context).getModule("offline_generator")
             .callAttr("template_for_game", workDirectory(context).absolutePath, game)
             .toString()
     }
 
     fun optionSchema(context: Context, game: String): GameOptionSchema = synchronized(runtimeLock) {
-        require(game in availableGames(context)) { "Install the $game APWorld before loading its options" }
+        require(game in availableGames(context)) { "$game is not available; import its APWorld first" }
         val root = JSONObject(
             python(context).getModule("offline_generator")
                 .callAttr("option_schema_for_game", workDirectory(context).absolutePath, game)
@@ -158,6 +172,12 @@ object OfflineGenerator {
     fun patchGame(context: Context, patch: ByteArray): String = synchronized(runtimeLock) {
         python(context).getModule("offline_generator")
             .callAttr("patch_game", patch, workDirectory(context).absolutePath)
+            .toString()
+    }
+
+    fun patchResultExtension(context: Context, patch: ByteArray): String = synchronized(runtimeLock) {
+        python(context).getModule("offline_generator")
+            .callAttr("patch_result_extension", patch, workDirectory(context).absolutePath)
             .toString()
     }
 

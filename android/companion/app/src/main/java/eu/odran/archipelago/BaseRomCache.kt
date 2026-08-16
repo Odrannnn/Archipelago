@@ -35,6 +35,11 @@ object BaseRomCache {
             "an unmodified European The Legend of Zelda: The Minish Cap ROM",
             setOf("2af78edbe244b5de44471368ae2b6f0b"),
         ),
+        "Links Awakening DX" to RomSpec(
+            "links_awakening_dx_usa_europe.gbc",
+            "an unmodified English 1.0 Link's Awakening DX ROM",
+            setOf("07c211479386825042efb4ad31bb525f"),
+        ),
     )
 
     fun hasBuiltInValidation(game: String): Boolean = game in specs
@@ -115,7 +120,7 @@ object BaseRomCache {
 
     private fun normalizeGeneric(game: String, rawRom: ByteArray): ByteArray {
         require(rawRom.isNotEmpty() && rawRom.size.toLong() <= MAX_CACHED_ROM_BYTES) {
-            "Wrong base ROM. Select a clean $game GBA ROM."
+            "Wrong base ROM. Select a clean $game ROM."
         }
         return if (rawRom.size % ROM_SIZE_BLOCK == COPIER_HEADER_REMAINDER) {
             rawRom.copyOfRange(COPIER_HEADER_SIZE, rawRom.size)

@@ -1,9 +1,8 @@
-"""Refresh the pinned core and Metroid Fusion generator Android sources.
+"""Refresh the pinned Archipelago core and supported bundled mGBA worlds.
 
-Run this after updating the adjacent ArchipelagoMine checkout. The Android app
-intentionally embeds only the core modules required for generation and the
-Metroid Fusion world from that checkout. The independently pinned Minish Cap
-APWorld and pure-Python BSDIFF40 reader are preserved across the refresh.
+Run this after updating the repository checkout. The Android app intentionally
+embeds only the core modules and official worlds supported by its mGBA
+bridge. Community APWorlds remain user-imported.
 """
 
 from __future__ import annotations
@@ -13,8 +12,9 @@ from pathlib import Path
 
 
 COMPANION = Path(__file__).resolve().parents[1]
-ARCHIPELAGO = COMPANION.parents[2] / "ArchipelagoMine"
+ARCHIPELAGO = COMPANION.parents[1]
 DESTINATION = COMPANION / "app" / "src" / "main" / "python"
+BUNDLED_WORLDS = ("cvcotm", "ladx", "pokemon_emerald", "mlss", "yugioh06")
 
 CORE_MODULES = (
     "BaseClasses.py",
@@ -34,24 +34,24 @@ def copy_tree(source: Path, destination: Path) -> None:
     shutil.copytree(
         source,
         destination,
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "Logic_Test.py", "tests"),
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "Logic_Test.py", "test", "tests"),
     )
 
 
 def main() -> None:
-    if not (ARCHIPELAGO / "worlds" / "metroidfusion" / "MFOptions.py").is_file():
-        raise SystemExit(f"Metroid Fusion APWorld source not found at {ARCHIPELAGO}")
+    if not all((ARCHIPELAGO / "worlds" / world / "__init__.py").is_file() for world in BUNDLED_WORLDS):
+        raise SystemExit(f"Bundled world source not found at {ARCHIPELAGO}")
 
     DESTINATION.mkdir(parents=True, exist_ok=True)
-    minish_cap_path = DESTINATION / "worlds" / "tmc"
-    minish_cap_files = {
-        path.relative_to(minish_cap_path): path.read_bytes()
-        for path in minish_cap_path.rglob("*")
-        if path.is_file()
-    }
     mobile_bsdiff = (DESTINATION / "bsdiff4.py").read_bytes()
-    managed_entries = (*CORE_MODULES, "rule_builder", "worlds", "bsdiff4.py", "jellyfish.py",
-                       "ARCHIPELAGO_LICENSE.txt", "METROID_FUSION_APWORLD_LICENSE.txt")
+    android_bizhawk = {
+        path.name: path.read_bytes()
+        for path in (DESTINATION / "worlds" / "_bizhawk").glob("*.py")
+    }
+    if not android_bizhawk:
+        raise RuntimeError("The Android BizHawk compatibility package is missing")
+    managed_entries = (*CORE_MODULES, "rule_builder", "worlds", "bsdiff4.py", "jellyfish.py", "orjson.py",
+                       "ARCHIPELAGO_LICENSE.txt")
     for name in managed_entries:
         path = DESTINATION / name
         if path.is_dir():
@@ -70,20 +70,101 @@ def main() -> None:
     for module in ("__init__.py", "AutoWorld.py", "Files.py"):
         shutil.copy2(ARCHIPELAGO / "worlds" / module, worlds / module)
     copy_tree(ARCHIPELAGO / "worlds" / "generic", worlds / "generic")
-    copy_tree(ARCHIPELAGO / "worlds" / "metroidfusion", worlds / "metroidfusion")
-    for relative_path, data in minish_cap_files.items():
-        destination = worlds / "tmc" / relative_path
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(data)
+    bizhawk = worlds / "_bizhawk"
+    bizhawk.mkdir()
+    for name, contents in android_bizhawk.items():
+        (bizhawk / name).write_bytes(contents)
+    for world in BUNDLED_WORLDS:
+        copy_tree(ARCHIPELAGO / "worlds" / world, worlds / world)
 
-    # The desktop BizHawk client is unrelated to seed generation and pulls in
-    # networking/emulator modules which aren't part of the Android runtime.
-    init_file = worlds / "metroidfusion" / "__init__.py"
+    # LADX's package registers a desktop launcher entry while it is imported.
+    # Android supplies its own launcher and live mGBA bridge, so keep the world
+    # and patcher without pulling in the desktop Launcher dependency tree.
+    ladx_init = worlds / "ladx" / "__init__.py"
+    text = ladx_init.read_text(encoding="utf-8")
+    launcher_import = (
+        "from worlds.LauncherComponents import Component, components, SuffixIdentifier, "
+        "Type, launch, icon_paths\n"
+    )
+    launcher_block = (
+        "\ndef launch_client(*args):\n"
+        "    from .LinksAwakeningClient import launch as ladx_launch\n"
+        "    launch(ladx_launch, name=f\"{LINKS_AWAKENING} Client\", args=args)\n"
+        "\n"
+        "components.append(Component(f\"{LINKS_AWAKENING} Client\",\n"
+        "                            func=launch_client,\n"
+        "                            component_type=Type.CLIENT,\n"
+        "                            icon=LINKS_AWAKENING,\n"
+        "                            file_identifier=SuffixIdentifier('.apladx')))\n"
+        "\n"
+        "icon_paths[LINKS_AWAKENING] = \"ap:worlds.ladx/assets/MarinV-3_small.png\"\n"
+    )
+    if launcher_import not in text or launcher_block not in text:
+        raise RuntimeError("Could not remove the desktop LADX launcher registration")
+    ladx_init.write_text(
+        text.replace(launcher_import, "", 1).replace(launcher_block, "\n", 1),
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    # The procedure patch API already supplies the validated ROM bytes. Avoid
+    # asking desktop settings for a second ROM path just to populate argparse.
+    ladx_rom = worlds / "ladx" / "Rom.py"
+    text = ladx_rom.read_text(encoding="utf-8")
+    old = "        rom_name = get_base_rom_path()\n        out_name = f\"{patch_data['out_base']}{caller.result_file_ending}\"\n"
+    new = "        rom_name = \"base.gbc\"\n        out_name = f\"{patch_data['out_base']}{caller.result_file_ending}\"\n"
+    if old not in text:
+        raise RuntimeError("Could not adapt the LADX procedure patch for Android")
+    ladx_rom.write_text(text.replace(old, new, 1), encoding="utf-8", newline="\n")
+
+    # Pokémon Emerald uses pkg_resources only to enumerate physical JSON files.
+    # Chaquopy extracts worlds, so the standard library is sufficient and avoids
+    # shipping setuptools in the APK.
+    emerald_data = worlds / "pokemon_emerald" / "data.py"
+    text = emerald_data.read_text(encoding="utf-8")
+    text = text.replace("from enum import IntEnum, Enum\n", "from enum import IntEnum, Enum\nimport os\n", 1)
+    text = text.replace("import pkg_resources\n", "", 1)
+    text = text.replace(
+        '    for file in pkg_resources.resource_listdir(__name__, "data/regions"):\n'
+        '        if not pkg_resources.resource_isdir(__name__, "data/regions/" + file):\n',
+        '    regions_directory = os.path.join(os.path.dirname(__file__), "data", "regions")\n'
+        '    for file in os.listdir(regions_directory):\n'
+        '        if os.path.isfile(os.path.join(regions_directory, file)):\n',
+        1,
+    )
+    emerald_data.write_text(text, encoding="utf-8", newline="\n")
+
+    # Extracted user APWorlds live outside the Python package. Add their app-private
+    # directory to the package search path so worlds.<package> remains importable.
+    init_file = worlds / "__init__.py"
     text = init_file.read_text(encoding="utf-8")
-    text = text.replace("from .Client import MetroidFusionClient\n", "")
-    init_file.write_text(text, encoding="utf-8", newline="\n")
+    marker = "except OSError:  # can't access/write?\n    user_folder = None\n"
+    addition = (
+        marker + "\n"
+        "if user_folder and user_folder not in __path__:\n"
+        "    __path__.append(user_folder)\n"
+    )
+    if marker not in text:
+        raise RuntimeError("Could not patch the Android user-world package path")
+    init_file.write_text(text.replace(marker, addition, 1), encoding="utf-8", newline="\n")
 
     (DESTINATION / "bsdiff4.py").write_bytes(mobile_bsdiff)
+
+    # Pokémon Emerald needs only loads/dumps from orjson. Keep the Android
+    # runtime pure Python instead of introducing another native wheel.
+    (DESTINATION / "orjson.py").write_text(
+        '\"\"\"Small Android-compatible subset of orjson used by the bundled Emerald world.\"\"\"\n\n'
+        "from __future__ import annotations\n\n"
+        "import json\n\n\n"
+        "def loads(value):\n"
+        "    if isinstance(value, (bytes, bytearray, memoryview)):\n"
+        "        value = bytes(value).decode(\"utf-8\")\n"
+        "    return json.loads(value)\n\n\n"
+        "def dumps(value) -> bytes:\n"
+        "    return json.dumps(value, ensure_ascii=False, separators=(\",\", \":\")).encode(\"utf-8\")\n",
+        encoding="utf-8",
+        newline="\n",
+    )
 
     # Utils only needs jellyfish to improve error suggestions. This compact,
     # pure-Python implementation keeps that path available on Android.
@@ -106,10 +187,6 @@ def main() -> None:
     )
 
     shutil.copy2(ARCHIPELAGO / "LICENSE", DESTINATION / "ARCHIPELAGO_LICENSE.txt")
-    apworld_license = ARCHIPELAGO / "worlds" / "metroidfusion" / "LICENSE"
-    if apworld_license.exists():
-        shutil.copy2(apworld_license, DESTINATION / "METROID_FUSION_APWORLD_LICENSE.txt")
-
     print(f"Synced offline generator from {ARCHIPELAGO} to {DESTINATION}")
 
 
