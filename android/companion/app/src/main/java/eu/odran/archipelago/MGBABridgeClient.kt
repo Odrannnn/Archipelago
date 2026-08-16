@@ -12,6 +12,8 @@ import java.nio.ByteBuffer
  * thread. All memory access remains serialized by mGBA in retro_run().
  */
 class MGBABridgeClient {
+    data class MemoryGuard(val address: Long, val expected: ByteArray)
+
     private var socket: Socket? = null
     private var input: DataInputStream? = null
     private var output: DataOutputStream? = null
@@ -61,6 +63,36 @@ class MGBABridgeClient {
         request(BridgeProtocol.WRITE, address, value)
     }
 
+    /** Validates every guard and applies one write in the same emulated frame. */
+    fun guardedWrite(address: Long, value: ByteArray, guards: List<MemoryGuard>): Boolean {
+        check(protocolVersion >= BridgeProtocol.GUARDED_WRITE_PROTOCOL_VERSION) {
+            "This game requires mGBA Archipelago bridge protocol ${BridgeProtocol.GUARDED_WRITE_PROTOCOL_VERSION}"
+        }
+        require(guards.isNotEmpty()) { "A guarded write needs at least one guard" }
+        val payloadSize = Short.SIZE_BYTES + guards.sumOf {
+            Int.SIZE_BYTES + Short.SIZE_BYTES + it.expected.size
+        } + Short.SIZE_BYTES + value.size
+        require(payloadSize <= BridgeProtocol.MAX_PAYLOAD) { "Guarded write payload is too large" }
+        val payload = ByteBuffer.allocate(payloadSize)
+        payload.putShort(guards.size.toShort())
+        guards.forEach { guard ->
+            require(guard.expected.size <= 0xffff) { "Guard is too large" }
+            payload.putInt(guard.address.toInt())
+            payload.putShort(guard.expected.size.toShort())
+            payload.put(guard.expected)
+        }
+        require(value.size <= 0xffff) { "Write is too large" }
+        payload.putShort(value.size.toShort())
+        payload.put(value)
+        val response = request(
+            BridgeProtocol.GUARDED_WRITE,
+            address,
+            payload.array(),
+            allowGuardFailure = true,
+        )
+        return response.status == BridgeProtocol.OK
+    }
+
     fun romSha1(): String = request(BridgeProtocol.ROM_SHA1).payload.let { bytes ->
         require(bytes.size == 20) { "Invalid SHA-1 response" }
         bytes.joinToString("") { "%02x".format(it.toInt() and 0xff) }
@@ -87,6 +119,19 @@ class MGBABridgeClient {
     fun write(domain: GbaMemoryDomain, offset: Long, value: ByteArray) {
         write(domain.toBusAddress(offset), value)
     }
+
+    fun guardedWrite(
+        domain: GbaMemoryDomain,
+        offset: Long,
+        value: ByteArray,
+        guards: List<Triple<GbaMemoryDomain, Long, ByteArray>>,
+    ): Boolean = guardedWrite(
+        domain.toBusAddress(offset),
+        value,
+        guards.map { (guardDomain, guardOffset, expected) ->
+            MemoryGuard(guardDomain.toBusAddress(guardOffset), expected)
+        },
+    )
 
     private fun boundedUtf8(message: String): ByteArray {
         val bytes = message.encodeToByteArray()

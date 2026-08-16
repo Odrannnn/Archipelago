@@ -18,6 +18,13 @@ data class GenerationResult(
 /** Serialized access to the embedded Archipelago Python runtime. */
 object OfflineGenerator {
     private val lock = Any()
+    private val templateAssets = linkedMapOf(
+        "Metroid Fusion" to "templates/metroid_fusion.yaml",
+        "The Minish Cap" to "templates/the_minish_cap.yaml",
+    )
+
+    val supportedGames: List<String>
+        get() = templateAssets.keys.toList()
 
     private fun python(context: Context): Python {
         if (!Python.isStarted()) {
@@ -26,8 +33,13 @@ object OfflineGenerator {
         return Python.getInstance()
     }
 
-    fun defaultYaml(context: Context): String = synchronized(lock) {
-        python(context).getModule("offline_generator").callAttr("default_yaml").toString()
+    fun defaultYaml(context: Context, game: String = supportedGames.first()): String {
+        val asset = templateAssets[game] ?: error("Unsupported offline game: $game")
+        return context.assets.open(asset).bufferedReader(Charsets.UTF_8).use { it.readText() }
+    }
+
+    fun patchGame(context: Context, patch: ByteArray): String = synchronized(lock) {
+        python(context).getModule("offline_generator").callAttr("patch_game", patch).toString()
     }
 
     fun generate(context: Context, yaml: String, seed: String): GenerationResult = synchronized(lock) {

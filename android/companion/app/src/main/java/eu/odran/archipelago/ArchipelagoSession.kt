@@ -32,6 +32,9 @@ class ArchipelagoSession(
         val playerNames: Map<Int, String>,
         val locationIds: Map<String, Long>,
         val slotData: GameSlotData?,
+        val serverSeedName: String?,
+        val readyAt: Long,
+        val validLocationIds: Set<Long>,
     )
 
     private val client = OkHttpClient.Builder()
@@ -44,6 +47,7 @@ class ArchipelagoSession(
     private val playerNamesBySlot = mutableMapOf<Int, String>()
     private val locationIdsByName = mutableMapOf<String, Long>()
     private val reportedLocations = mutableSetOf<Long>()
+    private val validLocationIds = mutableSetOf<Long>()
     private var receivedItemsKnown = false
     private var authenticated = false
     private var slot = -1
@@ -51,6 +55,10 @@ class ArchipelagoSession(
     private var slotData: GameSlotData? = null
     private var goalReported = false
     private var syncRequested = false
+    private var serverSeedName: String? = null
+    private var seedVerified = false
+    private var seedMismatchReported = false
+    private var readyAt = 0L
     @Volatile private var nextInventoryReconcileAt = 0L
 
     @Volatile private var socket: WebSocket? = null
@@ -60,6 +68,11 @@ class ArchipelagoSession(
     @Volatile
     var isClosed: Boolean = false
         private set
+
+    val connectedSlot: Int?
+        get() = synchronized(stateLock) {
+            slot.takeIf { authenticated && it > 0 }
+        }
 
     fun connect() {
         isClosed = false
@@ -93,7 +106,6 @@ class ArchipelagoSession(
 
     /** Runs one gameplay synchronization pass on BridgeService's worker. */
     fun tick() {
-        val snapshot = adapter.snapshot() ?: return
         val state = synchronized(stateLock) {
             TickState(
                 authenticated,
@@ -104,9 +116,25 @@ class ArchipelagoSession(
                 playerNamesBySlot.toMap(),
                 locationIdsByName.toMap(),
                 slotData,
+                serverSeedName,
+                readyAt,
+                validLocationIds.toSet(),
             )
         }
         if (!state.authenticated) return
+        if (System.currentTimeMillis() < state.readyAt) return
+        if (adapter.requiresServerSeedVerification && !seedVerified) {
+            val seedName = state.serverSeedName ?: return
+            if (!adapter.verifyServerSeed(seedName)) {
+                if (!seedMismatchReported) {
+                    seedMismatchReported = true
+                    onStatus("Loaded ${adapter.gameName} ROM belongs to a different Archipelago room")
+                }
+                return
+            }
+            seedVerified = true
+        }
+        val snapshot = adapter.snapshot() ?: return
         if (snapshot.hasReachedGoal) {
             reportGoal()
             return
@@ -122,8 +150,9 @@ class ArchipelagoSession(
                     onStatus("Archipelago connected · waiting for ${adapter.gameName} game data…")
                     return
                 }
-                val suppliedByPatchedRom = item.player == state.slot && item.location >= 0
-                if ((suppliedByPatchedRom || adapter.applyRemoteItemWhileInGame(name, data)) &&
+                val receivedItem = ReceivedGameItem(item.item, name, item.location, item.player)
+                val suppliedByPatchedRom = adapter.isItemSuppliedByPatchedRom(receivedItem, state.slot, data)
+                if ((suppliedByPatchedRom || adapter.applyRemoteItemWhileInGame(receivedItem, data)) &&
                     adapter.setReceivedItemCountWhileInGame(receivedCount + 1)
                 ) {
                     onStatus("Archipelago synchronized item ${receivedCount + 1}/${state.items.size} · $name")
@@ -137,7 +166,9 @@ class ArchipelagoSession(
         }
 
         val now = System.currentTimeMillis()
-        if (receivedCount == state.items.size && state.itemsKnown && now >= nextInventoryReconcileAt) {
+        if (adapter.supportsInventoryReconciliation && receivedCount == state.items.size &&
+            state.itemsKnown && now >= nextInventoryReconcileAt
+        ) {
             val receivedNames = state.items.map { item -> state.itemNames[item.item] ?: return }
             state.slotData?.let { data ->
                 if (adapter.reconcileInventoryWhileInGame(data.startInventory + receivedNames, data)) {
@@ -146,11 +177,16 @@ class ArchipelagoSession(
             }
         }
 
-        reportLocations(snapshot, state.locationIds)
+        reportLocations(snapshot, state.locationIds, state.validLocationIds)
     }
 
-    private fun reportLocations(snapshot: GameSnapshot, locationIds: Map<String, Long>) {
-        val checked = snapshot.checkedLocationNames.mapNotNull(locationIds::get)
+    private fun reportLocations(
+        snapshot: GameSnapshot,
+        locationIds: Map<String, Long>,
+        validLocationIds: Set<Long>,
+    ) {
+        val checked = (snapshot.checkedLocationIds + snapshot.checkedLocationNames.mapNotNull(locationIds::get))
+            .filter(validLocationIds::contains)
         val unsent = synchronized(stateLock) { checked.filterNot(reportedLocations::contains) }
         if (unsent.isEmpty()) return
         if (sendPacket(JSONObject().put("cmd", "LocationChecks").put("locations", JSONArray(unsent)))) {
@@ -241,6 +277,11 @@ class ArchipelagoSession(
             when (packet.getString("cmd")) {
                 "RoomInfo" -> {
                     val version = packet.optJSONObject("version")
+                    synchronized(stateLock) {
+                        serverSeedName = packet.optString("seed_name").takeIf(String::isNotBlank)
+                        seedVerified = false
+                        seedMismatchReported = false
+                    }
                     onStatus(
                         "Room found · server ${version?.optInt("major", 0)}.${version?.optInt("minor", 0)}.${version?.optInt("build", 0)} · authenticating…",
                     )
@@ -278,6 +319,8 @@ class ArchipelagoSession(
     private fun receiveConnected(packet: JSONObject) {
         val connectedSlot = packet.getInt("slot")
         val data = packet.optJSONObject("slot_data") ?: JSONObject()
+        val parsedSlotData = adapter.parseSlotData(data)
+        val updatedItemsHandling = adapter.itemsHandlingAfterConnect(parsedSlotData)
         synchronized(stateLock) {
             authenticated = true
             slot = connectedSlot
@@ -285,12 +328,23 @@ class ArchipelagoSession(
             playerNamesBySlot.clear()
             playerNamesBySlot[0] = "Archipelago"
             receivePlayersLocked(packet.optJSONArray("players"), team)
-            slotData = adapter.parseSlotData(data)
+            slotData = parsedSlotData
             reportedLocations.clear()
+            validLocationIds.clear()
             receiveCheckedLocationsLocked(packet.optJSONArray("checked_locations"))
+            receiveValidLocationsLocked(packet.optJSONArray("checked_locations"))
+            receiveValidLocationsLocked(packet.optJSONArray("missing_locations"))
             goalReported = false
             syncRequested = false
             nextInventoryReconcileAt = 0
+            readyAt = if (updatedItemsHandling != null && updatedItemsHandling != adapter.itemsHandling) {
+                System.currentTimeMillis() + ITEMS_HANDLING_UPDATE_DELAY_MS
+            } else {
+                0L
+            }
+        }
+        if (updatedItemsHandling != null && updatedItemsHandling != adapter.itemsHandling) {
+            sendPacket(JSONObject().put("cmd", "ConnectUpdate").put("items_handling", updatedItemsHandling))
         }
         val teamNumber = packet.getInt("team") + 1
         val missing = packet.optJSONArray("missing_locations")?.length() ?: 0
@@ -349,6 +403,11 @@ class ArchipelagoSession(
         for (index in 0 until values.length()) reportedLocations += values.getLong(index)
     }
 
+    private fun receiveValidLocationsLocked(values: JSONArray?) {
+        if (values == null) return
+        for (index in 0 until values.length()) validLocationIds += values.getLong(index)
+    }
+
     private fun sendPacket(packet: JSONObject): Boolean =
         socket?.send(JSONArray().put(packet).toString()) == true
 
@@ -390,5 +449,6 @@ class ArchipelagoSession(
 
     companion object {
         private const val CLIENT_GOAL = 30
+        private const val ITEMS_HANDLING_UPDATE_DELAY_MS = 750L
     }
 }

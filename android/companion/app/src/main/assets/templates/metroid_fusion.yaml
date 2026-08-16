@@ -1,0 +1,361 @@
+# Q. What is this file?
+# A. This file contains options which allow you to configure your multiworld experience while allowing
+#    others to play how they want as well.
+#
+# Q. How do I use it?
+# A. The options in this file are weighted. This means the higher number you assign to a value, the
+#    more chances you have for that option to be chosen. For example, an option like this:
+#
+#    map_shuffle:
+#      on: 5
+#      off: 15
+#
+#    Means you have 5 chances for map shuffle to occur, and 15 chances for map shuffle to be turned
+#    off.
+#
+# Q. I've never seen a file like this before. What characters am I allowed to use?
+# A. This is a .yaml file. You are allowed to use most characters.
+#    To test if your yaml is valid or not, you can use this website:
+#        http://www.yamllint.com/
+#    You can also verify that your Archipelago options are valid at this site:
+#        https://archipelago.gg/check
+
+# Your name in-game, limited to 16 characters.
+#     {player} will be replaced with the player's slot number.
+#     {PLAYER} will be replaced with the player's slot number, if that slot number is greater than 1.
+#     {number} will be replaced with the counter value of the name.
+#     {NUMBER} will be replaced with the counter value of the name, if the counter value is greater than 1.
+name: Player
+
+# Used to describe your yaml. Useful if you have multiple files.
+description: Generated offline by Archipelago Android Companion
+
+game: Metroid Fusion
+requires:
+  version: 0.6.8 # Version of Archipelago required for this yaml to work as expected.
+
+Metroid Fusion:
+  ################
+  # Game Options #
+  ################
+  progression_balancing:
+    # A system that can move progression earlier, to try and prevent the player from getting stuck and bored early.
+    # 
+    # A lower setting means more getting stuck. A higher setting means less getting stuck.
+    #
+    # You can define additional values between the minimum and maximum values.
+    # Minimum value is 0
+    # Maximum value is 99
+    random: 0
+    random-low: 0 # random value weighted towards lower values
+    random-high: 0 # random value weighted towards higher values
+    random-range-0-99: 0 # random value between 0 and 99
+    disabled: 0 # equivalent to 0
+    normal: 50 # equivalent to 50
+    extreme: 0 # equivalent to 99
+
+  accessibility:
+    # Set rules for reachability of your items/locations.
+    # 
+    # **Full:** ensure everything can be reached and acquired.
+    # 
+    # **Minimal:** ensure what is needed to reach your goal can be acquired.
+    full: 50
+    minimal: 0
+
+  death_link:
+    # When you die, everyone who enabled death link dies. Of course, the reverse is true too.
+    'false': 50
+    'true': 0
+
+  ################
+  # Main Options #
+  ################
+  GameMode:
+    # Determines starting location and accessibility.
+    # Vanilla starts you in the Docking Bay with no items.
+    # Open Sector Hub starts you in the Sector Hub with one E-Tank and one random item. All sector elevators will be open.
+    # Custom will apply the settings in the Custom Game Mode section.
+    vanilla: 50
+    open_sector_hub: 0
+    custom: 0
+
+  InfantMetroidsInPool:
+    # How many Infant Metroids will be in the item pool.
+    #
+    # You can define additional values between the minimum and maximum values.
+    # Minimum value is 1
+    # Maximum value is 20
+    5: 50
+    random: 0
+    random-low: 0 # random value weighted towards lower values
+    random-high: 0 # random value weighted towards higher values
+    random-range-1-20: 0 # random value between 1 and 20
+
+  InfantMetroidsRequired:
+    # How many Infant Metroids will be required to beat the game.
+    # If set to more than the number in the pool, will instead become however many are present.
+    #
+    # You can define additional values between the minimum and maximum values.
+    # Minimum value is 1
+    # Maximum value is 20
+    5: 50
+    random: 0
+    random-low: 0 # random value weighted towards lower values
+    random-high: 0 # random value weighted towards higher values
+    random-range-1-20: 0 # random value between 1 and 20
+
+  InfantMetroidLocations:
+    # Where Infant Metroids can be located.
+    # Anywhere allows them to be anywhere in the multiworld.
+    # Bosses Encouraged increases the chances of them being located on local boss locations.
+    # Only Bosses means Infant Metroids can only be on your boss locations. Will limit the number of Infant Metroids
+    # in the pool. if greater than the number of bosses.
+    anywhere: 50
+    bosses_encouraged: 0
+    only_bosses: 0
+
+  #################
+  # Logic Options #
+  #################
+  EarlyProgression:
+    # Determines if an early progression item guaranteed in one of your first locations.
+    # Normal restricts the starting item pool to Morph Ball and Missiles.
+    # Advanced expands the pool to Screw Attack.
+    # If Shinespark Tricks are set to Advanced, adds Speed Booster as well
+    # Option is in testing and may increase generation failures.
+    none: 0
+    normal: 50
+    advanced: 0
+
+  SectorTubeShuffle:
+    # If enabled, shuffles the tube connections between sectors.
+    # Does not affect the non-glass tube connections.
+    'false': 50
+    'true': 0
+
+  ElevatorShuffle:
+    # If enabled, shuffles the various elevator connections.
+    # Sectors will shuffle the six sector elevators in the Sector Hub.
+    # All will include all elevator connections in the game.
+    # Note that if enabled, logical energy tank requirements will be relaxed.
+    none: 50
+    sectors: 0
+    all: 0
+
+  PointOfNoReturnsInLogic:
+    # Should Point of No Return locations be in logic.
+    # If disabled, you will never be required to enter an area without the items to exit out.
+    'false': 0
+    'true': 50
+
+  #################
+  # Trick Options #
+  #################
+  ShinesparkTrickDifficulty:
+    # What level of shinespark trick difficulty may be required to navigate around.
+    # Note that this does not exclude items that require shinesparking in vanilla to obtain.
+    # Use the ShinesparkLocations location group for that.
+    none: 50
+    beginner: 0
+    advanced: 0
+
+  WallJumpTrickDifficulty:
+    # What level of wall jump trick difficulty may be required to navigate around.
+    none: 50
+    beginner: 0
+    advanced: 0
+
+  CombatDifficulty:
+    # What level of combat tools are logically expected for later game bosses.
+    beginner: 50
+    advanced: 0
+    expert: 0
+
+  ############################
+  # Custom Game Mode Options #
+  ############################
+  StartingLocation:
+    # Your starting location.
+    # This is a Custom Game Mode option and will only be applied if GameMode is set to Custom.
+    docking_bay: 50
+    operations_deck: 0
+    sector_hub: 0
+    concourse_save_station: 0
+
+  StartingMajorUpgrades:
+    # How many major upgrades you begin with.
+    # Note that depending on your StartingLocation and EarlyProgression settings, you may receive more than specified here
+    # in order to successfully generate the game. Upgrades are taken from the general item pool and will be replaced
+    # by a random filler item.
+    # These will be applied in addition to your start_inventory and start_inventory_from_pool items.
+    # These will be sent by the client once you're connected.
+    # This is a Custom Game Mode option and will only be applied if GameMode is set to Custom.
+    #
+    # You can define additional values between the minimum and maximum values.
+    # Minimum value is 0
+    # Maximum value is 22
+    0: 50
+    random: 0
+    random-low: 0 # random value weighted towards lower values
+    random-high: 0 # random value weighted towards higher values
+    random-range-0-22: 0 # random value between 0 and 22
+
+  StartingEnergyTanks:
+    # How many Energy Tanks you begin with.
+    # This will be overridden by the number specified in start_inventory and start_inventory_from_pool, if applicable.
+    # Energy tanks are taken from the general item pool and will be replaced by a random filler item.
+    # These will be sent by the client once you're connected.
+    # This is a Custom Game Mode option and will only be applied if GameMode is set to Custom.
+    #
+    # You can define additional values between the minimum and maximum values.
+    # Minimum value is 0
+    # Maximum value is 20
+    0: 50
+    random: 0
+    random-low: 0 # random value weighted towards lower values
+    random-high: 0 # random value weighted towards higher values
+    random-range-0-20: 0 # random value between 0 and 20
+
+  FillerItems:
+    # Which Items are used as filler when Items are removed from the pool
+    # Whenever an item is removed from the pool by start_inventory_from_pool, StartingMajorUpgrades, StartingEnergyTanks,
+    # or for other reasons, it will be replaced with a random item from this list.
+    # This is a Custom Game Mode option and will only be applied if GameMode is set to Custom.
+    ['Missile Tank', 'Power Bomb Tank']
+
+  OpenSectorElevators:
+    # Determines if the sector elevators in the Sector Hub are locked by their vanilla keycard requirements.
+    # This is a Custom Game Mode option and will only be applied if GameMode is set to Custom.
+    'false': 50
+    'true': 0
+
+  SectorNavigationRoomHintLocks:
+    # Determines if the Navigation Rooms at the start of each sector have their hints locked by keycard requirements.
+    # If set, the keycard required for the hint will be one level higher than the level needed to access the sector
+    # in vanilla. Has no effect if EnableHints is disabled.
+    # This is a Custom Game Mode option and will only be applied if GameMode is set to Custom.
+    'false': 50
+    'true': 0
+
+  #################
+  # Minor Options #
+  #################
+  PaletteRandomization:
+    # Randomize the ingame palettes.
+    'false': 50
+    'true': 0
+
+  EnableHints:
+    # Enable ingame hints at Navigation Stations.
+    'false': 0
+    'true': 50
+
+  NerfGeronWeaknesses:
+    # Makes Gerons only weak to their 'intended' values.
+    'false': 50
+    'true': 0
+
+  RevealHiddenBlocks:
+    # Enables whether destructible blocks are revealed from the start.
+    'false': 0
+    'true': 50
+
+  FastDoorTransitions:
+    # Enables fast door transitions between rooms.
+    'false': 0
+    'true': 50
+
+  MissileDataAmmo:
+    # The amount of missiles provided by a Missile Data item.
+    #
+    # You can define additional values between the minimum and maximum values.
+    # Minimum value is 5
+    # Maximum value is 100
+    10: 50
+    random: 0
+    random-low: 0 # random value weighted towards lower values
+    random-high: 0 # random value weighted towards higher values
+    random-range-5-100: 0 # random value between 5 and 100
+
+  MissileTankAmmo:
+    # The amount of missiles provided by a Missile Tank item.
+    #
+    # You can define additional values between the minimum and maximum values.
+    # Minimum value is 0
+    # Maximum value is 100
+    5: 50
+    random: 0
+    random-low: 0 # random value weighted towards lower values
+    random-high: 0 # random value weighted towards higher values
+    random-range-0-100: 0 # random value between 0 and 100
+
+  PowerBombDataAmmo:
+    # The amount of power bombs provided by a Power Bomb Data item.
+    #
+    # You can define additional values between the minimum and maximum values.
+    # Minimum value is 5
+    # Maximum value is 100
+    10: 50
+    random: 0
+    random-low: 0 # random value weighted towards lower values
+    random-high: 0 # random value weighted towards higher values
+    random-range-5-100: 0 # random value between 5 and 100
+
+  PowerBombTankAmmo:
+    # The amount of power bombs provided by a Power Bomb Tank item.
+    #
+    # You can define additional values between the minimum and maximum values.
+    # Minimum value is 0
+    # Maximum value is 100
+    2: 50
+    random: 0
+    random-low: 0 # random value weighted towards lower values
+    random-high: 0 # random value weighted towards higher values
+    random-range-0-100: 0 # random value between 0 and 100
+
+  ###########################
+  # Item & Location Options #
+  ###########################
+  local_items:
+    # Forces these items to be in their native world.
+    []
+
+  non_local_items:
+    # Forces these items to be outside their native world.
+    []
+
+  start_inventory:
+    # Start with the specified amount of these items. Example: {Bomb: 1, Arrow: 3}
+    {}
+
+  start_inventory_from_pool:
+    # Start with the specified amount of these items and don't place them in the world. Example: {Bomb: 1, Arrow: 3}
+    # 
+    # The game decides what the replacement items will be.
+    {}
+
+  start_hints:
+    # Start with these item's locations prefilled into the ``!hint`` command.
+    []
+
+  start_location_hints:
+    # Start with these locations and their item prefilled into the ``!hint`` command.
+    []
+
+  exclude_locations:
+    # Prevent these locations from having an important item.
+    []
+
+  priority_locations:
+    # Prevent these locations from having an unimportant item.
+    []
+
+  item_links:
+    # Share part of your item pool with other players.
+    []
+
+  plando_items:
+    # Generic items plando.
+    []
+

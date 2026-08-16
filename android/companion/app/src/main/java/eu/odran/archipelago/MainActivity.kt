@@ -30,6 +30,8 @@ class MainActivity : Activity() {
     private lateinit var address: EditText
     private lateinit var password: EditText
     private lateinit var joinedRoomContainer: LinearLayout
+    private var retroArchButton: Button? = null
+    private var renderedRoom: JoinedRoom? = null
     private var pendingPlayerInvite: RoomInvite? = null
     private var pendingPatchedRom: Pair<String, ByteArray>? = null
     private val refreshStatus = object : Runnable {
@@ -37,6 +39,18 @@ class MainActivity : Activity() {
             status.text = BridgeService.statusText +
                 "\n\nThe bridge continues running when this screen is closed. Use the notification's Stop action to end it."
             serverStatus.text = BridgeService.serverStatusText
+            renderedRoom?.let { room ->
+                retroArchButton?.text = if (RetroArchLauncher.isRunningRom(
+                        room.gameName,
+                        room.playerSlot,
+                        room.serverAddress(),
+                    )
+                ) {
+                    "Return to RetroArch"
+                } else {
+                    "Launch saved ROM in RetroArch"
+                }
+            }
             handler.postDelayed(this, 500)
         }
     }
@@ -207,9 +221,9 @@ class MainActivity : Activity() {
             contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) cursor.getString(0) else null
             }
-        }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('/') ?: "Patched Metroid Fusion.gba"
+        }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('/') ?: "Patched GBA game.gba"
         if (!name.endsWith(".gba", ignoreCase = true)) {
-            inviteStatus.text = "Select a patched Metroid Fusion .gba file."
+            inviteStatus.text = "Select a patched .gba file."
             return
         }
         rememberPatchedRom(name, uri, flags)
@@ -242,8 +256,23 @@ class MainActivity : Activity() {
             .setMessage("Saved $name. Launch it now in RetroArch with the custom mGBA Archipelago core?")
             .setNegativeButton("Done", null)
             .setPositiveButton("Launch RetroArch") { _, _ ->
-                runCatching { RetroArchLauncher.launch(this, uri) }
-                    .onSuccess { inviteStatus.text = "Launching $name in RetroArch…" }
+                val room = JoinedRoomStore.load(this)
+                    ?.takeIf { it.patchedRomUri == uri.toString() }
+                runCatching {
+                    RetroArchLauncher.launch(
+                        this,
+                        uri,
+                        room?.gameName,
+                        room?.playerSlot,
+                        room?.serverAddress(),
+                    )
+                }.onSuccess { resumed ->
+                    inviteStatus.text = if (resumed) {
+                        "Returning to $name in RetroArch…"
+                    } else {
+                        "Launching $name in RetroArch…"
+                    }
+                }
                     .onFailure {
                         inviteStatus.text = "Could not launch RetroArch: ${it.message ?: it.javaClass.simpleName}"
                     }
@@ -273,7 +302,7 @@ class MainActivity : Activity() {
                     append("The companion will verify room ${invite.roomId.take(10)}… on archipelago.gg, wake its ")
                     append("server if necessary, and load its current connection address. ")
                     if (invite.hasPlayerPatch) {
-                        append("It will use your cached clean Metroid Fusion base ROM or ask for it once. ")
+                        append("It will use your cached clean ${invite.gameName} base ROM or ask for it once. ")
                     }
                     append("No website-session secret is imported.")
                 },
@@ -336,9 +365,10 @@ class MainActivity : Activity() {
 
     private fun patchInviteWithCachedBaseRomOrChoose() {
         val invite = pendingPlayerInvite ?: return
+        val game = invite.gameName ?: return
         inviteStatus.text = "Room loaded for ${invite.playerName}. Checking for a cached base ROM…"
         thread(name = "shared-invite-rom-cache-check") {
-            val cachedRom = BaseRomCache.load(this)
+            val cachedRom = BaseRomCache.load(this, game)
             if (cachedRom == null) {
                 runOnUiThread {
                     inviteStatus.text = "Room loaded for ${invite.playerName}. Select your clean base ROM once; it will be cached privately."
@@ -352,12 +382,13 @@ class MainActivity : Activity() {
 
     private fun patchInviteBaseRom(uri: Uri) {
         val invite = pendingPlayerInvite ?: return
+        val game = invite.gameName ?: return
         inviteStatus.text = "Validating and caching the selected base ROM…"
         thread(name = "shared-invite-rom-patching") {
             runCatching {
                 val selectedBytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
                     ?: error("Could not read the selected base ROM.")
-                BaseRomCache.store(this, selectedBytes)
+                BaseRomCache.store(this, selectedBytes, game)
             }.onSuccess { baseBytes ->
                 patchInviteBaseRom(baseBytes, cachedNow = true)
             }.onFailure { error ->
@@ -372,13 +403,14 @@ class MainActivity : Activity() {
     private fun patchInviteBaseRom(baseBytes: ByteArray, cachedNow: Boolean) {
         val invite = pendingPlayerInvite ?: return
         val patchBytes = invite.patchBytes ?: return
+        val game = invite.gameName ?: return
         runOnUiThread {
             val cacheDescription = if (cachedNow) "newly cached" else "cached"
-            inviteStatus.text = "Creating ${invite.playerName}'s patched Metroid Fusion ROM using the $cacheDescription base ROM…"
+            inviteStatus.text = "Creating ${invite.playerName}'s patched $game ROM using the $cacheDescription base ROM…"
         }
         thread(name = "shared-invite-rom-patching") {
             runCatching {
-                val outputName = "${File(invite.patchName ?: "Player${invite.playerSlot}.apmetfus").nameWithoutExtension}.gba"
+                val outputName = "${File(invite.patchName ?: "Player${invite.playerSlot}.patch").nameWithoutExtension}.gba"
                 val output = File(filesDir, "imported_invites/output/$outputName").apply {
                     parentFile?.mkdirs()
                 }
@@ -409,6 +441,8 @@ class MainActivity : Activity() {
 
     private fun renderJoinedRoom(room: JoinedRoom?) {
         joinedRoomContainer.removeAllViews()
+        retroArchButton = null
+        renderedRoom = room
         if (room == null) {
             joinedRoomContainer.addView(TextView(this).apply {
                 text = "Open a shared .apinvite file to add a room, or choose one from Manage imported rooms."
@@ -442,7 +476,7 @@ class MainActivity : Activity() {
                 val selectedPlayer = room.playerName ?: return@setOnClickListener
                 val roomPassword = password.text.toString()
                 runCatching {
-                    PopTrackerLauncher.launch(this@MainActivity, host, selectedPlayer, roomPassword)
+                    PopTrackerLauncher.launch(this@MainActivity, room.gameName, host, selectedPlayer, roomPassword)
                 }.onSuccess {
                     inviteStatus.text = "Opening PopTracker for $selectedPlayer at $host…"
                 }.onFailure {
@@ -453,16 +487,36 @@ class MainActivity : Activity() {
         }, matchWrapParams())
         if (!room.patchedRomUri.isNullOrBlank()) {
             joinedRoomContainer.addView(Button(this).apply {
-                text = "Launch saved ROM in RetroArch"
+                retroArchButton = this
+                text = if (RetroArchLauncher.isRunningRom(
+                        room.gameName,
+                        room.playerSlot,
+                        room.serverAddress(),
+                    )
+                ) {
+                    "Return to RetroArch"
+                } else {
+                    "Launch saved ROM in RetroArch"
+                }
                 setOnClickListener {
                     val uri = Uri.parse(room.patchedRomUri)
                     runCatching {
                         contentResolver.openFileDescriptor(uri, "r")?.use { descriptor ->
                             check(descriptor.statSize != 0L) { "The saved ROM is empty." }
                         } ?: error("The saved ROM is no longer available.")
-                        RetroArchLauncher.launch(this@MainActivity, uri)
-                    }.onSuccess {
-                        inviteStatus.text = "Launching ${room.patchedRomName ?: "saved ROM"} in RetroArch…"
+                        RetroArchLauncher.launch(
+                            this@MainActivity,
+                            uri,
+                            room.gameName,
+                            room.playerSlot,
+                            room.serverAddress(),
+                        )
+                    }.onSuccess { resumed ->
+                        inviteStatus.text = if (resumed) {
+                            "Returning to ${room.patchedRomName ?: "saved ROM"} in RetroArch…"
+                        } else {
+                            "Launching ${room.patchedRomName ?: "saved ROM"} in RetroArch…"
+                        }
                     }.onFailure {
                         inviteStatus.text =
                             "Could not open the saved ROM. Patch and save it again if it was moved or deleted."
@@ -504,6 +558,9 @@ class MainActivity : Activity() {
         ViewGroup.LayoutParams.MATCH_PARENT,
         ViewGroup.LayoutParams.WRAP_CONTENT,
     )
+
+    private fun JoinedRoom.serverAddress(): String? =
+        port.takeIf { it > 0 }?.let { "archipelago.gg:$it" }
 
     override fun onStart() {
         super.onStart()

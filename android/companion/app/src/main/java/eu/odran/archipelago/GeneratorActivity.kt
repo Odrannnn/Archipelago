@@ -49,6 +49,8 @@ class GeneratorActivity : Activity() {
     private var historySettingsLoaded = false
     private var currentHistoryId: String? = null
     private var hostingInProgress = false
+    private var currentTemplateGame = OfflineGenerator.supportedGames.first()
+    private var templateLoadInProgress = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -107,6 +109,10 @@ class GeneratorActivity : Activity() {
                 beginExport(name, yamlEditor.text.toString().toByteArray())
             }
         }
+        val gameTemplateButton = Button(this).apply {
+            text = "Change player game"
+            setOnClickListener { chooseGameTemplate() }
+        }
         generateButton = Button(this).apply {
             text = "Generate offline"
             isEnabled = false
@@ -131,11 +137,12 @@ class GeneratorActivity : Activity() {
         }
         forgetBaseRomButton = Button(this).apply {
             text = "Forget cached base ROM"
-            isEnabled = BaseRomCache.isPresent(this@GeneratorActivity)
+            isEnabled = BaseRomCache.isPresent(this@GeneratorActivity, currentTemplateGame)
             setOnClickListener {
-                if (BaseRomCache.forget(this@GeneratorActivity)) {
+                val game = selectedPatchGame()
+                if (BaseRomCache.forget(this@GeneratorActivity, game)) {
                     isEnabled = false
-                    status.text = "Forgot the cached Metroid Fusion base ROM. It will be requested next time."
+                    status.text = "Forgot the cached $game base ROM. It will be requested next time."
                 } else {
                     status.text = "Could not remove the cached base ROM."
                 }
@@ -154,15 +161,18 @@ class GeneratorActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(32, 32, 32, 32)
             addView(TextView(this@GeneratorActivity).apply {
-                text = "Offline Metroid Fusion Generator"
+                text = "Offline GBA Archipelago Generator"
                 textSize = 24f
             })
             addView(TextView(this@GeneratorActivity).apply {
-                text = "Add players with the controls below, then edit each YAML document if they need different " +
-                    "settings. Generation and patching need no network connection. The first valid base ROM you " +
+                text = "Each YAML document is one player. Add player asks which game that player will use; " +
+                    "Change player game replaces only the selected player's template. You can then edit each " +
+                    "document's settings independently. Generation and patching need no network connection. " +
+                    "The first valid base ROM you " +
                     "select is copied into app-private storage and reused for later seeds. It is removed if you " +
                     "uninstall the app or tap Forget cached base ROM."
             })
+            addView(gameTemplateButton, matchWrapParams())
             addView(seedEditor, matchWrapParams())
             addView(playerCountView, matchWrapParams())
             addView(playerButtons, matchWrapParams())
@@ -212,7 +222,7 @@ class GeneratorActivity : Activity() {
         renderHistory()
 
         thread(name = "offline-generator-startup") {
-            runCatching { OfflineGenerator.defaultYaml(this) }
+            runCatching { OfflineGenerator.defaultYaml(this, currentTemplateGame) }
                 .onSuccess { template ->
                     runOnUiThread {
                         if (!historySettingsLoaded) yamlEditor.setText(template)
@@ -225,23 +235,126 @@ class GeneratorActivity : Activity() {
         }
     }
 
+    private fun chooseGameTemplate() {
+        if (!yamlEditor.isEnabled || templateLoadInProgress) return
+        val documents = yamlDocuments()
+        if (documents.isEmpty()) {
+            chooseGame("Choose the first player's game") { game -> addPlayerWithGame(game) }
+            return
+        }
+        if (documents.size == 1) {
+            chooseGameForPlayer(0, documents)
+            return
+        }
+        val players = documents.mapIndexed { index, document ->
+            val name = playerNameFromYaml(document) ?: "Player ${index + 1}"
+            val game = gameFromYaml(document) ?: "unknown game"
+            "${index + 1} · $name · $game"
+        }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Change which player's game?")
+            .setItems(players) { _, index -> chooseGameForPlayer(index, documents) }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun chooseGameForPlayer(index: Int, documents: List<String>) {
+        val document = documents.getOrNull(index) ?: return
+        val playerName = playerNameFromYaml(document) ?: "Player ${index + 1}"
+        val currentGame = gameFromYaml(document)
+        chooseGame("Choose $playerName's game") { game ->
+            if (game == currentGame) {
+                status.text = "$playerName already uses $game. Its settings were left unchanged."
+            } else {
+                replacePlayerGame(index, documents, playerName, game)
+            }
+        }
+    }
+
+    private fun chooseGame(title: String, onSelected: (String) -> Unit) {
+        val games = OfflineGenerator.supportedGames.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setItems(games) { _, index -> onSelected(games[index]) }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun replacePlayerGame(
+        index: Int,
+        documents: List<String>,
+        playerName: String,
+        game: String,
+    ) {
+        loadPlayerTemplate(game, "Loading $game options for $playerName…") { template ->
+            val updated = documents.toMutableList()
+            updated[index] = replacePlayerName(template, playerName)
+            applyPlayerDocuments(updated, game)
+            status.text = "$playerName now uses $game. Other player YAML documents were preserved."
+        }
+    }
+
+    private fun addPlayerWithGame(game: String) {
+        val documents = yamlDocuments()
+        val playerName = nextPlayerName(documents)
+        loadPlayerTemplate(game, "Loading $game options for $playerName…") { template ->
+            applyPlayerDocuments(documents + replacePlayerName(template, playerName), game)
+            yamlEditor.setSelection(yamlEditor.text.length)
+            status.text = "Added $playerName using $game."
+        }
+    }
+
+    private fun loadPlayerTemplate(game: String, message: String, onLoaded: (String) -> Unit) {
+        templateLoadInProgress = true
+        yamlEditor.isEnabled = false
+        generateButton.isEnabled = false
+        status.text = message
+        thread(name = "offline-player-game-template") {
+            runCatching { OfflineGenerator.defaultYaml(this, game) }
+                .onSuccess { template -> runOnUiThread {
+                    templateLoadInProgress = false
+                    yamlEditor.isEnabled = true
+                    generateButton.isEnabled = true
+                    onLoaded(template)
+                } }
+                .onFailure { error ->
+                    runOnUiThread {
+                        templateLoadInProgress = false
+                        yamlEditor.isEnabled = true
+                        generateButton.isEnabled = true
+                    }
+                    showError("Could not load the $game template", error)
+                }
+        }
+    }
+
+    private fun applyPlayerDocuments(documents: List<String>, mostRecentGame: String) {
+        currentTemplateGame = mostRecentGame
+        clearSelectedSeed()
+        historySettingsLoaded = false
+        yamlEditor.setText(documents.joinToString("\n---\n"))
+        forgetBaseRomButton.isEnabled = BaseRomCache.isPresent(this, mostRecentGame)
+    }
+
     private fun addPlayer() {
-        if (!yamlEditor.isEnabled) return
-        val documents = yamlDocuments().ifEmpty { listOf(OfflineGenerator.defaultYaml(this)) }
-        val newDocument = replacePlayerName(documents.last(), "Player ${documents.size + 1}")
-        yamlEditor.setText((documents + newDocument).joinToString("\n---\n"))
-        yamlEditor.setSelection(yamlEditor.text.length)
-        status.text = "Added Player ${documents.size + 1}. Edit the new YAML document if needed."
+        if (!yamlEditor.isEnabled || templateLoadInProgress) return
+        chooseGame("Choose the new player's game") { game -> addPlayerWithGame(game) }
     }
 
     private fun removeLastPlayer() {
+        if (!yamlEditor.isEnabled || templateLoadInProgress) return
         val documents = yamlDocuments()
         if (documents.size <= 1) {
             status.text = "A seed needs at least one player."
             return
         }
-        yamlEditor.setText(documents.dropLast(1).joinToString("\n---\n"))
+        val remaining = documents.dropLast(1)
+        clearSelectedSeed()
+        historySettingsLoaded = false
+        currentTemplateGame = gameFromYaml(remaining.last()) ?: currentTemplateGame
+        yamlEditor.setText(remaining.joinToString("\n---\n"))
         yamlEditor.setSelection(yamlEditor.text.length)
+        forgetBaseRomButton.isEnabled = BaseRomCache.isPresent(this, currentTemplateGame)
         status.text = "Removed the last player."
     }
 
@@ -267,9 +380,40 @@ class GeneratorActivity : Activity() {
         }
     }
 
+    private fun playerNameFromYaml(yaml: String): String? = Regex("(?m)^name\\s*:\\s*(.+?)\\s*$")
+        .find(yaml)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.trim()
+        ?.removeSurrounding("\"")
+        ?.removeSurrounding("'")
+        ?.takeIf { it.isNotBlank() }
+
+    private fun nextPlayerName(documents: List<String>): String {
+        val existing = documents.mapNotNull(::playerNameFromYaml).map { it.lowercase(Locale.ROOT) }.toSet()
+        var number = documents.size + 1
+        while ("player $number" in existing) number += 1
+        return "Player $number"
+    }
+
     private fun updatePlayerCount() {
         val count = yamlDocuments().size.coerceAtLeast(1)
         playerCountView.text = "Players: $count"
+    }
+
+    private fun gameFromYaml(yaml: String): String? = Regex("(?m)^game\\s*:\\s*(.+?)\\s*$")
+        .find(yaml)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.trim()
+        ?.removeSurrounding("\"")
+        ?.removeSurrounding("'")
+        ?.takeIf { it in OfflineGenerator.supportedGames }
+
+    private fun selectedPatchGame(): String = when {
+        patchFile?.name?.endsWith(".aptmc", ignoreCase = true) == true -> "The Minish Cap"
+        patchFile?.name?.endsWith(".apmetfus", ignoreCase = true) == true -> "Metroid Fusion"
+        else -> currentTemplateGame
     }
 
     private fun generateSeed() {
@@ -310,9 +454,11 @@ class GeneratorActivity : Activity() {
             ?.takeIf { it.isFile }
         availablePatches = entry.patches.map { File(it.path) }.filter { it.isFile }
         patchFile = availablePatches.firstOrNull()
+        currentTemplateGame = gameFromYaml(entry.yaml) ?: selectedPatchGame()
         exportSeedButton.isEnabled = seedFile != null
         hostSeedButton.isEnabled = seedFile != null && !hostingInProgress
         patchButton.isEnabled = patchFile != null
+        forgetBaseRomButton.isEnabled = BaseRomCache.isPresent(this, selectedPatchGame())
         renderPatchChoices()
         if (loadSettings) {
             historySettingsLoaded = true
@@ -336,11 +482,15 @@ class GeneratorActivity : Activity() {
         if (availablePatches.size > 1) {
             availablePatches.forEach { patch ->
                 patchesContainer.addView(Button(this).apply {
-                    text = patch.name.removeSuffix(".apmetfus")
+                    text = patch.name.removeSuffix(".apmetfus").removeSuffix(".aptmc")
                     isEnabled = patch != patchFile
                     setOnClickListener {
                         patchFile = patch
                         patchButton.isEnabled = true
+                        forgetBaseRomButton.isEnabled = BaseRomCache.isPresent(
+                            this@GeneratorActivity,
+                            selectedPatchGame(),
+                        )
                         renderPatchChoices()
                         status.text = "Selected ${patch.name}"
                     }
@@ -600,7 +750,7 @@ class GeneratorActivity : Activity() {
     }
 
     private fun hostedPlayerName(displayName: String): String =
-        displayName.removeSuffix(" (Metroid Fusion)")
+        displayName.removeSuffix(" (Metroid Fusion)").removeSuffix(" (The Minish Cap)")
 
     private fun confirmWebsiteSessionSync() {
         AlertDialog.Builder(this)
@@ -666,15 +816,16 @@ class GeneratorActivity : Activity() {
 
     private fun patchWithCachedBaseRomOrChoose() {
         val selectedPatch = patchFile ?: return
+        val game = selectedPatchGame()
         patchButton.isEnabled = false
-        status.text = "Checking for a cached Metroid Fusion base ROM…"
+        status.text = "Checking for a cached $game base ROM…"
         thread(name = "offline-rom-cache-check") {
-            val cachedRom = BaseRomCache.load(this)
+            val cachedRom = BaseRomCache.load(this, game)
             if (cachedRom == null) {
                 runOnUiThread {
                     patchButton.isEnabled = true
                     forgetBaseRomButton.isEnabled = false
-                    status.text = "Select your clean Metroid Fusion base ROM. It will be cached privately for later seeds."
+                    status.text = "Select your clean $game base ROM. It will be cached privately for later seeds."
                     chooseBaseRom()
                 }
             } else {
@@ -689,13 +840,14 @@ class GeneratorActivity : Activity() {
 
     private fun patchBaseRom(uri: Uri) {
         val selectedPatch = patchFile ?: return
+        val game = selectedPatchGame()
         patchButton.isEnabled = false
         status.text = "Validating and caching the selected base ROM…"
         thread(name = "offline-rom-patching") {
             runCatching {
                 val selectedBytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
                     ?: error("Could not read the selected ROM")
-                val baseBytes = BaseRomCache.store(this, selectedBytes)
+                val baseBytes = BaseRomCache.store(this, selectedBytes, game)
                 createPatchedRom(selectedPatch, baseBytes)
             }.onSuccess { output ->
                 runOnUiThread {

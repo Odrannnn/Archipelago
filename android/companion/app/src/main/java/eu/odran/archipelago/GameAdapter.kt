@@ -12,13 +12,22 @@ interface GameRomInfo {
 interface GameSnapshot {
     val receivedItemCount: Int
     val hasReachedGoal: Boolean
-    val checkedLocationNames: Set<String>
+    val checkedLocationNames: Set<String> get() = emptySet()
+    val checkedLocationIds: Set<Long> get() = emptySet()
 }
 
 /** Game-specific connection data parsed from Archipelago's Connected packet. */
 interface GameSlotData {
     val startInventory: List<String>
 }
+
+/** One item from Archipelago's authoritative ReceivedItems history. */
+data class ReceivedGameItem(
+    val id: Long,
+    val name: String,
+    val location: Long,
+    val sourcePlayer: Int,
+)
 
 /**
  * Isolates the memory contract of one Archipelago game from the shared room
@@ -28,14 +37,27 @@ interface GameAdapter {
     val gameName: String
     val apWorldVersion: String
     val itemsHandling: Int get() = 0b011
+    val requiredBridgeProtocol: Int get() = 1
+    val supportsInventoryReconciliation: Boolean get() = true
+    val requiresServerSeedVerification: Boolean get() = false
 
     fun detectRom(): GameRomInfo?
     fun snapshot(): GameSnapshot?
     fun parseSlotData(data: JSONObject): GameSlotData
-    fun applyRemoteItemWhileInGame(itemName: String, slotData: GameSlotData): Boolean
+    fun applyRemoteItemWhileInGame(item: ReceivedGameItem, slotData: GameSlotData): Boolean
     fun setReceivedItemCountWhileInGame(count: Int): Boolean
     fun reconcileInventoryWhileInGame(itemNames: List<String>, slotData: GameSlotData): Boolean
     fun showPlayerMessage(message: String)
+
+    /** Some games ask the server to resend a broader item set after slot data is known. */
+    fun itemsHandlingAfterConnect(slotData: GameSlotData): Int? = null
+
+    /** Confirms that the loaded ROM was generated for the room announced by the server. */
+    fun verifyServerSeed(serverSeedName: String): Boolean = true
+
+    /** Whether the ROM already applied this item at its local pickup location. */
+    fun isItemSuppliedByPatchedRom(item: ReceivedGameItem, ownSlot: Int, slotData: GameSlotData): Boolean =
+        item.sourcePlayer == ownSlot && item.location >= 0
 }
 
 data class DetectedGame(
@@ -54,6 +76,7 @@ object GameRegistry {
 
     private val registrations = listOf(
         Registration("Metroid Fusion", ::MetroidFusionProfile),
+        Registration("The Minish Cap", ::MinishCapProfile),
     )
 
     val supportedGameNames: List<String>

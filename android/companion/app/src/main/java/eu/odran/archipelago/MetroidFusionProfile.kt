@@ -107,11 +107,11 @@ class MetroidFusionProfile(private val bridge: MGBABridgeClient) : GameAdapter {
      * this method succeeds. Local items are intentionally omitted: their
      * effect is already supplied by the patched ROM itself.
      */
-    override fun applyRemoteItemWhileInGame(itemName: String, slotData: GameSlotData): Boolean {
+    override fun applyRemoteItemWhileInGame(item: ReceivedGameItem, slotData: GameSlotData): Boolean {
         val data = slotData as? SlotData
             ?: error("Metroid Fusion received incompatible slot data")
         if (!isInGame()) return false
-        return when (itemName) {
+        return when (item.name) {
             "Infant Metroid" -> incrementByte(INFANT_METROID_COUNT)
             "Level 1 Keycard" -> setBit(KEYCARD_FLAGS, 1)
             "Level 2 Keycard" -> setBit(KEYCARD_FLAGS, 2)

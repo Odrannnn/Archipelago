@@ -1,4 +1,4 @@
-# Android mGBA / RetroArch experiment
+# Android mGBA / RetroArch companion
 
 This experiment separates responsibilities deliberately:
 
@@ -18,6 +18,9 @@ game-specific Archipelago logic. No memory port is exposed to the LAN.
   `v1.22.4`: it recognizes the patched `MFU` ROM identifier, produces the AP
   authentication token, reads checks/area/room/receipt state, detects credits,
   and applies the APWorld's item-side RAM changes only during gameplay.
+- `companion/` also has a The Minish Cap profile for APWorld `v0.3.1`, including
+  ROM/seed verification, item queue injection, location flags, special Goron
+  and Cucco checks, and completion reporting.
 - `companion/` now authenticates to the room, resolves item and location IDs
   from the server data package, delivers queued items using the ROM's receipt
   counter, reports checked locations, and reports goal completion at credits.
@@ -25,10 +28,7 @@ game-specific Archipelago logic. No memory port is exposed to the LAN.
   with the sending player's current alias.
   Room credentials and Internet access remain outside the custom core.
 
-## Next decision
-
-Metroid Fusion is the first supported target: ArchipelagoMine APWorld `v1.22.4`.
-Its selected client protocol is documented in `companion/README.md`.
+Both supported client protocols are documented in `companion/README.md`.
 
 ## Installing the custom RetroArch core on Android
 
@@ -38,7 +38,7 @@ native code in shared writable storage. Package the compiled core as a ZIP,
 copy that ZIP to Downloads, and use RetroArch's **Load Core > Install or
 Restore a Core** command. RetroArch then extracts the library into its private
 core directory. Keep a distinct filename such as
-`mgba_apbridge_libretro_android.so` so the stock mGBA core is not overwritten.
+`mgba_apbridge_v6_libretro_android.so` so the stock mGBA core is not overwritten.
 
 For NDK r27 and older, configure CMake with:
 

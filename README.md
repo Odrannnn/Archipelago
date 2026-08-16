@@ -1,4 +1,4 @@
-# Archipelago Android Companion for Metroid Fusion
+# Archipelago Android Companion for GBA
 
 <p align="center">
   ☕ <a href="https://ko-fi.com/odrannnn">Support this little Android adventure on Ko-fi</a> 💙
@@ -14,37 +14,38 @@
 
 This disclaimer does not apply to the upstream Archipelago project or to
 third-party components and source incorporated from Archipelago, mGBA,
-RetroArch, ArchipelagoMine, or the Metroid Fusion APWorld. Those projects retain
+RetroArch, ArchipelagoMine, or the bundled APWorlds. Those projects retain
 their original authorship, history, and licenses.
 
-This fork adds a self-contained Android workflow for playing
-[Metroid Fusion](https://en.wikipedia.org/wiki/Metroid_Fusion) multiworlds with
-[Archipelago](https://archipelago.gg). It combines an Android companion app
+This fork adds a self-contained Android workflow for playing GBA multiworlds
+with [Archipelago](https://archipelago.gg). It combines an Android companion app
 with a custom mGBA libretro core so RetroArch can exchange game state with an
 Archipelago room without a PC.
 
 The Android work currently targets the Metroid Fusion APWorld from
-[ArchipelagoMine 1.22.4](https://github.com/StalledStorm/ArchipelagoMine/releases/tag/v1.22.4).
+[ArchipelagoMine 1.22.4](https://github.com/StalledStorm/ArchipelagoMine/releases/tag/v1.22.4)
+and The Minish Cap APWorld
+[v0.3.1](https://github.com/eternalcode0/Archipelago/releases/tag/v0.3.1).
 The rest of this repository remains based on the upstream
 [Archipelago project](https://github.com/ArchipelagoMW/Archipelago).
 
 > This is an independent fork and is not an official Archipelago Android
-> client. It does not include Metroid Fusion or any other commercial ROM.
+> client. It does not include any commercial ROM.
 
 ## What it does
 
-### Play Metroid Fusion multiworlds on Android
+### Play supported GBA multiworlds on Android
 
 - Connects RetroArch's emulated GBA memory to the companion through a
   loopback-only bridge at `127.0.0.1:43056`.
-- Detects compatible Archipelago-patched Metroid Fusion ROMs and reads their
+- Detects compatible Archipelago-patched Metroid Fusion and The Minish Cap ROMs and reads their
   embedded authentication token.
 - Connects to Archipelago rooms over WebSockets, including TLS fallback.
 - Reports checked locations and game completion.
 - Receives and applies items, upgrades, capacities, keycards, Metroid count,
   and persistent state.
-- Restores received upgrades after an older in-game save is loaded.
-- Supports DeathLink and displays new item messages through RetroArch's
+- The Metroid Fusion adapter restores received upgrades after an older in-game save is loaded.
+- Displays new item messages through RetroArch's
   on-screen display.
 - Reconnects after RetroArch restarts, ROM reloads, app switching, suspension,
   and stale bridge connections.
@@ -55,12 +56,12 @@ required.
 ### Generate and patch seeds without a PC
 
 The companion embeds Python 3.12, the Archipelago 0.6.8 generation components,
-and the Metroid Fusion APWorld. On the phone it can:
+and both supported APWorlds. On the phone it can:
 
-- create and edit multiple player YAML files;
-- generate single-player or multiplayer seeds offline;
-- retain seed history, settings, ZIPs, and player-specific `.apmetfus` patches;
-- validate a legally obtained clean Metroid Fusion ROM, including ROMs with a
+- create and edit per-player YAML documents with an independent game choice;
+- generate single-player, same-game multiplayer, or mixed-game multiworld seeds offline;
+- retain seed history, settings, ZIPs, and player-specific `.apmetfus` or `.aptmc` patches;
+- validate the correct legally obtained clean ROM for either game, including ROMs with a
   legacy 512-byte copier header;
 - cache the validated base ROM privately for later patches; and
 - save a ready-to-run `.gba` for each player.
@@ -75,7 +76,7 @@ status, open room controls and trackers, and synchronize its website session
 with a browser.
 
 Player-specific `.apinvite` files contain the public room identifiers, the
-selected player and slot, that player's `.apmetfus` patch, and a SHA-256
+selected player and slot, that player's game-specific patch, and a SHA-256
 integrity hash. A recipient can open the invite to wake the room, resolve its
 current port, configure the companion, patch their own clean ROM locally, and
 save the finished game. Invitations never contain a base ROM, website-session
@@ -90,7 +91,7 @@ each player, or remove a local room record without deleting the hosted room.
 - Launches a saved patched ROM in 64-bit RetroArch with the custom mGBA bridge
   core while allowing RetroArch to retain its normal configuration, controller
   mappings, overrides, and remaps.
-- Opens the PopTracker Android app with the `Metroid Fusion` game identifier,
+- Opens the PopTracker Android app with the imported room's game identifier,
   active server address, selected player name, and room password.
 
 ## How it is structured
@@ -102,12 +103,12 @@ Android companion app
         ↕ 127.0.0.1:43056 only
 Custom mGBA libretro core
         ↕ emulated GBA memory
-Metroid Fusion in RetroArch
+Supported GBA game in RetroArch
 ```
 
 The custom core performs memory access only on mGBA's emulation thread. It
 does not receive room credentials or connect to the Internet. The Android app
-owns authentication, room networking, reconnection, and Metroid Fusion game
+owns authentication, room networking, reconnection, and game-specific
 logic. The emulator bridge is bound only to the local device and is never
 exposed to the LAN.
 
@@ -117,7 +118,7 @@ exposed to the LAN.
 - Android companion package `eu.odran.archipelago`
 - 64-bit RetroArch (`com.retroarch.aarch64`)
 - The custom mGBA Archipelago bridge core installed in RetroArch
-- A legally obtained clean US Metroid Fusion GBA ROM
+- A legally obtained clean ROM for the selected game (US Metroid Fusion or European The Minish Cap)
 - An Archipelago room when playing online
 
 Offline generation and ROM patching do not require an Internet connection.
@@ -165,8 +166,8 @@ RetroArch's **Load Core > Install or Restore a Core** command.
 - Public room identifiers and player patches are shared only when the user
   explicitly creates an invitation.
 
-Metroid Fusion is a Nintendo property. Archipelago, mGBA, RetroArch, and the
-Metroid Fusion APWorld retain their respective licenses and ownership. Review
+Metroid Fusion and The Minish Cap are Nintendo properties. Archipelago, mGBA,
+RetroArch, and the APWorlds retain their respective licenses and ownership. Review
 the included license files before redistributing binaries or modified source.
 
 ## Upstream Archipelago

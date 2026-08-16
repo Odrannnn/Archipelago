@@ -11,6 +11,7 @@ object BridgeProtocol {
     const val MAX_PAYLOAD = 4096
     const val MAX_MESSAGE_BYTES = 511
     const val MESSAGE_PROTOCOL_VERSION = 2
+    const val GUARDED_WRITE_PROTOCOL_VERSION = 3
 
     const val HELLO = 1
     const val PING = 2
@@ -19,6 +20,7 @@ object BridgeProtocol {
     const val GUARD = 5
     const val ROM_SHA1 = 6
     const val MESSAGE = 7
+    const val GUARDED_WRITE = 8
 
     const val OK = 0
     const val BAD_REQUEST = 1

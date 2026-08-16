@@ -25,6 +25,8 @@ data class RoomInvite(
 ) {
     val hasPlayerPatch: Boolean
         get() = playerSlot != null && !playerName.isNullOrBlank() && !patchName.isNullOrBlank() && patchBytes != null
+    val gameName: String?
+        get() = patchName?.let(::supportedPatchGame)
 
     private fun metadataJson(version: Int) = JSONObject().apply {
         put("format", FORMAT)
@@ -64,8 +66,9 @@ data class RoomInvite(
             require(playerSlot > 0) { "Invalid player slot." }
             require(patchBytes.isNotEmpty() && patchBytes.size <= MAX_PATCH_BYTES) { "The player patch is too large." }
             val safePatchName = File(patchName).name
-            require(safePatchName.endsWith(".apmetfus", ignoreCase = true)) {
-                "The selected file is not a Metroid Fusion player patch."
+            val gameName = supportedPatchGame(safePatchName)
+            require(gameName != null) {
+                "The selected file is not a supported GBA player patch."
             }
             val invite = RoomInvite(
                 room.roomId,
@@ -98,7 +101,7 @@ data class RoomInvite(
             val message = buildString {
                 appendLine("Join my Archipelago multiplayer seed as $playerName (slot $playerSlot)!")
                 appendLine()
-                appendLine("The attached companion invite contains your Metroid Fusion player patch.")
+                appendLine("The attached companion invite contains your $gameName player patch.")
                 appendLine("Room-only fallback: $appLink")
                 appendLine("Room and player patches: $roomUrl")
                 if (room.lastPort > 0) appendLine("Server: archipelago.gg:${room.lastPort}")
@@ -193,8 +196,8 @@ data class RoomInvite(
             val playerName = root.getString("player_name").trim()
             require(playerName.isNotBlank() && playerName.length <= 256) { "The invitation contains an invalid player name." }
             val patchName = File(root.getString("patch_name")).name
-            require(patchName.endsWith(".apmetfus", ignoreCase = true)) {
-                "The invitation does not contain a Metroid Fusion patch."
+            require(supportedPatchGame(patchName) != null) {
+                "The invitation does not contain a supported GBA patch."
             }
             val patchBytes = patch ?: error("The invitation has no player patch.")
             require(patchBytes.isNotEmpty()) { "The invitation contains an empty player patch." }
@@ -234,6 +237,7 @@ data class JoinedRoom(
     val playerName: String? = null,
     val patchedRomName: String? = null,
     val patchedRomUri: String? = null,
+    val gameName: String = "Metroid Fusion",
 )
 
 object JoinedRoomStore {
@@ -249,6 +253,9 @@ object JoinedRoomStore {
         val selectedSlot = invite?.playerSlot ?: previous?.playerSlot
         val selectedName = invite?.playerName ?: previous?.playerName
         val previousPlayerRom = previous?.takeIf { it.playerSlot == selectedSlot }
+        val selectedGame = invite?.gameName ?: previous?.gameName ?: room.players.firstNotNullOfOrNull { player ->
+            Regex("\\((Metroid Fusion|The Minish Cap)\\)$").find(player)?.groupValues?.getOrNull(1)
+        } ?: "Metroid Fusion"
         val joined = JoinedRoom(
             room.roomId,
             room.trackerId,
@@ -259,6 +266,7 @@ object JoinedRoomStore {
             selectedName,
             previousPlayerRom?.patchedRomName,
             previousPlayerRom?.patchedRomUri,
+            selectedGame,
         )
         rooms.removeAll { it.roomId == joined.roomId }
         rooms += joined
@@ -352,6 +360,7 @@ object JoinedRoomStore {
         put("playerName", playerName)
         put("patchedRomName", patchedRomName)
         put("patchedRomUri", patchedRomUri)
+        put("gameName", gameName)
     }
 
     private fun roomFromJson(data: JSONObject) = JoinedRoom(
@@ -366,7 +375,15 @@ object JoinedRoomStore {
         data.optString("playerName").takeIf { it.isNotBlank() && it != "null" },
         data.optString("patchedRomName").takeIf { it.isNotBlank() && it != "null" },
         data.optString("patchedRomUri").takeIf { it.isNotBlank() && it != "null" },
+        data.optString("gameName", "Metroid Fusion").takeIf { it in setOf("Metroid Fusion", "The Minish Cap") }
+            ?: "Metroid Fusion",
     )
+}
+
+private fun supportedPatchGame(name: String): String? = when {
+    name.endsWith(".apmetfus", ignoreCase = true) -> "Metroid Fusion"
+    name.endsWith(".aptmc", ignoreCase = true) -> "The Minish Cap"
+    else -> null
 }
 
 /** Remembers which local generated seed supplied each website-hosted room. */

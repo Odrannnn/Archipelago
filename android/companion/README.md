@@ -1,4 +1,4 @@
-# Android companion: Metroid Fusion vertical slice
+# Android companion: GBA game adapters
 
 The Android application ID and Kotlin namespace are both `eu.odran.archipelago`.
 
@@ -17,14 +17,14 @@ The bridge can become available before RetroArch has loaded any content.
 core remains connected. It starts a room session when a compatible patched ROM
 appears and closes that session if the content is unloaded or replaced.
 If RetroArch is backgrounded long enough for the local socket to time out, the
-service also closes that room session before retrying. The matching v5 core
+service also closes that room session before retrying. The matching v6 core
 adopts the newest queued loopback connection on resume, avoiding a stale client
 which could otherwise prevent reconnection after switching apps.
 
 The room-network client adds editable server/password settings and
 `ArchipelagoSession`. It supports `ws://` and `wss://`, waits for `RoomInfo`,
-authenticates with the ROM's embedded token, requests the Metroid Fusion data
-package, and uses the APWorld's `items_handling = 0b011`. Binary zlib packets
+authenticates with the ROM's embedded token, requests the detected game's data
+package, and uses that adapter's item-handling flags. Binary zlib packets
 are decoded for large data-package and item messages.
 If a cleartext WebSocket handshake is closed by the host, the client retries
 the same host and port once with TLS (`wss://`), matching the desktop client's
@@ -56,8 +56,8 @@ the server's authoritative item queue and the ROM counter resume at the next
 undelivered item. Every three seconds it also reconstructs persistent upgrade,
 keycard, Metroid-count, and capacity-maximum state from the full item history;
 this restores AP items after loading an older in-game save even though the
-separate SRAM receipt counter remains current. DeathLink and player-facing
-item messages are shown through RetroArch's on-screen display. Only newly
+separate SRAM receipt counter remains current. Player-facing item messages are
+shown through RetroArch's on-screen display. Only newly
 delivered remote/server items produce an OSD message, so reconnect and
 older-save reconciliation cannot replay notification history. Sender aliases
 come from the room's `players` metadata and follow later alias updates.
@@ -75,10 +75,12 @@ state, item application, persistent inventory reconciliation, and completion
 detection for one game. `ArchipelagoSession` handles the shared WebSocket
 protocol without depending on Metroid Fusion memory types.
 
-Metroid Fusion is currently the only registered adapter, so this refactor does
-not change player-facing behavior. Additional GBA games can reuse the custom
-mGBA bridge by registering another adapter. Other console families will also
-need a compatible libretro-core implementation of the loopback bridge.
+The registered adapters are Metroid Fusion APWorld `1.22.4` and The Minish Cap
+APWorld `0.3.1`. The latter validates `GBAZELDA`, authenticates with the player
+name at ROM `0x600`, verifies the room seed at `0x620`, polls its EWRAM location
+flags (including special Goron/Cucco state), and injects received item IDs into
+the patched game's guarded item queue. Other console families will also need a
+compatible libretro-core implementation of the loopback bridge.
 
 The main screen exposes independent mGBA and Archipelago connection indicators.
 The server indicator distinguishes connecting, authenticated, and disconnected
@@ -92,11 +94,20 @@ loopback only and receives no Internet-facing configuration or credentials.
 ## Offline generation
 
 The **Offline seed generator** screen embeds Python 3.12, the Archipelago 0.6.8
-generation core, and Metroid Fusion APWorld 1.22.4. It can edit/export player
-YAML and generate one-player or multiplayer seeds without a network
-connection. **Add player** duplicates the previous player's document under a
-unique name; each YAML document can then be edited independently before the
-multiworld is generated. Every player receives a separate `.apmetfus` patch.
+generation core, Metroid Fusion APWorld 1.22.4, and The Minish Cap APWorld
+0.3.1. It can edit/export player YAML and generate one-player, same-game
+multiplayer, or mixed-game multiworld seeds without a network connection.
+**Add player** asks which supported game the new player will use and appends its
+template under a unique name. **Change player game** selects one existing player
+and replaces only that player's template, preserving every other YAML document.
+Both game templates are development-time assets generated from their bundled
+APWorld definitions with Archipelago's standard YAML generator. They expose all
+documented common and game-specific options, including weighted choices, ranges,
+tricks, and filler distribution where applicable. The Python generation module
+contains no game-template text, and the Android picker reads its game list from
+the asset registry. Each document's options remain independently editable before
+generation. Every player receives a separate `.apmetfus` or `.aptmc` patch
+according to their game.
 
 Completed runs are copied into persistent app-private seed history together
 with their source YAML, room ZIP, player names, and all player patches. A
@@ -123,19 +134,27 @@ Older metadata-only invites remain supported, and
 does not open the attachment directly. **Sync website session** is separate and
 its secret link must not be shared.
 
-The app applies a selected `.apmetfus` to a user-supplied base ROM, validates
-the ROM against the checksums declared by the APWorld, and supports a legacy
+The app applies a selected supported player patch to a user-supplied base ROM,
+validates the ROM against the checksums declared by its APWorld, and supports a legacy
 512-byte copier header. After the first successful validation it stores a
-headerless copy in private no-backup app storage and automatically reuses it
+headerless copy in a per-game private no-backup cache and automatically reuses it
 for later local and invite patches. **Forget cached base ROM**, clearing app
 data, or uninstalling removes the copy. The app never bundles a ROM.
 
 After a patched `.gba` is saved, the companion offers to launch it directly in
 the installed 64-bit RetroArch package. The launch intent selects the custom
-`mgba_apbridge_v5_libretro_android.so` core without forcing a configuration-file
-path, allowing RetroArch to retain its normal global or per-core configuration,
-controller mappings, overrides, and remaps. The game therefore opens with the
-emulator-memory bridge enabled without requiring a second content/core selection.
+`mgba_apbridge_v6_libretro_android.so` core and passes RetroArch's own standard
+`retroarch.cfg` path without creating or modifying the file, preserving controller
+mappings, overrides, and remaps. Each launch starts a fresh RetroArch task so a
+suspended video surface cannot leave the game running with audio but no picture.
+When the bridge reports that the selected imported room's game, player slot, and
+server are already active, the shortcut instead becomes **Return to RetroArch**
+and brings that existing activity forward without recreating its native video
+surface. This last-known room identity survives the bridge socket dropping while
+RetroArch is backgrounded, as well as companion service and process restarts. A
+different room or ROM continues to receive a clean launch.
+The game therefore opens with the emulator-memory bridge enabled without requiring
+a second content/core selection.
 
 Imported multiplayer rooms are kept in a persistent room library instead of
 replacing one another. **Manage imported rooms** lists them, marks the active
@@ -143,7 +162,7 @@ room, switches the companion and bridge to another room's current server, and
 deletes local room records without affecting hosted rooms or ROM files. Existing
 single-room data is migrated automatically. **Open in PopTracker** launches the
 PopTracker Android app with the active room's current host and port, selected
-player name, saved room password, and `Metroid Fusion` game identifier so the
+player name, saved room password, and the room's game identifier so the
 matching tracker pack can load automatically. For player-specific rooms, the
 companion also remembers the saved ROM document and retains its Android document
 permission, so the active-room section can launch that player's existing ROM in

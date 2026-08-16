@@ -29,6 +29,7 @@ class BridgeService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        restoreActiveRom()
         createNotificationChannel()
         publish("Starting Archipelago bridge…")
         publishServerWaitingForRom()
@@ -82,6 +83,7 @@ class BridgeService : Service() {
         while (running && !Thread.currentThread().isInterrupted) {
             val bridge = MGBABridgeClient()
             var session: ArchipelagoSession? = null
+            var sessionAddress: String? = null
             activeBridge = bridge
             try {
                 publish("Waiting for the custom mGBA core on 127.0.0.1:${BridgeProtocol.PORT}…")
@@ -102,12 +104,24 @@ class BridgeService : Service() {
                             session?.close()
                             if (activeSession === session) activeSession = null
                             session = null
+                            sessionAddress = null
                             activeGame = detected
+                            detected?.adapter?.gameName?.let { detectedGameName ->
+                                if (activeGameName != detectedGameName) {
+                                    activeGameName = detectedGameName
+                                    activePlayerSlot = null
+                                    activeServerAddress = null
+                                    rememberActiveRom()
+                                }
+                            }
                             nextSessionAttempt = 0L
                             if (detected == null) publishServerWaitingForRom()
                             publish(
                                 if (detected == null) {
                                     "mGBA connected · waiting for ${GameRegistry.patchedRomDescription()}…"
+                                } else if (version < detected.adapter.requiredBridgeProtocol) {
+                                    "⚠️ ${detected.adapter.gameName} needs custom mGBA bridge protocol " +
+                                        "${detected.adapter.requiredBridgeProtocol}; installed core reports $version"
                                 } else {
                                     "mGBA connected · ${detected.adapter.gameName} APWorld ${detected.adapter.apWorldVersion} · ${detected.romInfo.name}"
                                 },
@@ -119,6 +133,7 @@ class BridgeService : Service() {
                     val detectedGame = activeGame
                     val settings = ServerSettings.load(this)
                     if (settings.isConfigured && detectedGame != null &&
+                        version >= detectedGame.adapter.requiredBridgeProtocol &&
                         (session == null || session.isClosed) &&
                         now >= nextSessionAttempt
                     ) {
@@ -130,11 +145,19 @@ class BridgeService : Service() {
                             ::publishServerDetails,
                             ::publishServerState,
                         )
+                        sessionAddress = settings.address
                         activeSession = session
                         session.connect()
                         nextSessionAttempt = now + TimeUnit.SECONDS.toMillis(5)
                     }
                     if (detectedGame != null) session?.tick()
+                    session?.connectedSlot?.let { connectedSlot ->
+                        if (activePlayerSlot != connectedSlot || activeServerAddress != sessionAddress) {
+                            activePlayerSlot = connectedSlot
+                            activeServerAddress = sessionAddress
+                            rememberActiveRom()
+                        }
+                    }
                     bridge.ping()
                     TimeUnit.SECONDS.sleep(1)
                 }
@@ -247,15 +270,46 @@ class BridgeService : Service() {
         getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
     }
 
+    private fun restoreActiveRom() {
+        val preferences = getSharedPreferences(ACTIVE_ROM_PREFERENCES, MODE_PRIVATE)
+        activeGameName = preferences.getString(ACTIVE_ROM_GAME, null)
+        activePlayerSlot = preferences.getInt(ACTIVE_ROM_SLOT, 0).takeIf { it > 0 }
+        activeServerAddress = preferences.getString(ACTIVE_ROM_SERVER, null)
+    }
+
+    private fun rememberActiveRom() {
+        getSharedPreferences(ACTIVE_ROM_PREFERENCES, MODE_PRIVATE).edit().apply {
+            activeGameName?.let { putString(ACTIVE_ROM_GAME, it) } ?: remove(ACTIVE_ROM_GAME)
+            activePlayerSlot?.let { putInt(ACTIVE_ROM_SLOT, it) } ?: remove(ACTIVE_ROM_SLOT)
+            activeServerAddress?.let { putString(ACTIVE_ROM_SERVER, it) } ?: remove(ACTIVE_ROM_SERVER)
+        }.apply()
+    }
+
     companion object {
         private const val CHANNEL_ID = "emulator_bridge"
         private const val TAG = "ArchipelagoBridge"
         private const val NOTIFICATION_ID = 43056
         private const val ACTION_STOP = "eu.odran.archipelago.STOP_BRIDGE"
+        private const val ACTIVE_ROM_PREFERENCES = "last_active_retroarch_rom"
+        private const val ACTIVE_ROM_GAME = "game"
+        private const val ACTIVE_ROM_SLOT = "slot"
+        private const val ACTIVE_ROM_SERVER = "server"
         const val ACTION_RECONNECT = "eu.odran.archipelago.RECONNECT_BRIDGE"
 
         @Volatile
         private var lastServerState: ArchipelagoSession.ConnectionState? = null
+
+        @Volatile
+        var activeGameName: String? = null
+            private set
+
+        @Volatile
+        var activePlayerSlot: Int? = null
+            private set
+
+        @Volatile
+        var activeServerAddress: String? = null
+            private set
 
         @Volatile
         var statusText: String = "Bridge service has not started"
@@ -271,8 +325,9 @@ class BridgeService : Service() {
 
         @Volatile
         var serverStatusDetails: String? =
-            "Archipelago will connect after you load a compatible patched Metroid Fusion ROM " +
+            "Archipelago will connect after you load a compatible patched GBA ROM " +
                 "in RetroArch using the custom mGBA core."
             private set
+
     }
 }

@@ -16,7 +16,7 @@
 #define APB_MAGIC 0x41504231u
 #define APB_HEADER_SIZE 20u
 #define APB_MAX_PAYLOAD 4096u
-#define APB_PROTOCOL_VERSION 2u
+#define APB_PROTOCOL_VERSION 3u
 
 enum APBType {
 	APB_HELLO = 1,
@@ -26,6 +26,7 @@ enum APBType {
 	APB_GUARD = 5,
 	APB_ROM_SHA1 = 6,
 	APB_MESSAGE = 7,
+	APB_GUARDED_WRITE = 8,
 };
 
 enum APBStatus {
@@ -146,6 +147,54 @@ static bool _processRequest(struct APBridge* bridge, struct mCore* core, const s
 		bridge->messageLength = request->length;
 		bridge->messagePending = true;
 		return _sendResponse(bridge, request, APB_OK, NULL, 0);
+	case APB_GUARDED_WRITE: {
+		/* Payload: u16 guard count, repeated (u32 address, u16 length,
+		 * expected bytes), followed by u16 write length and write bytes.
+		 * Parsing and all comparisons finish before the first mutation. */
+		uint32_t position = 0;
+		uint16_t guardCount;
+		uint16_t guard;
+		uint16_t writeLength;
+		if (request->length < 4) {
+			return _sendResponse(bridge, request, APB_BAD_REQUEST, NULL, 0);
+		}
+		guardCount = _readU16(payload);
+		position = 2;
+		if (!guardCount) {
+			return _sendResponse(bridge, request, APB_BAD_REQUEST, NULL, 0);
+		}
+		for (guard = 0; guard < guardCount; ++guard) {
+			uint32_t guardAddress;
+			uint16_t guardLength;
+			if (position + 6 > request->length) {
+				return _sendResponse(bridge, request, APB_BAD_REQUEST, NULL, 0);
+			}
+			guardAddress = _readU32(payload + position);
+			guardLength = _readU16(payload + position + 4);
+			position += 6;
+			if (position + guardLength > request->length) {
+				return _sendResponse(bridge, request, APB_BAD_REQUEST, NULL, 0);
+			}
+			for (i = 0; i < guardLength; ++i) {
+				if (core->busRead8(core, guardAddress + i) != payload[position + i]) {
+					return _sendResponse(bridge, request, APB_GUARD_FAILED, NULL, 0);
+				}
+			}
+			position += guardLength;
+		}
+		if (position + 2 > request->length) {
+			return _sendResponse(bridge, request, APB_BAD_REQUEST, NULL, 0);
+		}
+		writeLength = _readU16(payload + position);
+		position += 2;
+		if (position + writeLength != request->length) {
+			return _sendResponse(bridge, request, APB_BAD_REQUEST, NULL, 0);
+		}
+		for (i = 0; i < writeLength; ++i) {
+			core->busWrite8(core, request->address + i, payload[position + i]);
+		}
+		return _sendResponse(bridge, request, APB_OK, NULL, 0);
+	}
 	default:
 		return _sendResponse(bridge, request, APB_UNSUPPORTED, NULL, 0);
 	}

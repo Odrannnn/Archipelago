@@ -1,8 +1,9 @@
-"""Copy the pinned Metroid Fusion generator into the Android Python sources.
+"""Refresh the pinned core and Metroid Fusion generator Android sources.
 
 Run this after updating the adjacent ArchipelagoMine checkout. The Android app
 intentionally embeds only the core modules required for generation and the
-Metroid Fusion world, rather than every Archipelago world and dependency.
+Metroid Fusion world from that checkout. The independently pinned Minish Cap
+APWorld and pure-Python BSDIFF40 reader are preserved across the refresh.
 """
 
 from __future__ import annotations
@@ -42,6 +43,13 @@ def main() -> None:
         raise SystemExit(f"Metroid Fusion APWorld source not found at {ARCHIPELAGO}")
 
     DESTINATION.mkdir(parents=True, exist_ok=True)
+    minish_cap_path = DESTINATION / "worlds" / "tmc"
+    minish_cap_files = {
+        path.relative_to(minish_cap_path): path.read_bytes()
+        for path in minish_cap_path.rglob("*")
+        if path.is_file()
+    }
+    mobile_bsdiff = (DESTINATION / "bsdiff4.py").read_bytes()
     managed_entries = (*CORE_MODULES, "rule_builder", "worlds", "bsdiff4.py", "jellyfish.py",
                        "ARCHIPELAGO_LICENSE.txt", "METROID_FUSION_APWORLD_LICENSE.txt")
     for name in managed_entries:
@@ -63,6 +71,10 @@ def main() -> None:
         shutil.copy2(ARCHIPELAGO / "worlds" / module, worlds / module)
     copy_tree(ARCHIPELAGO / "worlds" / "generic", worlds / "generic")
     copy_tree(ARCHIPELAGO / "worlds" / "metroidfusion", worlds / "metroidfusion")
+    for relative_path, data in minish_cap_files.items():
+        destination = worlds / "tmc" / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(data)
 
     # The desktop BizHawk client is unrelated to seed generation and pulls in
     # networking/emulator modules which aren't part of the Android runtime.
@@ -71,16 +83,7 @@ def main() -> None:
     text = text.replace("from .Client import MetroidFusionClient\n", "")
     init_file.write_text(text, encoding="utf-8", newline="\n")
 
-    # Files.py imports bsdiff4 eagerly, although this APWorld's MARS procedure
-    # doesn't use it. Keeping a clear stub avoids shipping a native extension.
-    (DESTINATION / "bsdiff4.py").write_text(
-        '"""Unavailable in the Metroid Fusion-only mobile generator."""\n\n'
-        "def _unsupported(*_args, **_kwargs):\n"
-        "    raise NotImplementedError('bsdiff4 is not used by Metroid Fusion patches')\n\n"
-        "diff = _unsupported\npatch = _unsupported\n",
-        encoding="utf-8",
-        newline="\n",
-    )
+    (DESTINATION / "bsdiff4.py").write_bytes(mobile_bsdiff)
 
     # Utils only needs jellyfish to improve error suggestions. This compact,
     # pure-Python implementation keeps that path available on Android.
