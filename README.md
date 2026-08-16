@@ -1,5 +1,9 @@
 # Archipelago Android Companion for Metroid Fusion
 
+<p align="center">
+  ☕ <a href="https://ko-fi.com/odrannnn">Support this little Android adventure on Ko-fi</a> 💙
+</p>
+
 ## ⚠️ AI-generated code disclaimer
 
 > **All Android-specific code, emulator-bridge changes, companion features, and
