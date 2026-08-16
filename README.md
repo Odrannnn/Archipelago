@@ -110,6 +110,7 @@ exposed to the LAN.
 ## Requirements
 
 - A 64-bit ARM Android device (`arm64-v8a`)
+- Android companion package `eu.odran.archipelago`
 - 64-bit RetroArch (`com.retroarch.aarch64`)
 - The custom mGBA Archipelago bridge core installed in RetroArch
 - A legally obtained clean US Metroid Fusion GBA ROM

@@ -1,4 +1,4 @@
-package gg.archipelago.android
+package eu.odran.archipelago
 
 import android.app.Activity
 import android.app.AlertDialog

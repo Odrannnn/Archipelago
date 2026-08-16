@@ -1,4 +1,4 @@
-package gg.archipelago.android
+package eu.odran.archipelago
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -250,8 +250,8 @@ class BridgeService : Service() {
         private const val CHANNEL_ID = "emulator_bridge"
         private const val TAG = "ArchipelagoBridge"
         private const val NOTIFICATION_ID = 43056
-        private const val ACTION_STOP = "gg.archipelago.android.STOP_BRIDGE"
-        const val ACTION_RECONNECT = "gg.archipelago.android.RECONNECT_BRIDGE"
+        private const val ACTION_STOP = "eu.odran.archipelago.STOP_BRIDGE"
+        const val ACTION_RECONNECT = "eu.odran.archipelago.RECONNECT_BRIDGE"
 
         @Volatile
         private var lastServerState: ArchipelagoSession.ConnectionState? = null

@@ -1,4 +1,4 @@
-package gg.archipelago.android
+package eu.odran.archipelago
 
 import okhttp3.OkHttpClient
 import okhttp3.Request

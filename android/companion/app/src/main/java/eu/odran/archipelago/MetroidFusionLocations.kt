@@ -1,4 +1,4 @@
-package gg.archipelago.android
+package eu.odran.archipelago
 
 /**
  * Bit ordering used by ArchipelagoMine Metroid Fusion APWorld v1.22.4.

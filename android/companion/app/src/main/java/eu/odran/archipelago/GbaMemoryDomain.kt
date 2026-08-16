@@ -1,4 +1,4 @@
-package gg.archipelago.android
+package eu.odran.archipelago
 
 /** GBA system-bus bases corresponding to the memory domains used by APWorlds. */
 enum class GbaMemoryDomain(private val base: Long) {

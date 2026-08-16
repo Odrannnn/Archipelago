@@ -1,4 +1,4 @@
-package gg.archipelago.android
+package eu.odran.archipelago
 
 import android.content.Context
 import okhttp3.MediaType.Companion.toMediaType

@@ -1,4 +1,4 @@
-package gg.archipelago.android
+package eu.odran.archipelago
 
 import java.io.DataInputStream
 import java.io.DataOutputStream

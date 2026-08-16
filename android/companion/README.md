@@ -1,5 +1,7 @@
 # Android companion: Metroid Fusion vertical slice
 
+The Android application ID and Kotlin namespace are both `eu.odran.archipelago`.
+
 This is a small Android application which connects to the custom mGBA libretro
 core at `127.0.0.1:43056`. It verifies the protocol handshake and can read,
 guard, and write emulated GBA bus addresses through `MGBABridgeClient`.

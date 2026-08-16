@@ -5,15 +5,15 @@ plugins {
 }
 
 android {
-    namespace = "gg.archipelago.android"
+    namespace = "eu.odran.archipelago"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "gg.archipelago.android"
+        applicationId = "eu.odran.archipelago"
         minSdk = 26
         targetSdk = 35
-        versionCode = 27
-        versionName = "0.12.3"
+        versionCode = 29
+        versionName = "0.13.1"
 
         ndk {
             // The custom mGBA bridge currently targets 64-bit Android devices.
