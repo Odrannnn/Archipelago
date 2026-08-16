@@ -1,6 +1,8 @@
 package eu.odran.archipelago
 
 import android.util.Base64
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * Runtime memory contract for ArchipelagoMine Metroid Fusion APWorld v1.22.4.
@@ -9,27 +11,32 @@ import android.util.Base64
  * mutable operations are preceded by the same in-game guard used by that
  * APWorld's BizHawk client.
  */
-class MetroidFusionProfile(private val bridge: MGBABridgeClient) {
+class MetroidFusionProfile(private val bridge: MGBABridgeClient) : GameAdapter {
+    override val gameName: String = "Metroid Fusion"
+    override val apWorldVersion: String = APWORLD_VERSION
+
     data class Snapshot(
         val gameMode: Int,
         val minorLocationBits: ByteArray,
         val majorLocationBits: ByteArray,
-        val receivedItemCount: Int,
+        override val receivedItemCount: Int,
         val area: Int,
         val room: Int,
-    ) {
-        val hasReachedCredits: Boolean get() = gameMode == CREDITS_MODE
+    ) : GameSnapshot {
+        override val hasReachedGoal: Boolean get() = gameMode == CREDITS_MODE
+        override val checkedLocationNames: Set<String>
+            get() = MetroidFusionLocations.checkedNames(this)
     }
 
     data class RomInfo(
-        val name: String,
-        val auth: String,
+        override val name: String,
+        override val auth: String,
         val generationVersion: List<Int>,
         val patchingVersion: List<Int>,
-    )
+    ) : GameRomInfo
 
     /** Reads and validates the APWorld's patched 20-byte ROM identifier. */
-    fun romInfoOrNull(): RomInfo? {
+    override fun detectRom(): RomInfo? {
         val nameBytes = bridge.read(GbaMemoryDomain.ROM, ROM_NAME_LOCATION, ROM_NAME_LENGTH)
         val name = nameBytes.decodeToString().trimEnd('\u0000')
         if (!name.startsWith(ROM_PREFIX)) return null
@@ -47,7 +54,7 @@ class MetroidFusionProfile(private val bridge: MGBABridgeClient) {
      * Poll exactly the state needed for AP location reporting, item delivery,
      * map status, and victory. Returns null outside gameplay or the credits.
      */
-    fun snapshot(): Snapshot? {
+    override fun snapshot(): Snapshot? {
         val gameMode = bridge.read(GbaMemoryDomain.IWRAM, GAME_MODE, 1)[0].unsigned()
         if (gameMode != INGAME_MODE && gameMode != CREDITS_MODE) return null
         if (gameMode == CREDITS_MODE) {
@@ -67,7 +74,7 @@ class MetroidFusionProfile(private val bridge: MGBABridgeClient) {
     }
 
     /** Called by the room client to acknowledge a successfully applied item. */
-    fun setReceivedItemCountWhileInGame(count: Int): Boolean {
+    override fun setReceivedItemCountWhileInGame(count: Int): Boolean {
         require(count in 0..0xffff)
         if (!isInGame()) return false
         bridge.write(
@@ -78,7 +85,7 @@ class MetroidFusionProfile(private val bridge: MGBABridgeClient) {
         return true
     }
 
-    fun showPlayerMessage(message: String) {
+    override fun showPlayerMessage(message: String) {
         bridge.showMessage(message)
     }
 
@@ -100,7 +107,9 @@ class MetroidFusionProfile(private val bridge: MGBABridgeClient) {
      * this method succeeds. Local items are intentionally omitted: their
      * effect is already supplied by the patched ROM itself.
      */
-    fun applyRemoteItemWhileInGame(itemName: String, slotData: SlotData): Boolean {
+    override fun applyRemoteItemWhileInGame(itemName: String, slotData: GameSlotData): Boolean {
+        val data = slotData as? SlotData
+            ?: error("Metroid Fusion received incompatible slot data")
         if (!isInGame()) return false
         return when (itemName) {
             "Infant Metroid" -> incrementByte(INFANT_METROID_COUNT)
@@ -122,7 +131,7 @@ class MetroidFusionProfile(private val bridge: MGBABridgeClient) {
             "Ice Beam" -> setUpgrade(0x003b, 4, 0x131a, 4, reloadGraphics = true)
             "Missile Data" -> {
                 setUpgrade(0x003c, 0, 0x131b, 0) &&
-                    addLittleEndian16(MISSILE_CURRENT, MISSILE_MAX, slotData.missileDataAmmo, 999)
+                    addLittleEndian16(MISSILE_CURRENT, MISSILE_MAX, data.missileDataAmmo, 999)
             }
             "Super Missile" -> setUpgrade(0x003c, 1, 0x131b, 1)
             "Ice Missile" -> setUpgrade(0x003c, 2, 0x131b, 2)
@@ -130,11 +139,11 @@ class MetroidFusionProfile(private val bridge: MGBABridgeClient) {
             "Bomb Data" -> setUpgrade(0x003c, 4, 0x131b, 4)
             "Power Bomb Data" -> {
                 setUpgrade(0x003c, 5, 0x131b, 5) &&
-                    addByte(POWER_BOMB_CURRENT, POWER_BOMB_MAX, slotData.powerBombDataAmmo, 255)
+                    addByte(POWER_BOMB_CURRENT, POWER_BOMB_MAX, data.powerBombDataAmmo, 255)
             }
             "Energy Tank" -> addLittleEndian16(ENERGY_CURRENT, ENERGY_MAX, 100, 2099)
-            "Missile Tank" -> addLittleEndian16(MISSILE_CURRENT, MISSILE_MAX, slotData.missileTankAmmo, 999)
-            "Power Bomb Tank" -> addByte(POWER_BOMB_CURRENT, POWER_BOMB_MAX, slotData.powerBombTankAmmo, 99)
+            "Missile Tank" -> addLittleEndian16(MISSILE_CURRENT, MISSILE_MAX, data.missileTankAmmo, 999)
+            "Power Bomb Tank" -> addByte(POWER_BOMB_CURRENT, POWER_BOMB_MAX, data.powerBombTankAmmo, 99)
             // The APWorld may send cross-game items; they advance the receipt
             // counter but have no direct Metroid Fusion RAM effect.
             else -> true
@@ -149,7 +158,9 @@ class MetroidFusionProfile(private val bridge: MGBABridgeClient) {
      * Capacity maxima are assigned from totals rather than incremented, so
      * running this every watcher tick cannot duplicate tanks.
      */
-    fun reconcileInventoryWhileInGame(itemNames: List<String>, slotData: SlotData): Boolean {
+    override fun reconcileInventoryWhileInGame(itemNames: List<String>, slotData: GameSlotData): Boolean {
+        val data = slotData as? SlotData
+            ?: error("Metroid Fusion received incompatible slot data")
         if (!isInGame()) return false
 
         var beamFlags = 0
@@ -185,13 +196,13 @@ class MetroidFusionProfile(private val bridge: MGBABridgeClient) {
 
         val infantMetroids = itemNames.count { it == "Infant Metroid" }.coerceAtMost(0xff)
         val missileMax = (
-            slotData.missileDataAmmo +
-                itemNames.count { it == "Missile Tank" } * slotData.missileTankAmmo
+            data.missileDataAmmo +
+                itemNames.count { it == "Missile Tank" } * data.missileTankAmmo
             ).coerceAtMost(999)
         val energyMax = (99 + itemNames.count { it == "Energy Tank" } * 100).coerceAtMost(2099)
         val powerBombMax = (
-            slotData.powerBombDataAmmo +
-                itemNames.count { it == "Power Bomb Tank" } * slotData.powerBombTankAmmo
+            data.powerBombDataAmmo +
+                itemNames.count { it == "Power Bomb Tank" } * data.powerBombTankAmmo
             ).coerceAtMost(99)
 
         // Three compact reads replace dozens of per-upgrade bridge round trips.
@@ -234,6 +245,18 @@ class MetroidFusionProfile(private val bridge: MGBABridgeClient) {
         }
         return success
     }
+
+    override fun parseSlotData(data: JSONObject): GameSlotData = SlotData(
+        missileDataAmmo = data.optInt("MissileDataAmmo", 10),
+        missileTankAmmo = data.optInt("MissileTankAmmo", 5),
+        powerBombDataAmmo = data.optInt("PowerBombDataAmmo", 10),
+        powerBombTankAmmo = data.optInt("PowerBombTankAmmo", 2),
+        startInventory = jsonStringList(data.optJSONArray("StartInventory")),
+    )
+
+    private fun jsonStringList(values: JSONArray?): List<String> =
+        if (values == null) emptyList() else
+            (0 until values.length()).map(values::getString)
 
     private fun isInGame(): Boolean = bridge.guard(
         GbaMemoryDomain.IWRAM,
@@ -289,8 +312,8 @@ class MetroidFusionProfile(private val bridge: MGBABridgeClient) {
             val missileTankAmmo: Int,
             val powerBombDataAmmo: Int,
             val powerBombTankAmmo: Int,
-            val startInventory: List<String>,
-        )
+            override val startInventory: List<String>,
+        ) : GameSlotData
 
         const val APWORLD_VERSION = "1.22.4"
         const val ROM_PREFIX = "MFU"

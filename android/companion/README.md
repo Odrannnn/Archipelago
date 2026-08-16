@@ -67,6 +67,19 @@ the pinned `v1.22.4` source tag. If this companion is distributed together
 with a port of further APWorld code or data, review the APWorld's GPL-3.0
 license and publish the required corresponding source.
 
+## Game adapters
+
+The live bridge and Archipelago room client use a game-adapter registry. A
+`GameAdapter` owns ROM detection, authentication, slot-data parsing, location
+state, item application, persistent inventory reconciliation, and completion
+detection for one game. `ArchipelagoSession` handles the shared WebSocket
+protocol without depending on Metroid Fusion memory types.
+
+Metroid Fusion is currently the only registered adapter, so this refactor does
+not change player-facing behavior. Additional GBA games can reuse the custom
+mGBA bridge by registering another adapter. Other console families will also
+need a compatible libretro-core implementation of the loopback bridge.
+
 The main screen exposes independent mGBA and Archipelago connection indicators.
 The server indicator distinguishes connecting, authenticated, and disconnected
 states instead of replacing the emulator bridge status. Long-press either line

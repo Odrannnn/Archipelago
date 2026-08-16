@@ -87,9 +87,9 @@ class BridgeService : Service() {
                 publish("Waiting for the custom mGBA core on 127.0.0.1:${BridgeProtocol.PORT}…")
                 bridge.connect()
                 val (version, platform) = bridge.hello()
-                val fusionProfile = MetroidFusionProfile(bridge)
-                var fusion: MetroidFusionProfile.RomInfo? = null
-                publish("mGBA connected · protocol $version · platform $platform · waiting for patched Metroid Fusion ROM…")
+                val adapters = GameRegistry.createAdapters(bridge)
+                var activeGame: DetectedGame? = null
+                publish("mGBA connected · protocol $version · platform $platform · waiting for ${GameRegistry.patchedRomDescription()}…")
 
                 var nextSessionAttempt = 0L
                 var nextRomProbeAt = 0L
@@ -97,35 +97,36 @@ class BridgeService : Service() {
                 while (running && !Thread.currentThread().isInterrupted) {
                     val now = System.currentTimeMillis()
                     if (now >= nextRomProbeAt) {
-                        val detected = fusionProfile.romInfoOrNull()
-                        if (detected?.auth != fusion?.auth) {
+                        val detected = GameRegistry.detect(adapters)
+                        if (detected?.identity != activeGame?.identity) {
                             session?.close()
                             if (activeSession === session) activeSession = null
                             session = null
-                            fusion = detected
+                            activeGame = detected
                             nextSessionAttempt = 0L
                             if (detected == null) publishServerWaitingForRom()
                             publish(
                                 if (detected == null) {
-                                    "mGBA connected · waiting for patched Metroid Fusion ROM…"
+                                    "mGBA connected · waiting for ${GameRegistry.patchedRomDescription()}…"
                                 } else {
-                                    "mGBA connected · Metroid Fusion APWorld ${MetroidFusionProfile.APWORLD_VERSION} · ${detected.name}"
+                                    "mGBA connected · ${detected.adapter.gameName} APWorld ${detected.adapter.apWorldVersion} · ${detected.romInfo.name}"
                                 },
                             )
                         }
                         nextRomProbeAt = now + TimeUnit.SECONDS.toMillis(1)
                     }
 
-                    val detectedFusion = fusion
+                    val detectedGame = activeGame
                     val settings = ServerSettings.load(this)
-                    if (settings.isConfigured && detectedFusion != null &&
+                    if (settings.isConfigured && detectedGame != null &&
                         (session == null || session.isClosed) &&
                         now >= nextSessionAttempt
                     ) {
                         session?.close()
                         session = ArchipelagoSession(
                             settings,
-                            detectedFusion,
+                            detectedGame.adapter,
+                            detectedGame.romInfo,
                             ::publishServerDetails,
                             ::publishServerState,
                         )
@@ -133,7 +134,7 @@ class BridgeService : Service() {
                         session.connect()
                         nextSessionAttempt = now + TimeUnit.SECONDS.toMillis(5)
                     }
-                    if (detectedFusion != null) session?.tick(fusionProfile)
+                    if (detectedGame != null) session?.tick()
                     bridge.ping()
                     TimeUnit.SECONDS.sleep(1)
                 }
@@ -180,7 +181,7 @@ class BridgeService : Service() {
         lastServerState = null
         serverStatusText = "💤 Archipelago waiting for ROM"
         serverStatusDetails =
-            "Archipelago will connect after you load a compatible patched Metroid Fusion ROM " +
+            "Archipelago will connect after you load a ${GameRegistry.patchedRomDescription()} " +
                 "in RetroArch using the custom mGBA core."
         updateNotification()
     }

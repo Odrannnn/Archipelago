@@ -32,8 +32,8 @@ android {
         applicationId = "eu.odran.archipelago"
         minSdk = 26
         targetSdk = 35
-        versionCode = 30
-        versionName = "0.13.2"
+        versionCode = 31
+        versionName = "0.13.3"
 
         ndk {
             // The custom mGBA bridge currently targets 64-bit Android devices.

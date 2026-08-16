@@ -15,7 +15,8 @@ import java.util.zip.InflaterInputStream
 /** Network callbacks queue state; [tick] owns all emulator memory access. */
 class ArchipelagoSession(
     private val settings: ServerSettings,
-    private val romInfo: MetroidFusionProfile.RomInfo,
+    private val adapter: GameAdapter,
+    private val romInfo: GameRomInfo,
     private val onStatus: (String) -> Unit,
     private val onConnectionState: (ConnectionState, String?) -> Unit,
 ) : WebSocketListener() {
@@ -30,7 +31,7 @@ class ArchipelagoSession(
         val itemNames: Map<Long, String>,
         val playerNames: Map<Int, String>,
         val locationIds: Map<String, Long>,
-        val slotData: MetroidFusionProfile.Companion.SlotData?,
+        val slotData: GameSlotData?,
     )
 
     private val client = OkHttpClient.Builder()
@@ -47,7 +48,7 @@ class ArchipelagoSession(
     private var authenticated = false
     private var slot = -1
     private var team = -1
-    private var slotData: MetroidFusionProfile.Companion.SlotData? = null
+    private var slotData: GameSlotData? = null
     private var goalReported = false
     private var syncRequested = false
     @Volatile private var nextInventoryReconcileAt = 0L
@@ -91,8 +92,8 @@ class ArchipelagoSession(
     }
 
     /** Runs one gameplay synchronization pass on BridgeService's worker. */
-    fun tick(profile: MetroidFusionProfile) {
-        val snapshot = profile.snapshot() ?: return
+    fun tick() {
+        val snapshot = adapter.snapshot() ?: return
         val state = synchronized(stateLock) {
             TickState(
                 authenticated,
@@ -106,7 +107,7 @@ class ArchipelagoSession(
             )
         }
         if (!state.authenticated) return
-        if (snapshot.hasReachedCredits) {
+        if (snapshot.hasReachedGoal) {
             reportGoal()
             return
         }
@@ -118,16 +119,16 @@ class ArchipelagoSession(
                 val name = state.itemNames[item.item]
                 val data = state.slotData
                 if (name == null || data == null) {
-                    onStatus("Archipelago connected · waiting for Metroid Fusion game data…")
+                    onStatus("Archipelago connected · waiting for ${adapter.gameName} game data…")
                     return
                 }
                 val suppliedByPatchedRom = item.player == state.slot && item.location >= 0
-                if ((suppliedByPatchedRom || profile.applyRemoteItemWhileInGame(name, data)) &&
-                    profile.setReceivedItemCountWhileInGame(receivedCount + 1)
+                if ((suppliedByPatchedRom || adapter.applyRemoteItemWhileInGame(name, data)) &&
+                    adapter.setReceivedItemCountWhileInGame(receivedCount + 1)
                 ) {
                     onStatus("Archipelago synchronized item ${receivedCount + 1}/${state.items.size} · $name")
                     if (!suppliedByPatchedRom) {
-                        profile.showPlayerMessage(itemNotification(name, item.player, state.slot, state.playerNames))
+                        adapter.showPlayerMessage(itemNotification(name, item.player, state.slot, state.playerNames))
                     }
                 }
                 return
@@ -139,7 +140,7 @@ class ArchipelagoSession(
         if (receivedCount == state.items.size && state.itemsKnown && now >= nextInventoryReconcileAt) {
             val receivedNames = state.items.map { item -> state.itemNames[item.item] ?: return }
             state.slotData?.let { data ->
-                if (profile.reconcileInventoryWhileInGame(data.startInventory + receivedNames, data)) {
+                if (adapter.reconcileInventoryWhileInGame(data.startInventory + receivedNames, data)) {
                     nextInventoryReconcileAt = now + TimeUnit.SECONDS.toMillis(3)
                 }
             }
@@ -148,8 +149,8 @@ class ArchipelagoSession(
         reportLocations(snapshot, state.locationIds)
     }
 
-    private fun reportLocations(snapshot: MetroidFusionProfile.Snapshot, locationIds: Map<String, Long>) {
-        val checked = MetroidFusionLocations.checkedNames(snapshot).mapNotNull(locationIds::get)
+    private fun reportLocations(snapshot: GameSnapshot, locationIds: Map<String, Long>) {
+        val checked = snapshot.checkedLocationNames.mapNotNull(locationIds::get)
         val unsent = synchronized(stateLock) { checked.filterNot(reportedLocations::contains) }
         if (unsent.isEmpty()) return
         if (sendPacket(JSONObject().put("cmd", "LocationChecks").put("locations", JSONArray(unsent)))) {
@@ -262,7 +263,7 @@ class ArchipelagoSession(
     private fun receiveDataPackage(packet: JSONObject) {
         val game = packet.optJSONObject("data")
             ?.optJSONObject("games")
-            ?.optJSONObject(GAME)
+            ?.optJSONObject(adapter.gameName)
             ?: return
         val itemMap = game.optJSONObject("item_name_to_id") ?: JSONObject()
         val locationMap = game.optJSONObject("location_name_to_id") ?: JSONObject()
@@ -284,13 +285,7 @@ class ArchipelagoSession(
             playerNamesBySlot.clear()
             playerNamesBySlot[0] = "Archipelago"
             receivePlayersLocked(packet.optJSONArray("players"), team)
-            slotData = MetroidFusionProfile.Companion.SlotData(
-                missileDataAmmo = data.optInt("MissileDataAmmo", 10),
-                missileTankAmmo = data.optInt("MissileTankAmmo", 5),
-                powerBombDataAmmo = data.optInt("PowerBombDataAmmo", 10),
-                powerBombTankAmmo = data.optInt("PowerBombTankAmmo", 2),
-                startInventory = jsonStringList(data.optJSONArray("StartInventory")),
-            )
+            slotData = adapter.parseSlotData(data)
             reportedLocations.clear()
             receiveCheckedLocationsLocked(packet.optJSONArray("checked_locations"))
             goalReported = false
@@ -349,10 +344,6 @@ class ArchipelagoSession(
         }
     }
 
-    private fun jsonStringList(values: JSONArray?): List<String> =
-        if (values == null) emptyList() else
-            (0 until values.length()).map(values::getString)
-
     private fun receiveCheckedLocationsLocked(values: JSONArray?) {
         if (values == null) return
         for (index in 0 until values.length()) reportedLocations += values.getLong(index)
@@ -363,7 +354,7 @@ class ArchipelagoSession(
 
     private fun dataPackagePacket(): JSONObject = JSONObject()
         .put("cmd", "GetDataPackage")
-        .put("games", JSONArray().put(GAME))
+        .put("games", JSONArray().put(adapter.gameName))
 
     private fun connectPacket(): JSONObject = JSONObject()
         .put("cmd", "Connect")
@@ -378,9 +369,9 @@ class ArchipelagoSession(
                 .put("class", "Version"),
         )
         .put("tags", JSONArray().put("AP"))
-        .put("items_handling", 0b011)
+        .put("items_handling", adapter.itemsHandling)
         .put("uuid", settings.clientId)
-        .put("game", GAME)
+        .put("game", adapter.gameName)
         .put("slot_data", true)
 
     private fun jsonArrayText(values: JSONArray): String =
@@ -398,7 +389,6 @@ class ArchipelagoSession(
     }
 
     companion object {
-        private const val GAME = "Metroid Fusion"
         private const val CLIENT_GOAL = 30
     }
 }
