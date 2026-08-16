@@ -34,6 +34,7 @@ class GeneratorActivity : Activity() {
     private lateinit var exportSeedButton: Button
     private lateinit var hostSeedButton: Button
     private lateinit var patchButton: Button
+    private lateinit var forgetBaseRomButton: Button
     private lateinit var patchesContainer: LinearLayout
     private lateinit var historyContainer: LinearLayout
     private lateinit var hostedRoomsContainer: LinearLayout
@@ -126,7 +127,19 @@ class GeneratorActivity : Activity() {
         patchButton = Button(this).apply {
             text = "Create patched GBA"
             isEnabled = false
-            setOnClickListener { chooseBaseRom() }
+            setOnClickListener { patchWithCachedBaseRomOrChoose() }
+        }
+        forgetBaseRomButton = Button(this).apply {
+            text = "Forget cached base ROM"
+            isEnabled = BaseRomCache.isPresent(this@GeneratorActivity)
+            setOnClickListener {
+                if (BaseRomCache.forget(this@GeneratorActivity)) {
+                    isEnabled = false
+                    status.text = "Forgot the cached Metroid Fusion base ROM. It will be requested next time."
+                } else {
+                    status.text = "Could not remove the cached base ROM."
+                }
+            }
         }
 
         yamlEditor.addTextChangedListener(object : TextWatcher {
@@ -146,8 +159,9 @@ class GeneratorActivity : Activity() {
             })
             addView(TextView(this@GeneratorActivity).apply {
                 text = "Add players with the controls below, then edit each YAML document if they need different " +
-                    "settings. Generation and patching need no network connection. Your base ROM is only read " +
-                    "after you select it."
+                    "settings. Generation and patching need no network connection. The first valid base ROM you " +
+                    "select is copied into app-private storage and reused for later seeds. It is removed if you " +
+                    "uninstall the app or tap Forget cached base ROM."
             })
             addView(seedEditor, matchWrapParams())
             addView(playerCountView, matchWrapParams())
@@ -159,6 +173,7 @@ class GeneratorActivity : Activity() {
             addView(hostSeedButton, matchWrapParams())
             addView(patchesContainer, matchWrapParams())
             addView(patchButton, matchWrapParams())
+            addView(forgetBaseRomButton, matchWrapParams())
             addView(status, matchWrapParams())
             addView(TextView(this@GeneratorActivity).apply {
                 text = "Hosted instances"
@@ -190,7 +205,9 @@ class GeneratorActivity : Activity() {
             })
             addView(historyContainer, matchWrapParams())
         }
-        setContentView(ScrollView(this).apply { addView(content) })
+        val scrollView = ScrollView(this).apply { addView(content) }
+        SystemBarInsets.apply(window, scrollView)
+        setContentView(scrollView)
         renderHostedRooms(webHostClient.cachedRooms())
         renderHistory()
 
@@ -647,20 +664,44 @@ class GeneratorActivity : Activity() {
         )
     }
 
+    private fun patchWithCachedBaseRomOrChoose() {
+        val selectedPatch = patchFile ?: return
+        patchButton.isEnabled = false
+        status.text = "Checking for a cached Metroid Fusion base ROM…"
+        thread(name = "offline-rom-cache-check") {
+            val cachedRom = BaseRomCache.load(this)
+            if (cachedRom == null) {
+                runOnUiThread {
+                    patchButton.isEnabled = true
+                    forgetBaseRomButton.isEnabled = false
+                    status.text = "Select your clean Metroid Fusion base ROM. It will be cached privately for later seeds."
+                    chooseBaseRom()
+                }
+            } else {
+                runOnUiThread {
+                    forgetBaseRomButton.isEnabled = true
+                    status.text = "Using the cached base ROM to patch ${selectedPatch.name}…"
+                }
+                patchBaseRom(selectedPatch, cachedRom)
+            }
+        }
+    }
+
     private fun patchBaseRom(uri: Uri) {
         val selectedPatch = patchFile ?: return
         patchButton.isEnabled = false
-        status.text = "Patching ${selectedPatch.name} locally…"
+        status.text = "Validating and caching the selected base ROM…"
         thread(name = "offline-rom-patching") {
             runCatching {
-                val baseBytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                val selectedBytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
                     ?: error("Could not read the selected ROM")
-                val output = File(filesDir, "offline_generator/output/${selectedPatch.nameWithoutExtension}.gba")
-                OfflineGenerator.patchRom(this, selectedPatch.readBytes(), baseBytes, output)
+                val baseBytes = BaseRomCache.store(this, selectedBytes)
+                createPatchedRom(selectedPatch, baseBytes)
             }.onSuccess { output ->
                 runOnUiThread {
                     patchButton.isEnabled = true
-                    status.text = "ROM created. Choose where to save it."
+                    forgetBaseRomButton.isEnabled = true
+                    status.text = "ROM created and base ROM cached. Choose where to save it."
                     beginExport(output.name, output.readBytes())
                 }
             }.onFailure {
@@ -668,6 +709,27 @@ class GeneratorActivity : Activity() {
                 showError("ROM patching failed", it)
             }
         }
+    }
+
+    private fun patchBaseRom(selectedPatch: File, baseBytes: ByteArray) {
+        thread(name = "offline-rom-patching") {
+            runCatching { createPatchedRom(selectedPatch, baseBytes) }
+                .onSuccess { output -> runOnUiThread {
+                    patchButton.isEnabled = true
+                    forgetBaseRomButton.isEnabled = true
+                    status.text = "ROM created using the cached base ROM. Choose where to save it."
+                    beginExport(output.name, output.readBytes())
+                } }
+                .onFailure {
+                    runOnUiThread { patchButton.isEnabled = true }
+                    showError("ROM patching failed", it)
+                }
+        }
+    }
+
+    private fun createPatchedRom(selectedPatch: File, baseBytes: ByteArray): File {
+        val output = File(filesDir, "offline_generator/output/${selectedPatch.nameWithoutExtension}.gba")
+        return OfflineGenerator.patchRom(this, selectedPatch.readBytes(), baseBytes, output)
     }
 
     private fun beginExport(name: String, bytes: ByteArray) {
@@ -690,20 +752,40 @@ class GeneratorActivity : Activity() {
     @Deprecated("Uses the platform file picker result API available to android.app.Activity")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode != RESULT_OK || data?.data == null) return
+        if (resultCode != RESULT_OK || data?.data == null) {
+            if (requestCode == REQUEST_BASE_ROM) patchButton.isEnabled = patchFile != null
+            return
+        }
         when (requestCode) {
             REQUEST_BASE_ROM -> patchBaseRom(data.data!!)
             REQUEST_EXPORT -> {
                 val export = pendingExport ?: return
+                val destination = data.data!!
                 runCatching {
-                    contentResolver.openOutputStream(data.data!!)?.use { it.write(export.second) }
+                    contentResolver.openOutputStream(destination)?.use { it.write(export.second) }
                         ?: error("Could not open the selected destination")
                 }.onSuccess {
                     status.text = "Saved ${export.first}"
+                    if (export.first.endsWith(".gba", ignoreCase = true)) {
+                        offerRetroArchLaunch(export.first, destination)
+                    }
                 }.onFailure { showError("Could not save ${export.first}", it) }
                 pendingExport = null
             }
         }
+    }
+
+    private fun offerRetroArchLaunch(name: String, uri: Uri) {
+        AlertDialog.Builder(this)
+            .setTitle("ROM ready")
+            .setMessage("Saved $name. Launch it now in RetroArch with the custom mGBA Archipelago core?")
+            .setNegativeButton("Done", null)
+            .setPositiveButton("Launch RetroArch") { _, _ ->
+                runCatching { RetroArchLauncher.launch(this, uri) }
+                    .onSuccess { status.text = "Launching $name in RetroArch…" }
+                    .onFailure { showError("Could not launch RetroArch", it) }
+            }
+            .show()
     }
 
     private fun showError(prefix: String, error: Throwable) {

@@ -151,8 +151,20 @@ def generate(yaml_text: str, work_directory: str, seed: str = "") -> str:
     })
 
 
-def patch_rom(patch_bytes, base_rom_bytes, output_path: str) -> str:
+def _safe_patch_output_name(value: object) -> str:
+    """Return a plain .gba filename from an untrusted patch manifest value."""
+    name = Path(str(value)).name
+    if name in {"", ".", ".."} or not name.lower().endswith(".gba"):
+        raise ValueError("The Metroid Fusion patch contains an invalid output filename")
+    return name
+
+
+def patch_rom(patch_bytes, base_rom_bytes, output_path: str, work_directory: str) -> str:
     """Apply an .apmetfus patch to a legally supplied USA Metroid Fusion ROM."""
+    # Invite patching can be the first Python operation after the Android process
+    # starts. Configure Archipelago's writable paths before importing the APWorld;
+    # otherwise its default relative Players path resolves against Android's `/`.
+    _prepare_runtime(work_directory)
     patch_data_bytes = bytes(patch_bytes)
     raw_rom = bytes(base_rom_bytes)
     raw_md5 = hashlib.md5(raw_rom).hexdigest()
@@ -188,7 +200,7 @@ def patch_rom(patch_bytes, base_rom_bytes, output_path: str) -> str:
     with tempfile.TemporaryDirectory(dir=destination.parent) as temp_directory:
         temp = Path(temp_directory)
         base_path = temp / "base.gba"
-        intermediate_path = temp / placement["OutputFile"]
+        intermediate_path = temp / _safe_patch_output_name(placement.get("OutputFile"))
         base_path.write_bytes(rom)
         patcher.patch(str(base_path), str(intermediate_path), placement, lambda _message, _progress: None)
         result = bytearray(intermediate_path.read_bytes())

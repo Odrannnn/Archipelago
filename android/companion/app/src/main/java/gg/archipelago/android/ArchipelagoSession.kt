@@ -17,7 +17,10 @@ class ArchipelagoSession(
     private val settings: ServerSettings,
     private val romInfo: MetroidFusionProfile.RomInfo,
     private val onStatus: (String) -> Unit,
+    private val onConnectionState: (ConnectionState, String?) -> Unit,
 ) : WebSocketListener() {
+    enum class ConnectionState { CONNECTING, CONNECTED, DISCONNECTED }
+
     private data class NetworkItem(val item: Long, val location: Long, val player: Int)
     private data class TickState(
         val authenticated: Boolean,
@@ -65,12 +68,16 @@ class ArchipelagoSession(
 
     private fun open(address: String) {
         currentAddress = address
-        onStatus("Connecting to Archipelago at $address…")
+        val message = "Connecting to Archipelago at $address…"
+        onStatus(message)
+        onConnectionState(ConnectionState.CONNECTING, message)
         try {
             socket = client.newWebSocket(Request.Builder().url(address).build(), this)
         } catch (error: Exception) {
             isClosed = true
-            onStatus("Invalid Archipelago server address · ${error.message}")
+            val errorMessage = "Invalid Archipelago server address · ${error.message}"
+            onStatus(errorMessage)
+            onConnectionState(ConnectionState.DISCONNECTED, errorMessage)
         }
     }
 
@@ -80,6 +87,7 @@ class ArchipelagoSession(
         socket = null
         client.dispatcher.executorService.shutdown()
         client.connectionPool.evictAll()
+        onConnectionState(ConnectionState.DISCONNECTED, "Archipelago session closed")
     }
 
     /** Runs one gameplay synchronization pass on BridgeService's worker. */
@@ -173,7 +181,9 @@ class ArchipelagoSession(
 
     override fun onOpen(webSocket: WebSocket, response: Response) {
         if (webSocket !== socket) return
-        onStatus("Archipelago transport connected · waiting for room information…")
+        val message = "Archipelago transport connected · waiting for room information…"
+        onStatus(message)
+        onConnectionState(ConnectionState.CONNECTING, message)
     }
 
     override fun onMessage(webSocket: WebSocket, text: String) {
@@ -209,11 +219,19 @@ class ArchipelagoSession(
             return
         }
         isClosed = true
-        onStatus("Archipelago disconnected · ${error.message ?: error.javaClass.simpleName}")
+        val message = "Archipelago disconnected · ${error.message ?: error.javaClass.simpleName}"
+        onStatus(message)
+        onConnectionState(ConnectionState.DISCONNECTED, message)
     }
 
     override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-        if (webSocket === socket) isClosed = true
+        if (webSocket === socket) {
+            isClosed = true
+            onConnectionState(
+                ConnectionState.DISCONNECTED,
+                "Archipelago connection closed · code $code${reason.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()}",
+            )
+        }
     }
 
     private fun processPackets(webSocket: WebSocket, packets: JSONArray) {
@@ -232,7 +250,9 @@ class ArchipelagoSession(
                 "RoomUpdate" -> receiveRoomUpdate(packet)
                 "ConnectionRefused" -> {
                     val errors = packet.optJSONArray("errors") ?: JSONArray()
-                    onStatus("Archipelago login refused · ${jsonArrayText(errors)}")
+                    val message = "Archipelago login refused · ${jsonArrayText(errors)}"
+                    onStatus(message)
+                    onConnectionState(ConnectionState.DISCONNECTED, message)
                 }
                 "ReceivedItems" -> receiveItems(packet)
             }
@@ -279,7 +299,10 @@ class ArchipelagoSession(
         }
         val teamNumber = packet.getInt("team") + 1
         val missing = packet.optJSONArray("missing_locations")?.length() ?: 0
-        onStatus("Archipelago authenticated · team $teamNumber · slot $connectedSlot · $missing locations remaining")
+        val message =
+            "Archipelago authenticated · team $teamNumber · slot $connectedSlot · $missing locations remaining"
+        onStatus(message)
+        onConnectionState(ConnectionState.CONNECTED, message)
     }
 
     private fun receiveItems(packet: JSONObject) {

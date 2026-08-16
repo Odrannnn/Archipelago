@@ -6,7 +6,11 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.util.Log
+import android.widget.Toast
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -17,7 +21,9 @@ import java.util.concurrent.TimeUnit
  */
 class BridgeService : Service() {
     private val executor = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
     @Volatile private var running = false
+    @Volatile private var stopping = false
     @Volatile private var activeBridge: MGBABridgeClient? = null
     @Volatile private var activeSession: ArchipelagoSession? = null
 
@@ -25,12 +31,19 @@ class BridgeService : Service() {
         super.onCreate()
         createNotificationChannel()
         publish("Starting Archipelago bridge…")
-        startForeground(NOTIFICATION_ID, notification(statusText))
+        publishServerWaitingForRom()
+        startForeground(NOTIFICATION_ID, notification())
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            stopSelf()
+            stopping = true
+            running = false
+            activeBridge?.close()
+            activeSession?.close()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
+            stopSelf(startId)
             return START_NOT_STICKY
         }
         if (intent?.action == ACTION_RECONNECT) {
@@ -47,13 +60,21 @@ class BridgeService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        stopping = true
         running = false
         activeBridge?.close()
         activeBridge = null
         activeSession?.close()
         activeSession = null
         executor.shutdownNow()
-        publish("Bridge service stopped")
+        mainHandler.removeCallbacksAndMessages(null)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
+        statusText = "Bridge service stopped"
+        statusDetails = null
+        serverStatusText = "⏹️ Archipelago service stopped"
+        serverStatusDetails = "Open the companion app to restart the bridge service."
+        lastServerState = null
         super.onDestroy()
     }
 
@@ -83,6 +104,7 @@ class BridgeService : Service() {
                             session = null
                             fusion = detected
                             nextSessionAttempt = 0L
+                            if (detected == null) publishServerWaitingForRom()
                             publish(
                                 if (detected == null) {
                                     "mGBA connected · waiting for patched Metroid Fusion ROM…"
@@ -101,7 +123,12 @@ class BridgeService : Service() {
                         now >= nextSessionAttempt
                     ) {
                         session?.close()
-                        session = ArchipelagoSession(settings, detectedFusion, ::publish)
+                        session = ArchipelagoSession(
+                            settings,
+                            detectedFusion,
+                            ::publishServerDetails,
+                            ::publishServerState,
+                        )
                         activeSession = session
                         session.connect()
                         nextSessionAttempt = now + TimeUnit.SECONDS.toMillis(5)
@@ -112,7 +139,11 @@ class BridgeService : Service() {
                 }
             } catch (error: Exception) {
                 if (running) {
-                    publish("mGBA unavailable · reconnecting… (${error.message ?: error.javaClass.simpleName})")
+                    Log.w(TAG, "mGBA unavailable; reconnecting", error)
+                    publish(
+                        "⚠️ mGBA not connected",
+                        Log.getStackTraceString(error),
+                    )
                     try {
                         TimeUnit.SECONDS.sleep(1)
                     } catch (_: InterruptedException) {
@@ -124,17 +155,62 @@ class BridgeService : Service() {
                 if (activeSession === session) activeSession = null
                 bridge.close()
                 if (activeBridge === bridge) activeBridge = null
+                if (running) publishServerWaitingForRom()
             }
         }
     }
 
-    private fun publish(message: String) {
+    private fun publish(message: String) = publish(message, null)
+
+    private fun publish(message: String, details: String?) {
+        if (stopping) return
         statusText = message
-        getSystemService(NotificationManager::class.java)
-            ?.notify(NOTIFICATION_ID, notification(message))
+        statusDetails = details
+        updateNotification()
     }
 
-    private fun notification(message: String): Notification {
+    private fun publishServerDetails(message: String) {
+        if (stopping) return
+        serverStatusDetails = message
+        updateNotification()
+    }
+
+    private fun publishServerWaitingForRom() {
+        if (stopping) return
+        lastServerState = null
+        serverStatusText = "💤 Archipelago waiting for ROM"
+        serverStatusDetails =
+            "Archipelago will connect after you load a compatible patched Metroid Fusion ROM " +
+                "in RetroArch using the custom mGBA core."
+        updateNotification()
+    }
+
+    private fun publishServerState(state: ArchipelagoSession.ConnectionState, details: String?) {
+        if (stopping) return
+        val previousState = lastServerState
+        lastServerState = state
+        serverStatusText = when (state) {
+            ArchipelagoSession.ConnectionState.CONNECTING -> "⏳ Archipelago connecting"
+            ArchipelagoSession.ConnectionState.CONNECTED -> "✅ Archipelago connected"
+            ArchipelagoSession.ConnectionState.DISCONNECTED -> "⚠️ Archipelago not connected"
+        }
+        serverStatusDetails = details
+        updateNotification()
+        if (state == ArchipelagoSession.ConnectionState.CONNECTED &&
+            previousState != ArchipelagoSession.ConnectionState.CONNECTED
+        ) {
+            mainHandler.post {
+                Toast.makeText(this, "Archipelago connected", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun updateNotification() {
+        if (stopping) return
+        getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, notification())
+    }
+
+    private fun notification(): Notification {
         val openIntent = PendingIntent.getActivity(
             this,
             0,
@@ -150,8 +226,8 @@ class BridgeService : Service() {
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_bridge)
             .setContentTitle("Archipelago Companion")
-            .setContentText(message)
-            .setStyle(Notification.BigTextStyle().bigText(message))
+            .setContentText("$statusText · $serverStatusText")
+            .setStyle(Notification.BigTextStyle().bigText("$statusText\n$serverStatusText"))
             .setContentIntent(openIntent)
             .setOngoing(true)
             .addAction(Notification.Action.Builder(null, "Stop", stopIntent).build())
@@ -172,12 +248,30 @@ class BridgeService : Service() {
 
     companion object {
         private const val CHANNEL_ID = "emulator_bridge"
+        private const val TAG = "ArchipelagoBridge"
         private const val NOTIFICATION_ID = 43056
         private const val ACTION_STOP = "gg.archipelago.android.STOP_BRIDGE"
         const val ACTION_RECONNECT = "gg.archipelago.android.RECONNECT_BRIDGE"
 
         @Volatile
+        private var lastServerState: ArchipelagoSession.ConnectionState? = null
+
+        @Volatile
         var statusText: String = "Bridge service has not started"
+            private set
+
+        @Volatile
+        var statusDetails: String? = null
+            private set
+
+        @Volatile
+        var serverStatusText: String = "💤 Archipelago waiting for ROM"
+            private set
+
+        @Volatile
+        var serverStatusDetails: String? =
+            "Archipelago will connect after you load a compatible patched Metroid Fusion ROM " +
+                "in RetroArch using the custom mGBA core."
             private set
     }
 }

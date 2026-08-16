@@ -55,8 +55,9 @@ object OfflineGenerator {
     }
 
     fun patchRom(context: Context, patch: ByteArray, baseRom: ByteArray, output: File): File = synchronized(lock) {
+        val workDirectory = File(context.filesDir, "offline_generator").apply { mkdirs() }
         python(context).getModule("offline_generator")
-            .callAttr("patch_rom", patch, baseRom, output.absolutePath)
+            .callAttr("patch_rom", patch, baseRom, output.absolutePath, workDirectory.absolutePath)
         output
     }
 }

@@ -65,6 +65,11 @@ the pinned `v1.22.4` source tag. If this companion is distributed together
 with a port of further APWorld code or data, review the APWorld's GPL-3.0
 license and publish the required corresponding source.
 
+The main screen exposes independent mGBA and Archipelago connection indicators.
+The server indicator distinguishes connecting, authenticated, and disconnected
+states instead of replacing the emulator bridge status. Long-press either line
+to view its latest detailed diagnostic.
+
 The companion needs Android's `INTERNET` permission because Android protects
 loopback TCP behind the same permission. The native core remains bound to
 loopback only and receives no Internet-facing configuration or credentials.
@@ -95,16 +100,34 @@ selects a player slot, then opens Android's share sheet with a player-specific
 player's locally stored `.apmetfus` patch, protected by an integrity hash; it
 never contains a website-session credential or base ROM. On a second device,
 opening the invite verifies and wakes the public room, loads its current port,
-remembers the selected player, and asks for a legally supplied clean base ROM.
-The embedded generator applies the patch locally and prompts the recipient to
-save the ready-to-run `.gba`. Older metadata-only invites remain supported, and
+remembers the selected player, and reuses a cached legally supplied clean base
+ROM or asks for it when no valid cache exists. The embedded generator applies
+the patch locally and prompts the recipient to save the ready-to-run `.gba`.
+Older metadata-only invites remain supported, and
 **Open multiplayer invite** provides a file-picker fallback when a receiving app
 does not open the attachment directly. **Sync website session** is separate and
 its secret link must not be shared.
 
-The app applies a selected `.apmetfus` to a user-selected base ROM, validates
-the ROM against the checksums declared by the APWorld, supports a legacy
-512-byte copier header, and never bundles a ROM.
+The app applies a selected `.apmetfus` to a user-supplied base ROM, validates
+the ROM against the checksums declared by the APWorld, and supports a legacy
+512-byte copier header. After the first successful validation it stores a
+headerless copy in private no-backup app storage and automatically reuses it
+for later local and invite patches. **Forget cached base ROM**, clearing app
+data, or uninstalling removes the copy. The app never bundles a ROM.
+
+After a patched `.gba` is saved, the companion offers to launch it directly in
+the installed 64-bit RetroArch package. The launch intent selects the custom
+`mgba_apbridge_v5_libretro_android.so` core and RetroArch's existing config, so
+the game opens with the emulator-memory bridge enabled instead of requiring a
+second content/core selection.
+
+For imported player-specific rooms, the companion also remembers the saved ROM
+document and retains its Android document permission. The imported-room section
+can therefore launch that player's existing ROM in RetroArch on later app runs
+without applying the `.apmetfus` patch again. Selecting a different player slot
+does not carry the previous player's ROM shortcut across. **Choose existing
+patched ROM** can register a `.gba` created before this shortcut was available,
+or replace a reference after its file was moved.
 
 The pinned Python source is under `app/src/main/python`. Refresh it after
 updating the adjacent `ArchipelagoMine` checkout with:

@@ -104,7 +104,7 @@ data class RoomInvite(
                 if (room.lastPort > 0) appendLine("Server: archipelago.gg:${room.lastPort}")
                 trackerUrl?.let { appendLine("Tracker: $it") }
                 if (room.players.isNotEmpty()) appendLine("Players: ${room.players.joinToString()}")
-                append("Open the attached .apinvite with Archipelago Companion, then select your clean base ROM.")
+                append("Open the attached .apinvite with Archipelago Companion. It will reuse your cached clean base ROM or ask for it once.")
             }
             val send = Intent(Intent.ACTION_SEND).apply {
                 type = MIME_TYPE
@@ -232,6 +232,8 @@ data class JoinedRoom(
     val updatedAt: Long,
     val playerSlot: Int? = null,
     val playerName: String? = null,
+    val patchedRomName: String? = null,
+    val patchedRomUri: String? = null,
 )
 
 object JoinedRoomStore {
@@ -242,6 +244,7 @@ object JoinedRoomStore {
         val previous = load(context)?.takeIf { it.roomId == room.roomId }
         val selectedSlot = invite?.playerSlot ?: previous?.playerSlot
         val selectedName = invite?.playerName ?: previous?.playerName
+        val previousPlayerRom = previous?.takeIf { it.playerSlot == selectedSlot }
         val joined = JoinedRoom(
             room.roomId,
             room.trackerId,
@@ -250,7 +253,24 @@ object JoinedRoomStore {
             System.currentTimeMillis(),
             selectedSlot,
             selectedName,
+            previousPlayerRom?.patchedRomName,
+            previousPlayerRom?.patchedRomUri,
         )
+        persist(context, joined)
+        return joined
+    }
+
+    fun rememberPatchedRom(context: Context, name: String, uri: Uri): JoinedRoom? {
+        val current = load(context) ?: return null
+        val updated = current.copy(
+            patchedRomName = File(name).name,
+            patchedRomUri = uri.toString(),
+        )
+        persist(context, updated)
+        return updated
+    }
+
+    private fun persist(context: Context, joined: JoinedRoom) {
         val data = JSONObject().apply {
             put("roomId", joined.roomId)
             put("trackerId", joined.trackerId)
@@ -259,10 +279,11 @@ object JoinedRoomStore {
             put("updatedAt", joined.updatedAt)
             put("playerSlot", joined.playerSlot)
             put("playerName", joined.playerName)
+            put("patchedRomName", joined.patchedRomName)
+            put("patchedRomUri", joined.patchedRomUri)
         }
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
             .edit().putString(ROOM, data.toString()).apply()
-        return joined
     }
 
     fun load(context: Context): JoinedRoom? = runCatching {
@@ -279,6 +300,8 @@ object JoinedRoomStore {
             data.optLong("updatedAt", 0L),
             data.optInt("playerSlot", 0).takeIf { it > 0 },
             data.optString("playerName").takeIf { it.isNotBlank() && it != "null" },
+            data.optString("patchedRomName").takeIf { it.isNotBlank() && it != "null" },
+            data.optString("patchedRomUri").takeIf { it.isNotBlank() && it != "null" },
         )
     }.getOrNull()
 }
