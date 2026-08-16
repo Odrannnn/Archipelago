@@ -23,6 +23,14 @@ try:
 except OSError:  # can't access/write?
     user_folder = None
 
+# Archipelago 0.6.8 discovers loose user worlds, but its package search path
+# does not include the user-world directory. Desktop installs normally use
+# .apworld zip importers, which hides this omission. The Android companion
+# deliberately extracts trusted APWorlds so resource files and os.scandir work,
+# therefore make those extracted packages importable as worlds.<package>.
+if user_folder and user_folder not in __path__:
+    __path__.append(user_folder)
+
 __all__ = [
     "network_data_package",
     "AutoWorldRegister",

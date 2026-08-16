@@ -16,7 +16,7 @@
 #define APB_MAGIC 0x41504231u
 #define APB_HEADER_SIZE 20u
 #define APB_MAX_PAYLOAD 4096u
-#define APB_PROTOCOL_VERSION 3u
+#define APB_PROTOCOL_VERSION 4u
 
 enum APBType {
 	APB_HELLO = 1,
@@ -27,6 +27,9 @@ enum APBType {
 	APB_ROM_SHA1 = 6,
 	APB_MESSAGE = 7,
 	APB_GUARDED_WRITE = 8,
+	APB_BATCH_READ = 9,
+	APB_GUARDED_READ = 10,
+	APB_GUARDED_WRITES = 11,
 };
 
 enum APBStatus {
@@ -194,6 +197,121 @@ static bool _processRequest(struct APBridge* bridge, struct mCore* core, const s
 			core->busWrite8(core, request->address + i, payload[position + i]);
 		}
 		return _sendResponse(bridge, request, APB_OK, NULL, 0);
+	}
+	case APB_BATCH_READ: {
+		/* Payload: u16 count, then repeated u32 address + u16 length. */
+		uint32_t position = 2;
+		uint32_t outputPosition = 0;
+		uint16_t count, range;
+		if (request->length < 2) {
+			return _sendResponse(bridge, request, APB_BAD_REQUEST, NULL, 0);
+		}
+		count = _readU16(payload);
+		if (!count || request->length != 2u + (uint32_t) count * 6u) {
+			return _sendResponse(bridge, request, APB_BAD_REQUEST, NULL, 0);
+		}
+		for (range = 0; range < count; ++range) {
+			uint32_t address = _readU32(payload + position);
+			uint16_t length = _readU16(payload + position + 4);
+			position += 6;
+			if (outputPosition + length > APB_MAX_PAYLOAD) {
+				return _sendResponse(bridge, request, APB_TOO_LARGE, NULL, 0);
+			}
+			for (i = 0; i < length; ++i) {
+				data[outputPosition + i] = core->busRead8(core, address + i);
+			}
+			outputPosition += length;
+		}
+		return _sendResponse(bridge, request, APB_OK, data, outputPosition);
+	}
+	case APB_GUARDED_READ:
+	case APB_GUARDED_WRITES: {
+		/* Both payloads start with guards. The remaining section is either
+		 * read descriptors or write descriptors. The entire request and every
+		 * guard are validated before any write is performed. */
+		uint32_t position = 2;
+		uint32_t operationPosition;
+		uint32_t outputPosition = 0;
+		uint16_t guardCount, guard, operationCount, operation;
+		if (request->length < 4) {
+			return _sendResponse(bridge, request, APB_BAD_REQUEST, NULL, 0);
+		}
+		guardCount = _readU16(payload);
+		for (guard = 0; guard < guardCount; ++guard) {
+			uint16_t length;
+			if (position + 6 > request->length) {
+				return _sendResponse(bridge, request, APB_BAD_REQUEST, NULL, 0);
+			}
+			length = _readU16(payload + position + 4);
+			position += 6;
+			if (position + length > request->length) {
+				return _sendResponse(bridge, request, APB_BAD_REQUEST, NULL, 0);
+			}
+			position += length;
+		}
+		if (position + 2 > request->length) {
+			return _sendResponse(bridge, request, APB_BAD_REQUEST, NULL, 0);
+		}
+		operationCount = _readU16(payload + position);
+		position += 2;
+		operationPosition = position;
+		if (!operationCount) {
+			return _sendResponse(bridge, request, APB_BAD_REQUEST, NULL, 0);
+		}
+		for (operation = 0; operation < operationCount; ++operation) {
+			uint16_t length;
+			if (position + 6 > request->length) {
+				return _sendResponse(bridge, request, APB_BAD_REQUEST, NULL, 0);
+			}
+			length = _readU16(payload + position + 4);
+			position += 6;
+			if (request->type == APB_GUARDED_WRITES) {
+				if (position + length > request->length) {
+					return _sendResponse(bridge, request, APB_BAD_REQUEST, NULL, 0);
+				}
+				position += length;
+			} else if (outputPosition + length > APB_MAX_PAYLOAD) {
+				return _sendResponse(bridge, request, APB_TOO_LARGE, NULL, 0);
+			} else {
+				outputPosition += length;
+			}
+		}
+		if (position != request->length) {
+			return _sendResponse(bridge, request, APB_BAD_REQUEST, NULL, 0);
+		}
+		position = 2;
+		for (guard = 0; guard < guardCount; ++guard) {
+			uint32_t address = _readU32(payload + position);
+			uint16_t length = _readU16(payload + position + 4);
+			position += 6;
+			for (i = 0; i < length; ++i) {
+				if (core->busRead8(core, address + i) != payload[position + i]) {
+					return _sendResponse(bridge, request, APB_GUARD_FAILED, NULL, 0);
+				}
+			}
+			position += length;
+		}
+		position = operationPosition;
+		outputPosition = 0;
+		for (operation = 0; operation < operationCount; ++operation) {
+			uint32_t address = _readU32(payload + position);
+			uint16_t length = _readU16(payload + position + 4);
+			position += 6;
+			for (i = 0; i < length; ++i) {
+				if (request->type == APB_GUARDED_READ) {
+					data[outputPosition + i] = core->busRead8(core, address + i);
+				} else {
+					core->busWrite8(core, address + i, payload[position + i]);
+				}
+			}
+			if (request->type == APB_GUARDED_READ) {
+				outputPosition += length;
+			} else {
+				position += length;
+			}
+		}
+		return _sendResponse(bridge, request, APB_OK,
+			request->type == APB_GUARDED_READ ? data : NULL, outputPosition);
 	}
 	default:
 		return _sendResponse(bridge, request, APB_UNSUPPORTED, NULL, 0);

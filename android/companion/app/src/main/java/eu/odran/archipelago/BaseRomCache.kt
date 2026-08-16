@@ -37,6 +37,8 @@ object BaseRomCache {
         ),
     )
 
+    fun hasBuiltInValidation(game: String): Boolean = game in specs
+
     fun isPresent(context: Context, game: String = "Metroid Fusion"): Boolean = cacheFile(context, game).isFile
 
     /** Returns a validated cached ROM, removing the cache if it has become invalid. */
@@ -47,7 +49,10 @@ object BaseRomCache {
             file.delete()
             return@synchronized null
         }
-        runCatching { validateAndNormalize(game, file.readBytes()) }
+        runCatching {
+            val bytes = file.readBytes()
+            if (hasBuiltInValidation(game)) validateAndNormalize(game, bytes) else normalizeGeneric(game, bytes)
+        }
             .getOrElse {
                 file.delete()
                 null
@@ -58,11 +63,25 @@ object BaseRomCache {
     fun store(context: Context, selectedRom: ByteArray, game: String = "Metroid Fusion"): ByteArray = synchronized(lock) {
         val spec = spec(game)
         val normalized = validateAndNormalize(game, selectedRom)
+        write(context, spec.cacheFile, game, normalized)
+    }
+
+    /** Cache an imported game's ROM only after its APWorld patch successfully validated it. */
+    fun storeAfterSuccessfulPatch(context: Context, selectedRom: ByteArray, game: String): ByteArray = synchronized(lock) {
+        val normalized = if (hasBuiltInValidation(game)) {
+            validateAndNormalize(game, selectedRom)
+        } else {
+            normalizeGeneric(game, selectedRom)
+        }
+        write(context, cacheName(game), game, normalized)
+    }
+
+    private fun write(context: Context, fileName: String, game: String, normalized: ByteArray): ByteArray {
         val destination = cacheFile(context, game)
         val directory = destination.parentFile ?: error("Could not locate private ROM cache storage.")
         check(directory.isDirectory || directory.mkdirs()) { "Could not create private ROM cache storage." }
 
-        val temporary = File(directory, "${spec.cacheFile}.tmp")
+        val temporary = File(directory, "$fileName.tmp")
         try {
             FileOutputStream(temporary).use { output ->
                 output.write(normalized)
@@ -75,7 +94,7 @@ object BaseRomCache {
         } finally {
             temporary.delete()
         }
-        normalized
+        return normalized
     }
 
     fun forget(context: Context, game: String = "Metroid Fusion"): Boolean = synchronized(lock) {
@@ -85,8 +104,25 @@ object BaseRomCache {
 
     private fun cacheFile(context: Context, game: String) = File(
         context.noBackupFilesDir,
-        "$CACHE_DIRECTORY/${spec(game).cacheFile}",
+        "$CACHE_DIRECTORY/${cacheName(game)}",
     )
+
+    private fun cacheName(game: String): String = specs[game]?.cacheFile ?: run {
+        val key = MessageDigest.getInstance("SHA-256").digest(game.toByteArray(Charsets.UTF_8))
+            .take(12).joinToString("") { "%02x".format(it) }
+        "imported_$key.gba"
+    }
+
+    private fun normalizeGeneric(game: String, rawRom: ByteArray): ByteArray {
+        require(rawRom.isNotEmpty() && rawRom.size.toLong() <= MAX_CACHED_ROM_BYTES) {
+            "Wrong base ROM. Select a clean $game GBA ROM."
+        }
+        return if (rawRom.size % ROM_SIZE_BLOCK == COPIER_HEADER_REMAINDER) {
+            rawRom.copyOfRange(COPIER_HEADER_SIZE, rawRom.size)
+        } else {
+            rawRom
+        }
+    }
 
     private fun validateAndNormalize(game: String, rawRom: ByteArray): ByteArray {
         val spec = spec(game)

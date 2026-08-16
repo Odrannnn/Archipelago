@@ -90,9 +90,6 @@ object GameRegistry {
             adapter.detectRom()?.let { romInfo -> DetectedGame(adapter, romInfo) }
         }
 
-    fun patchedRomDescription(): String = when (supportedGameNames.size) {
-        0 -> "compatible patched ROM"
-        1 -> "patched ${supportedGameNames.single()} ROM"
-        else -> "compatible patched ROM (${supportedGameNames.joinToString()})"
-    }
+    fun patchedRomDescription(): String =
+        "compatible patched GBA ROM (built-in or imported APWorld)"
 }

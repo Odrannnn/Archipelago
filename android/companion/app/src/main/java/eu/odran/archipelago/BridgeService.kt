@@ -25,7 +25,7 @@ class BridgeService : Service() {
     @Volatile private var running = false
     @Volatile private var stopping = false
     @Volatile private var activeBridge: MGBABridgeClient? = null
-    @Volatile private var activeSession: ArchipelagoSession? = null
+    @Volatile private var activeSession: RoomSession? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -82,7 +82,8 @@ class BridgeService : Service() {
     private fun connectionLoop() {
         while (running && !Thread.currentThread().isInterrupted) {
             val bridge = MGBABridgeClient()
-            var session: ArchipelagoSession? = null
+            var session: RoomSession? = null
+            var pythonRuntime: PythonGbaRuntime? = null
             var sessionAddress: String? = null
             activeBridge = bridge
             try {
@@ -90,23 +91,46 @@ class BridgeService : Service() {
                 bridge.connect()
                 val (version, platform) = bridge.hello()
                 val adapters = GameRegistry.createAdapters(bridge)
-                var activeGame: DetectedGame? = null
+                if (version >= BridgeProtocol.ATOMIC_BATCH_PROTOCOL_VERSION) {
+                    pythonRuntime = try {
+                        PythonGbaRuntime(this, bridge)
+                    } catch (error: Exception) {
+                        Log.w(TAG, "Imported APWorld runtime unavailable", error)
+                        null
+                    }
+                }
+                var activeNativeGame: DetectedGame? = null
+                var activeImportedGame: ImportedGbaRomInfo? = null
+                var activeIdentity: Pair<String, String>? = null
                 publish("mGBA connected · protocol $version · platform $platform · waiting for ${GameRegistry.patchedRomDescription()}…")
 
                 var nextSessionAttempt = 0L
                 var nextRomProbeAt = 0L
+                var nextPingAt = 0L
 
                 while (running && !Thread.currentThread().isInterrupted) {
                     val now = System.currentTimeMillis()
                     if (now >= nextRomProbeAt) {
-                        val detected = GameRegistry.detect(adapters)
-                        if (detected?.identity != activeGame?.identity) {
+                        val detectedNative = GameRegistry.detect(adapters)
+                        val detectedImported = if (detectedNative != null) {
+                            null
+                        } else if (activeImportedGame?.let { pythonRuntime?.validateActive(it) } == true) {
+                            activeImportedGame
+                        } else {
+                            pythonRuntime?.probe()
+                        }
+                        val detectedIdentity = detectedNative?.identity
+                            ?: detectedImported?.let { it.game to it.auth }
+                        if (detectedIdentity != activeIdentity) {
                             session?.close()
                             if (activeSession === session) activeSession = null
                             session = null
                             sessionAddress = null
-                            activeGame = detected
-                            detected?.adapter?.gameName?.let { detectedGameName ->
+                            activeNativeGame = detectedNative
+                            activeImportedGame = detectedImported
+                            activeIdentity = detectedIdentity
+                            val detectedGameName = detectedNative?.adapter?.gameName ?: detectedImported?.game
+                            detectedGameName?.let {
                                 if (activeGameName != detectedGameName) {
                                     activeGameName = detectedGameName
                                     activePlayerSlot = null
@@ -115,42 +139,56 @@ class BridgeService : Service() {
                                 }
                             }
                             nextSessionAttempt = 0L
-                            if (detected == null) publishServerWaitingForRom()
+                            if (detectedIdentity == null) publishServerWaitingForRom()
                             publish(
-                                if (detected == null) {
+                                if (detectedIdentity == null) {
                                     "mGBA connected · waiting for ${GameRegistry.patchedRomDescription()}…"
-                                } else if (version < detected.adapter.requiredBridgeProtocol) {
-                                    "⚠️ ${detected.adapter.gameName} needs custom mGBA bridge protocol " +
-                                        "${detected.adapter.requiredBridgeProtocol}; installed core reports $version"
+                                } else if (detectedNative != null && version < detectedNative.adapter.requiredBridgeProtocol) {
+                                    "⚠️ ${detectedNative.adapter.gameName} needs custom mGBA bridge protocol " +
+                                        "${detectedNative.adapter.requiredBridgeProtocol}; installed core reports $version"
+                                } else if (detectedImported != null) {
+                                    "mGBA connected · ${detectedImported.game} · standard imported APWorld client"
                                 } else {
-                                    "mGBA connected · ${detected.adapter.gameName} APWorld ${detected.adapter.apWorldVersion} · ${detected.romInfo.name}"
+                                    "mGBA connected · ${detectedNative!!.adapter.gameName} APWorld " +
+                                        "${detectedNative.adapter.apWorldVersion} · ${detectedNative.romInfo.name}"
                                 },
                             )
                         }
                         nextRomProbeAt = now + TimeUnit.SECONDS.toMillis(1)
                     }
 
-                    val detectedGame = activeGame
+                    val detectedNative = activeNativeGame
+                    val detectedImported = activeImportedGame
                     val settings = ServerSettings.load(this)
-                    if (settings.isConfigured && detectedGame != null &&
-                        version >= detectedGame.adapter.requiredBridgeProtocol &&
+                    if (settings.isConfigured && (detectedNative != null || detectedImported != null) &&
+                        (detectedNative == null || version >= detectedNative.adapter.requiredBridgeProtocol) &&
                         (session == null || session.isClosed) &&
                         now >= nextSessionAttempt
                     ) {
                         session?.close()
-                        session = ArchipelagoSession(
-                            settings,
-                            detectedGame.adapter,
-                            detectedGame.romInfo,
-                            ::publishServerDetails,
-                            ::publishServerState,
-                        )
+                        session = if (detectedNative != null) {
+                            ArchipelagoSession(
+                                settings,
+                                detectedNative.adapter,
+                                detectedNative.romInfo,
+                                ::publishServerDetails,
+                                ::publishServerState,
+                            )
+                        } else {
+                            PythonArchipelagoSession(
+                                settings,
+                                checkNotNull(pythonRuntime),
+                                checkNotNull(detectedImported),
+                                ::publishServerDetails,
+                                ::publishServerState,
+                            )
+                        }
                         sessionAddress = settings.address
                         activeSession = session
                         session.connect()
                         nextSessionAttempt = now + TimeUnit.SECONDS.toMillis(5)
                     }
-                    if (detectedGame != null) session?.tick()
+                    if (detectedNative != null || detectedImported != null) session?.tick()
                     session?.connectedSlot?.let { connectedSlot ->
                         if (activePlayerSlot != connectedSlot || activeServerAddress != sessionAddress) {
                             activePlayerSlot = connectedSlot
@@ -158,8 +196,15 @@ class BridgeService : Service() {
                             rememberActiveRom()
                         }
                     }
-                    bridge.ping()
-                    TimeUnit.SECONDS.sleep(1)
+                    if (now >= nextPingAt) {
+                        bridge.ping()
+                        nextPingAt = now + TimeUnit.SECONDS.toMillis(1)
+                    }
+                    if (detectedImported != null) {
+                        TimeUnit.MILLISECONDS.sleep(125)
+                    } else {
+                        TimeUnit.SECONDS.sleep(1)
+                    }
                 }
             } catch (error: Exception) {
                 if (running) {
@@ -177,6 +222,7 @@ class BridgeService : Service() {
             } finally {
                 session?.close()
                 if (activeSession === session) activeSession = null
+                pythonRuntime?.close()
                 bridge.close()
                 if (activeBridge === bridge) activeBridge = null
                 if (running) publishServerWaitingForRom()

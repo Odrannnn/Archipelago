@@ -24,12 +24,17 @@ to the loopback protocol.
 keeps reads, guards, and writes on mGBA's emulation thread, with writes applied
 before the next emulated frame.
 
-The current protocol is deliberately small. Version 3 supports `HELLO`,
-`PING`, `ROM_SHA1`, `READ`, `GUARD`, `WRITE`, `MESSAGE`, and `GUARDED_WRITE`.
+The current protocol is deliberately small. Version 4 supports `HELLO`,
+`PING`, `ROM_SHA1`, `READ`, `GUARD`, `WRITE`, `MESSAGE`, `GUARDED_WRITE`,
+`BATCH_READ`, `GUARDED_READ`, and `GUARDED_WRITES`.
 `GUARDED_WRITE` compares one or more memory guards and performs its write in
 the same `retro_run()` poll, which games such as The Minish Cap need for safe
 item injection. `MESSAGE` queues a UTF-8 string for RetroArch's OSD;
 the core consumes it from `retro_run()` via `RETRO_ENVIRONMENT_SET_MESSAGE`.
+The version-4 batch operations provide the standard Archipelago BizHawk API
+semantics needed by imported GBA APWorld clients: multiple reads share one
+snapshot, guards and reads share one frame, and all guards are validated before
+the first write in a multi-write transaction.
 All integers are big-endian, the header is 20 bytes, and payloads are capped at
 4096 bytes (OSD text is capped at 511 bytes). `READ` carries its requested byte count as a four-byte payload;
 the response carries the requested memory bytes. See the companion's

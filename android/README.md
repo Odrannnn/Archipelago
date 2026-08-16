@@ -21,6 +21,12 @@ game-specific Archipelago logic. No memory port is exposed to the LAN.
 - `companion/` also has a The Minish Cap profile for APWorld `v0.3.1`, including
   ROM/seed verification, item queue injection, location flags, special Goron
   and Cucco checks, and completion reporting.
+- `companion/` can install additional trusted `.apworld` packages into private
+  storage for dynamic templates, mixed-game generation, registered patch
+  discovery, generic standard GBA procedure patching, and live execution of
+  standard GBA `BizHawkClient` implementations through the mGBA bridge.
+  Imported Python is executable and unsandboxed; non-standard clients can still
+  require explicit compatibility work.
 - `companion/` now authenticates to the room, resolves item and location IDs
   from the server data package, delivers queued items using the ROM's receipt
   counter, reports checked locations, and reports goal completion at credits.
@@ -38,7 +44,7 @@ native code in shared writable storage. Package the compiled core as a ZIP,
 copy that ZIP to Downloads, and use RetroArch's **Load Core > Install or
 Restore a Core** command. RetroArch then extracts the library into its private
 core directory. Keep a distinct filename such as
-`mgba_apbridge_v6_libretro_android.so` so the stock mGBA core is not overwritten.
+`mgba_apbridge_v7_libretro_android.so` so the stock mGBA core is not overwritten.
 
 For NDK r27 and older, configure CMake with:
 

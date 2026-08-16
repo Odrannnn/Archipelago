@@ -22,12 +22,10 @@ data class RoomInvite(
     val playerName: String? = null,
     val patchName: String? = null,
     val patchBytes: ByteArray? = null,
+    val gameName: String? = null,
 ) {
     val hasPlayerPatch: Boolean
         get() = playerSlot != null && !playerName.isNullOrBlank() && !patchName.isNullOrBlank() && patchBytes != null
-    val gameName: String?
-        get() = patchName?.let(::supportedPatchGame)
-
     private fun metadataJson(version: Int) = JSONObject().apply {
         put("format", FORMAT)
         put("version", version)
@@ -37,6 +35,7 @@ data class RoomInvite(
             put("player_slot", playerSlot)
             put("player_name", playerName)
             put("patch_name", patchName)
+            put("patch_game", gameName)
             put("patch_entry", PATCH_ENTRY)
             put("patch_sha256", patchBytes?.sha256())
         }
@@ -66,17 +65,15 @@ data class RoomInvite(
             require(playerSlot > 0) { "Invalid player slot." }
             require(patchBytes.isNotEmpty() && patchBytes.size <= MAX_PATCH_BYTES) { "The player patch is too large." }
             val safePatchName = File(patchName).name
-            val gameName = supportedPatchGame(safePatchName)
-            require(gameName != null) {
-                "The selected file is not a supported GBA player patch."
-            }
+            val gameName = patchGame(patchBytes)
             val invite = RoomInvite(
-                room.roomId,
-                room.seedId,
-                playerSlot,
-                playerName,
-                safePatchName,
-                patchBytes,
+                roomId = room.roomId,
+                seedId = room.seedId,
+                playerSlot = playerSlot,
+                playerName = playerName,
+                patchName = safePatchName,
+                patchBytes = patchBytes,
+                gameName = gameName,
             )
             val directory = File(context.cacheDir, "shared_invites").apply { mkdirs() }
             directory.listFiles()?.filter { it.isFile && it.name.endsWith(".apinvite") }?.forEach { it.delete() }
@@ -196,22 +193,24 @@ data class RoomInvite(
             val playerName = root.getString("player_name").trim()
             require(playerName.isNotBlank() && playerName.length <= 256) { "The invitation contains an invalid player name." }
             val patchName = File(root.getString("patch_name")).name
-            require(supportedPatchGame(patchName) != null) {
-                "The invitation does not contain a supported GBA patch."
-            }
             val patchBytes = patch ?: error("The invitation has no player patch.")
             require(patchBytes.isNotEmpty()) { "The invitation contains an empty player patch." }
             require(root.optString("patch_entry") == PATCH_ENTRY) { "The invitation patch entry is invalid." }
             require(patchBytes.sha256().equals(root.getString("patch_sha256"), ignoreCase = true)) {
                 "The player patch failed its integrity check."
             }
+            val gameName = patchGame(patchBytes)
+            root.optString("patch_game").takeIf { it.isNotBlank() && it != "null" }?.let { declaredGame ->
+                require(declaredGame == gameName) { "The invitation's patch game metadata does not match its patch." }
+            }
             return RoomInvite(
-                roomId,
-                root.optString("seed_id"),
-                playerSlot,
-                playerName,
-                patchName,
-                patchBytes,
+                roomId = roomId,
+                seedId = root.optString("seed_id"),
+                playerSlot = playerSlot,
+                playerName = playerName,
+                patchName = patchName,
+                patchBytes = patchBytes,
+                gameName = gameName,
             )
         }
 
@@ -253,8 +252,9 @@ object JoinedRoomStore {
         val selectedSlot = invite?.playerSlot ?: previous?.playerSlot
         val selectedName = invite?.playerName ?: previous?.playerName
         val previousPlayerRom = previous?.takeIf { it.playerSlot == selectedSlot }
+        val availableGames = OfflineGenerator.availableGames(context)
         val selectedGame = invite?.gameName ?: previous?.gameName ?: room.players.firstNotNullOfOrNull { player ->
-            Regex("\\((Metroid Fusion|The Minish Cap)\\)$").find(player)?.groupValues?.getOrNull(1)
+            availableGames.firstOrNull { game -> player.endsWith(" ($game)") }
         } ?: "Metroid Fusion"
         val joined = JoinedRoom(
             room.roomId,
@@ -375,16 +375,39 @@ object JoinedRoomStore {
         data.optString("playerName").takeIf { it.isNotBlank() && it != "null" },
         data.optString("patchedRomName").takeIf { it.isNotBlank() && it != "null" },
         data.optString("patchedRomUri").takeIf { it.isNotBlank() && it != "null" },
-        data.optString("gameName", "Metroid Fusion").takeIf { it in setOf("Metroid Fusion", "The Minish Cap") }
+        data.optString("gameName", "Metroid Fusion")
+            .takeIf { it.isNotBlank() && it != "null" }
             ?: "Metroid Fusion",
     )
 }
 
-private fun supportedPatchGame(name: String): String? = when {
-    name.endsWith(".apmetfus", ignoreCase = true) -> "Metroid Fusion"
-    name.endsWith(".aptmc", ignoreCase = true) -> "The Minish Cap"
-    else -> null
+/** Reads the standard AP patch manifest without requiring game-specific code. */
+private fun patchGame(patch: ByteArray): String {
+    var legacyMetroidFusion = false
+    ZipInputStream(ByteArrayInputStream(patch)).use { zip ->
+        while (true) {
+            val entry = zip.nextEntry ?: break
+            require(!entry.isDirectory && '/' !in entry.name && '\\' !in entry.name) {
+                "The player patch contains an invalid entry."
+            }
+            when (entry.name) {
+                "patch_file.json" -> legacyMetroidFusion = true
+                "archipelago.json" -> {
+                    val manifestBytes = zip.readNBytes(MAX_PATCH_MANIFEST_BYTES + 1)
+                    require(manifestBytes.size <= MAX_PATCH_MANIFEST_BYTES) { "The patch manifest is too large." }
+                    val game = JSONObject(manifestBytes.toString(Charsets.UTF_8)).optString("game").trim()
+                    require(game.isNotBlank()) { "The Archipelago patch does not declare a game." }
+                    return game
+                }
+            }
+            zip.closeEntry()
+        }
+    }
+    if (legacyMetroidFusion) return "Metroid Fusion"
+    error("The selected file is not a supported Archipelago player patch.")
 }
+
+private const val MAX_PATCH_MANIFEST_BYTES = 64 * 1024
 
 /** Remembers which local generated seed supplied each website-hosted room. */
 object HostedRoomHistoryLinks {

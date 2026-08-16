@@ -22,10 +22,13 @@ with [Archipelago](https://archipelago.gg). It combines an Android companion app
 with a custom mGBA libretro core so RetroArch can exchange game state with an
 Archipelago room without a PC.
 
-The Android work currently targets the Metroid Fusion APWorld from
+The Android app includes native live adapters for the Metroid Fusion APWorld from
 [ArchipelagoMine 1.22.4](https://github.com/StalledStorm/ArchipelagoMine/releases/tag/v1.22.4)
 and The Minish Cap APWorld
-[v0.3.1](https://github.com/eternalcode0/Archipelago/releases/tag/v0.3.1).
+[v0.3.1](https://github.com/eternalcode0/Archipelago/releases/tag/v0.3.1). It
+can also run standard GBA `BizHawkClient` implementations from trusted imported
+APWorlds through a reusable Python-to-mGBA compatibility layer; Wario Land 4
+APWorld 3.4.0 is the first checked example.
 The rest of this repository remains based on the upstream
 [Archipelago project](https://github.com/ArchipelagoMW/Archipelago).
 
@@ -38,8 +41,8 @@ The rest of this repository remains based on the upstream
 
 - Connects RetroArch's emulated GBA memory to the companion through a
   loopback-only bridge at `127.0.0.1:43056`.
-- Detects compatible Archipelago-patched Metroid Fusion and The Minish Cap ROMs and reads their
-  embedded authentication token.
+- Detects compatible built-in ROMs and imported standard GBA APWorld clients,
+  then reads the authentication data defined by each client.
 - Connects to Archipelago rooms over WebSockets, including TLS fallback.
 - Reports checked locations and game completion.
 - Receives and applies items, upgrades, capacities, keycards, Metroid count,
@@ -66,14 +69,28 @@ and both supported APWorlds. On the phone it can:
 - cache the validated base ROM privately for later patches; and
 - save a ready-to-run `.gba` for each player.
 
+The on-device APWorld manager can also import trusted `.apworld` packages into
+app-private storage. It validates archive paths, extraction limits, manifest
+structure, and compatibility with the embedded Archipelago 0.6.8 core, then
+loads the world's full option model for YAML editing and mixed-game generation.
+Generated player patches are discovered through Archipelago's patch registry;
+standard procedure patches which produce `.gba` files can be applied to a
+checksum-validated user ROM without app-specific patch code. APWorlds are
+executable Python and are not sandboxed, so only packages from trusted authors
+should be installed. Imported worlds with a standard GBA `BizHawkClient` can
+also provide live item/location synchronization directly. Non-standard clients,
+other emulator systems, and unsupported memory domains still require explicit
+compatibility work.
+
 No base ROM is bundled, uploaded, or placed in an invitation.
 
 ### Host and share multiplayer rooms
 
 The app has a private, persistent `archipelago.gg` website session. It can
 upload generated seed ZIPs, create and start hosted rooms, refresh their
-status, open room controls and trackers, and synchronize its website session
-with a browser.
+status, open authenticated room controls and the instance list inside the app,
+open trackers, and explicitly synchronize its website session with a normal
+browser when requested.
 
 Player-specific `.apinvite` files contain the public room identifiers, the
 selected player and slot, that player's game-specific patch, and a SHA-256

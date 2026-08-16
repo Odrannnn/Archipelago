@@ -18,11 +18,13 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import org.json.JSONObject
 import java.io.File
 import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.zip.ZipFile
 import kotlin.concurrent.thread
 
 /** Creates player YAMLs, generates seeds, and patches a user-supplied ROM entirely offline. */
@@ -49,7 +51,7 @@ class GeneratorActivity : Activity() {
     private var historySettingsLoaded = false
     private var currentHistoryId: String? = null
     private var hostingInProgress = false
-    private var currentTemplateGame = OfflineGenerator.supportedGames.first()
+    private var currentTemplateGame = OfflineGenerator.builtInGames.first()
     private var templateLoadInProgress = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -172,6 +174,12 @@ class GeneratorActivity : Activity() {
                     "select is copied into app-private storage and reused for later seeds. It is removed if you " +
                     "uninstall the app or tap Forget cached base ROM."
             })
+            addView(Button(this@GeneratorActivity).apply {
+                text = "Manage installed APWorlds"
+                setOnClickListener {
+                    startActivity(Intent(this@GeneratorActivity, ApWorldManagerActivity::class.java))
+                }
+            }, matchWrapParams())
             addView(gameTemplateButton, matchWrapParams())
             addView(seedEditor, matchWrapParams())
             addView(playerCountView, matchWrapParams())
@@ -205,7 +213,12 @@ class GeneratorActivity : Activity() {
             }, matchWrapParams())
             addView(Button(this@GeneratorActivity).apply {
                 text = "Open website instance list"
-                setOnClickListener { openWebUrl("${ArchipelagoWebHostClient.BASE_URL}/user-content") }
+                setOnClickListener {
+                    openAuthenticatedWebUrl(
+                        "${ArchipelagoWebHostClient.BASE_URL}/user-content",
+                        "Hosted instances",
+                    )
+                }
             }, matchWrapParams())
             addView(hostedRoomsContainer, matchWrapParams())
             addView(TextView(this@GeneratorActivity).apply {
@@ -222,13 +235,18 @@ class GeneratorActivity : Activity() {
         renderHistory()
 
         thread(name = "offline-generator-startup") {
-            runCatching { OfflineGenerator.defaultYaml(this, currentTemplateGame) }
-                .onSuccess { template ->
+            runCatching {
+                val catalog = OfflineGenerator.refreshCatalog(this)
+                OfflineGenerator.defaultYaml(this, currentTemplateGame) to catalog
+            }
+                .onSuccess { (template, catalog) ->
                     runOnUiThread {
                         if (!historySettingsLoaded) yamlEditor.setText(template)
                         yamlEditor.isEnabled = true
                         generateButton.isEnabled = true
-                        status.text = "Ready · Metroid Fusion APWorld 1.22.4"
+                        val imported = catalog.count { it.source == "imported" }
+                        status.text = "Ready · ${catalog.size} worlds loaded" +
+                            if (imported > 0) " · $imported imported" else ""
                     }
                 }
                 .onFailure { showError("Could not start the offline generator", it) }
@@ -272,7 +290,7 @@ class GeneratorActivity : Activity() {
     }
 
     private fun chooseGame(title: String, onSelected: (String) -> Unit) {
-        val games = OfflineGenerator.supportedGames.toTypedArray()
+        val games = OfflineGenerator.availableGames(this).toTypedArray()
         AlertDialog.Builder(this)
             .setTitle(title)
             .setItems(games) { _, index -> onSelected(games[index]) }
@@ -408,13 +426,26 @@ class GeneratorActivity : Activity() {
         ?.trim()
         ?.removeSurrounding("\"")
         ?.removeSurrounding("'")
-        ?.takeIf { it in OfflineGenerator.supportedGames }
+        ?.takeIf { it in OfflineGenerator.availableGames(this) }
 
-    private fun selectedPatchGame(): String = when {
-        patchFile?.name?.endsWith(".aptmc", ignoreCase = true) == true -> "The Minish Cap"
-        patchFile?.name?.endsWith(".apmetfus", ignoreCase = true) == true -> "Metroid Fusion"
-        else -> currentTemplateGame
+    private fun selectedPatchGame(): String = patchFile?.let(::gameFromPatchFile) ?: currentTemplateGame
+
+    private fun canPatchSelectedRom(): Boolean {
+        if (patchFile == null) return false
+        val game = selectedPatchGame()
+        return game in OfflineGenerator.builtInGames ||
+            OfflineGenerator.cachedCatalog().any { it.game == game && it.romPatch }
     }
+
+    private fun gameFromPatchFile(patch: File): String? = runCatching {
+        ZipFile(patch).use { archive ->
+            if (archive.getEntry("patch_file.json") != null) return@use "Metroid Fusion"
+            val manifest = archive.getEntry("archipelago.json") ?: return@use null
+            archive.getInputStream(manifest).bufferedReader(Charsets.UTF_8).use { reader ->
+                JSONObject(reader.readText()).optString("game").takeIf { it.isNotBlank() }
+            }
+        }
+    }.getOrNull()
 
     private fun generateSeed() {
         val yaml = yamlEditor.text.toString()
@@ -457,7 +488,7 @@ class GeneratorActivity : Activity() {
         currentTemplateGame = gameFromYaml(entry.yaml) ?: selectedPatchGame()
         exportSeedButton.isEnabled = seedFile != null
         hostSeedButton.isEnabled = seedFile != null && !hostingInProgress
-        patchButton.isEnabled = patchFile != null
+        patchButton.isEnabled = canPatchSelectedRom()
         forgetBaseRomButton.isEnabled = BaseRomCache.isPresent(this, selectedPatchGame())
         renderPatchChoices()
         if (loadSettings) {
@@ -473,20 +504,21 @@ class GeneratorActivity : Activity() {
         patchesContainer.removeAllViews()
         if (availablePatches.isEmpty()) return
         patchesContainer.addView(TextView(this).apply {
-            text = if (availablePatches.size == 1) {
+            val heading = if (availablePatches.size == 1) {
                 "ROM patch: ${availablePatches.first().name}"
             } else {
                 "Choose which player's ROM to create:"
             }
+            text = if (canPatchSelectedRom()) heading else "$heading\nThis world's output is export-only in the GBA companion."
         })
         if (availablePatches.size > 1) {
             availablePatches.forEach { patch ->
                 patchesContainer.addView(Button(this).apply {
-                    text = patch.name.removeSuffix(".apmetfus").removeSuffix(".aptmc")
+                    text = patch.nameWithoutExtension
                     isEnabled = patch != patchFile
                     setOnClickListener {
                         patchFile = patch
-                        patchButton.isEnabled = true
+                        patchButton.isEnabled = canPatchSelectedRom()
                         forgetBaseRomButton.isEnabled = BaseRomCache.isPresent(
                             this@GeneratorActivity,
                             selectedPatchGame(),
@@ -644,7 +676,10 @@ class GeneratorActivity : Activity() {
                 addView(Button(this@GeneratorActivity).apply {
                     text = "Open room controls"
                     setOnClickListener {
-                        openWebUrl("${ArchipelagoWebHostClient.BASE_URL}/room/${room.roomId}")
+                        openAuthenticatedWebUrl(
+                            "${ArchipelagoWebHostClient.BASE_URL}/room/${room.roomId}",
+                            "Room controls",
+                        )
                     }
                 }, matchWrapParams())
                 if (room.trackerId.isNotBlank()) {
@@ -750,7 +785,7 @@ class GeneratorActivity : Activity() {
     }
 
     private fun hostedPlayerName(displayName: String): String =
-        displayName.removeSuffix(" (Metroid Fusion)").removeSuffix(" (The Minish Cap)")
+        displayName.replace(Regex(" \\([^()]+\\)$"), "")
 
     private fun confirmWebsiteSessionSync() {
         AlertDialog.Builder(this)
@@ -767,6 +802,10 @@ class GeneratorActivity : Activity() {
 
     private fun openWebUrl(url: String) {
         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    }
+
+    private fun openAuthenticatedWebUrl(url: String, title: String) {
+        startActivity(AuthenticatedWebActivity.intent(this, url, title))
     }
 
     private fun formatWebsiteTime(value: String): String {
@@ -847,8 +886,16 @@ class GeneratorActivity : Activity() {
             runCatching {
                 val selectedBytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
                     ?: error("Could not read the selected ROM")
-                val baseBytes = BaseRomCache.store(this, selectedBytes, game)
-                createPatchedRom(selectedPatch, baseBytes)
+                val baseBytes = if (BaseRomCache.hasBuiltInValidation(game)) {
+                    BaseRomCache.store(this, selectedBytes, game)
+                } else {
+                    selectedBytes
+                }
+                val output = createPatchedRom(selectedPatch, baseBytes)
+                if (!BaseRomCache.hasBuiltInValidation(game)) {
+                    BaseRomCache.storeAfterSuccessfulPatch(this, selectedBytes, game)
+                }
+                output
             }.onSuccess { output ->
                 runOnUiThread {
                     patchButton.isEnabled = true
@@ -873,6 +920,9 @@ class GeneratorActivity : Activity() {
                     beginExport(output.name, output.readBytes())
                 } }
                 .onFailure {
+                    if (!BaseRomCache.hasBuiltInValidation(selectedPatchGame())) {
+                        BaseRomCache.forget(this, selectedPatchGame())
+                    }
                     runOnUiThread { patchButton.isEnabled = true }
                     showError("ROM patching failed", it)
                 }
@@ -905,7 +955,7 @@ class GeneratorActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (resultCode != RESULT_OK || data?.data == null) {
-            if (requestCode == REQUEST_BASE_ROM) patchButton.isEnabled = patchFile != null
+            if (requestCode == REQUEST_BASE_ROM) patchButton.isEnabled = canPatchSelectedRom()
             return
         }
         when (requestCode) {

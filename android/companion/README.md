@@ -17,7 +17,7 @@ The bridge can become available before RetroArch has loaded any content.
 core remains connected. It starts a room session when a compatible patched ROM
 appears and closes that session if the content is unloaded or replaced.
 If RetroArch is backgrounded long enough for the local socket to time out, the
-service also closes that room session before retrying. The matching v6 core
+service also closes that room session before retrying. The matching v7 core
 adopts the newest queued loopback connection on resume, avoiding a stale client
 which could otherwise prevent reconnection after switching apps.
 
@@ -75,12 +75,16 @@ state, item application, persistent inventory reconciliation, and completion
 detection for one game. `ArchipelagoSession` handles the shared WebSocket
 protocol without depending on Metroid Fusion memory types.
 
-The registered adapters are Metroid Fusion APWorld `1.22.4` and The Minish Cap
+The native registered adapters are Metroid Fusion APWorld `1.22.4` and The Minish Cap
 APWorld `0.3.1`. The latter validates `GBAZELDA`, authenticates with the player
 name at ROM `0x600`, verifies the room seed at `0x620`, polls its EWRAM location
 flags (including special Goron/Cucco state), and injects received item IDs into
 the patched game's guarded item queue. Other console families will also need a
-compatible libretro-core implementation of the loopback bridge.
+compatible libretro-core implementation of the loopback bridge. Imported GBA
+worlds which register a standard Archipelago `BizHawkClient` use a parallel
+generic runtime: their Python client remains unchanged, Kotlin owns the room
+WebSocket, and version-4 atomic memory transactions are forwarded to mGBA.
+Wario Land 4 APWorld `3.4.0` is the first compatibility-checked imported client.
 
 The main screen exposes independent mGBA and Archipelago connection indicators.
 The server indicator distinguishes connecting, authenticated, and disconnected
@@ -109,6 +113,38 @@ the asset registry. Each document's options remain independently editable before
 generation. Every player receives a separate `.apmetfus` or `.aptmc` patch
 according to their game.
 
+**Manage installed APWorlds** imports additional trusted `.apworld` files into
+`filesDir/offline_generator/worlds`. Installation rejects absolute/traversal
+paths, oversized entries and expansions, malformed layouts, duplicate games,
+and manifests incompatible with the embedded Archipelago 0.6.8 core. Packages
+are extracted rather than imported directly from ZIP so worlds which use
+`os.scandir` or adjacent data files continue to work. The Python world registry
+then supplies the game list, complete visible option model, player patch suffix,
+and output format dynamically. Imported templates use readable scalar defaults
+generated from the APWorld's option classes, and can participate in the same
+mixed-game YAML and seed flow as bundled games. Updating a world consists of
+removing it and importing the newer package; after removing an already-loaded
+world, fully restart the app before importing another version.
+
+APWorld packages are executable Python code. Archive validation protects the
+app's filesystem but cannot sandbox or audit that code, so imports must come
+from trusted authors. Worlds may also depend on Python or native modules absent
+from the APK; these fail to load with a compatibility diagnostic. Generated
+patches are discovered through `AutoPatchRegister`. For registered
+`APProcedurePatch` handlers whose result is `.gba`, the companion validates the
+manifest checksum against the user-selected ROM and runs the world's registered
+procedure/extension operations. Other ROM formats remain export-only.
+
+An imported GBA world gains live play when it registers an ordinary
+Archipelago `BizHawkClient` and uses connector operations supported by the
+Android compatibility layer. Its validation, authentication, location checks,
+item delivery, DeathLink, storage messages, and completion logic execute from
+the APWorld instead of being translated into Kotlin. Worlds with custom desktop
+launchers, extra dependencies, unsupported emulator systems/domains, or other
+non-standard client behavior still require compatibility work. The APWorld
+manager records Python import failures by package and exposes the full diagnostic
+instead of leaving a failed world labelled only as not loaded.
+
 Completed runs are copied into persistent app-private seed history together
 with their source YAML, room ZIP, player names, and all player patches. A
 history entry can restore its exact generation settings, export the ZIP again,
@@ -119,11 +155,16 @@ the history.
 Any stored seed ZIP can also be uploaded directly to `archipelago.gg` with
 **Host on archipelago.gg**. The companion creates and starts a room, caches its
 current status, and can refresh the full room list owned by its persistent
-website session. Room controls, trackers, and online server addresses are
-available from the hosted-instances section. **Share multiplayer invite** first
+website session. **Open website instance list** and **Open room controls** use
+an in-app website view which receives that private session cookie, so owner-only
+controls work without placing the secret session identifier in a URL. External
+links leave the in-app view without receiving its cookie. **Sync website
+session** remains the explicit way to grant the normal phone browser the same
+access. Trackers and online server addresses are available from the
+hosted-instances section. **Share multiplayer invite** first
 selects a player slot, then opens Android's share sheet with a player-specific
 `.apinvite` package. The package contains the public room identifiers and that
-player's locally stored `.apmetfus` patch, protected by an integrity hash; it
+player's locally stored APWorld patch, protected by an integrity hash; it
 never contains a website-session credential or base ROM. On a second device,
 opening the invite verifies and wakes the public room, loads its current port,
 remembers the selected player, and reuses a cached legally supplied clean base
@@ -143,7 +184,7 @@ data, or uninstalling removes the copy. The app never bundles a ROM.
 
 After a patched `.gba` is saved, the companion offers to launch it directly in
 the installed 64-bit RetroArch package. The launch intent selects the custom
-`mgba_apbridge_v6_libretro_android.so` core and passes RetroArch's own standard
+`mgba_apbridge_v7_libretro_android.so` core and passes RetroArch's own standard
 `retroarch.cfg` path without creating or modifying the file, preserving controller
 mappings, overrides, and remaps. Each launch starts a fresh RetroArch task so a
 suspended video surface cannot leave the game running with audio but no picture.
@@ -166,7 +207,7 @@ player name, saved room password, and the room's game identifier so the
 matching tracker pack can load automatically. For player-specific rooms, the
 companion also remembers the saved ROM document and retains its Android document
 permission, so the active-room section can launch that player's existing ROM in
-RetroArch without applying the `.apmetfus` patch again. Selecting a different
+RetroArch without applying the player patch again. Selecting a different
 player slot does not carry the previous player's ROM shortcut across. **Choose
 existing patched ROM** can register a `.gba` created before this shortcut was
 available, or replace a reference after its file was moved.

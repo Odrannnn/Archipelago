@@ -19,7 +19,7 @@ class ArchipelagoSession(
     private val romInfo: GameRomInfo,
     private val onStatus: (String) -> Unit,
     private val onConnectionState: (ConnectionState, String?) -> Unit,
-) : WebSocketListener() {
+) : WebSocketListener(), RoomSession {
     enum class ConnectionState { CONNECTING, CONNECTED, DISCONNECTED }
 
     private data class NetworkItem(val item: Long, val location: Long, val player: Int)
@@ -66,15 +66,15 @@ class ArchipelagoSession(
     private var triedSecureFallback = false
 
     @Volatile
-    var isClosed: Boolean = false
+    override var isClosed: Boolean = false
         private set
 
-    val connectedSlot: Int?
+    override val connectedSlot: Int?
         get() = synchronized(stateLock) {
             slot.takeIf { authenticated && it > 0 }
         }
 
-    fun connect() {
+    override fun connect() {
         isClosed = false
         triedSecureFallback = settings.address.startsWith("wss://", ignoreCase = true)
         open(settings.address)
@@ -95,7 +95,7 @@ class ArchipelagoSession(
         }
     }
 
-    fun close() {
+    override fun close() {
         isClosed = true
         socket?.close(1000, "Companion reconnecting")
         socket = null
@@ -105,7 +105,7 @@ class ArchipelagoSession(
     }
 
     /** Runs one gameplay synchronization pass on BridgeService's worker. */
-    fun tick() {
+    override fun tick() {
         val state = synchronized(stateLock) {
             TickState(
                 authenticated,

@@ -42,6 +42,12 @@
             android:name=".GeneratorActivity"
             android:exported="false" />
         <activity
+            android:name=".ApWorldManagerActivity"
+            android:exported="false" />
+        <activity
+            android:name=".AuthenticatedWebActivity"
+            android:exported="false" />
+        <activity
             android:name=".RoomLibraryActivity"
             android:exported="false" />
         <provider

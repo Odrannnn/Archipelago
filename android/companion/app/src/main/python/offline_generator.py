@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
+import inspect
 import json
 import os
 import shutil
+import sys
 import tempfile
 import zipfile
 from io import BytesIO
@@ -28,6 +31,149 @@ def _prepare_runtime(work_directory: str) -> tuple[Path, Path]:
     return players, output
 
 
+def _load_worlds(work_directory: str):
+    """Load bundled worlds and any safely extracted user APWorld packages."""
+    _prepare_runtime(work_directory)
+    import worlds
+    from Utils import tuplize_version
+    from worlds.AutoWorld import AutoWorldRegister
+
+    user_worlds = Path(work_directory).resolve() / "worlds"
+    user_worlds.mkdir(parents=True, exist_ok=True)
+    user_path = str(user_worlds)
+    if user_path not in worlds.__path__:
+        worlds.__path__.append(user_path)
+
+    for package in sorted(user_worlds.iterdir()):
+        if not package.is_dir() or package.name.startswith(("_", ".")):
+            continue
+        if not (package / "__init__.py").is_file():
+            continue
+        module_name = f"worlds.{package.name}"
+        if module_name in sys.modules:
+            continue
+        try:
+            manifest = json.loads((package / "archipelago.json").read_text(encoding="utf-8"))
+            game = manifest.get("game")
+            if not game:
+                raise ValueError("archipelago.json does not declare a game")
+            if game in AutoWorldRegister.world_types:
+                raise RuntimeError(f"Game {game} is already registered")
+            importlib.import_module(module_name)
+            world = AutoWorldRegister.world_types.get(game)
+            if world is None:
+                raise RuntimeError(f"{package.name} did not register game {game}")
+            world.world_version = tuplize_version(manifest.get("world_version", "0.0.0"))
+            world.manifest = {
+                key: value for key, value in manifest.items()
+                if key not in ("version", "compatible_version")
+            }
+            worlds.network_data_package["games"][game] = world.get_data_package_data()
+        except Exception as error:
+            worlds.failed_world_loads[package.name] = f"{type(error).__name__}: {error}"
+    return worlds, AutoWorldRegister
+
+
+def _yaml_scalar(value) -> str:
+    import yaml
+    def plain(item):
+        if isinstance(item, dict):
+            return {plain(key): plain(content) for key, content in item.items()}
+        if isinstance(item, (list, tuple, set, frozenset)):
+            return [plain(content) for content in item]
+        return item
+    return yaml.safe_dump(plain(value), default_flow_style=True, allow_unicode=True).replace("...\n", "").strip()
+
+
+def _comment_lines(text: str, indent: str = "    ") -> list[str]:
+    cleaned = inspect.cleandoc(text or "").strip()
+    return [f"{indent}# {line}" if line else f"{indent}#" for line in cleaned.splitlines()]
+
+
+def template_for_game(work_directory: str, game: str) -> str:
+    """Generate a complete, functional YAML template from a loaded APWorld."""
+    _, registry = _load_worlds(work_directory)
+    world = registry.world_types.get(game)
+    if world is None:
+        raise ValueError(f"No installed world handles game {game}")
+
+    from Options import Choice, Range, get_option_groups
+    from Utils import __version__
+
+    version = world.world_version.as_simple_string()
+    lines = [
+        "# Generated on-device from the installed APWorld.",
+        "# Scalar defaults are used so every visible option remains easy to edit.",
+        "name: Player{number}",
+        f"description: {_yaml_scalar('Default ' + game + ' Template')}",
+        f"game: {_yaml_scalar(game)}",
+        "requires:",
+        f"  version: {__version__}",
+    ]
+    if version != "0.0.0":
+        lines.extend(("  game:", f"    {_yaml_scalar(game)}: {version}"))
+    lines.extend(("", f"{_yaml_scalar(game)}:"))
+
+    for group_name, options in get_option_groups(world).items():
+        lines.extend(("", f"  # --- {group_name} ---"))
+        for option_key, option in options.items():
+            lines.append("")
+            lines.extend(_comment_lines(option.__doc__))
+            if issubclass(option, Range):
+                lines.append(f"    # Range: {option.range_start} to {option.range_end}")
+            elif issubclass(option, Choice):
+                choices = ", ".join(str(name) for name in option.options)
+                if choices:
+                    lines.append(f"    # Choices: {choices}")
+            default = option.default
+            if issubclass(option, Choice) and default in option.name_lookup:
+                default = option.name_lookup[default]
+            dumped = _yaml_scalar(default)
+            if "\n" in dumped:
+                lines.append(f"  {option_key}:")
+                lines.extend(f"    {line}" for line in dumped.splitlines())
+            else:
+                lines.append(f"  {option_key}: {dumped}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def world_catalog(work_directory: str) -> str:
+    """Describe loaded world capabilities without promising a live adapter."""
+    worlds, registry = _load_worlds(work_directory)
+    from worlds.Files import AutoPatchRegister
+    from worlds._bizhawk.client import AutoBizHawkClientRegister
+
+    standard_gba_clients = {
+        game
+        for systems, handlers in AutoBizHawkClientRegister.game_handlers.items()
+        if "GBA" in systems
+        for game in handlers
+    }
+
+    installed_root = Path(work_directory).resolve() / "worlds"
+    installed_modules = {f"worlds.{path.name}" for path in installed_root.iterdir() if path.is_dir()}
+    result = []
+    for game, world in sorted(registry.world_types.items()):
+        patch_type = AutoPatchRegister.patch_types.get(game)
+        patch_extension = getattr(patch_type, "patch_file_ending", "") if patch_type else ""
+        result_extension = getattr(patch_type, "result_file_ending", "") if patch_type else ""
+        result.append({
+            "game": game,
+            "version": world.world_version.as_simple_string(),
+            "source": "imported" if world.__module__ in installed_modules or any(
+                world.__module__.startswith(module + ".") for module in installed_modules
+            ) else "bundled",
+            "patch_extension": patch_extension,
+            "result_extension": result_extension,
+            "generation": True,
+            "template": True,
+            "rom_patch": bool(patch_type and result_extension.lower() == ".gba"),
+            "live_bridge": game in ("Metroid Fusion", "The Minish Cap") or game in standard_gba_clients,
+        })
+    return json.dumps({"worlds": result, "failures": worlds.failed_world_loads})
+
+
 def generate(yaml_text: str, work_directory: str, seed: str = "") -> str:
     """Generate a seed and return JSON metadata for Kotlin."""
     players, output = _prepare_runtime(work_directory)
@@ -41,6 +187,7 @@ def generate(yaml_text: str, work_directory: str, seed: str = "") -> str:
     player_file = players / "Player.yaml"
     player_file.write_text(yaml_text, encoding="utf-8")
 
+    _load_worlds(work_directory)
     import Generate
 
     arguments = [
@@ -60,6 +207,11 @@ def generate(yaml_text: str, work_directory: str, seed: str = "") -> str:
 
     generate_multiworld(args, numeric_seed)
 
+    from worlds.Files import AutoPatchRegister
+    patch_endings = {ending.lower() for ending in AutoPatchRegister.file_endings}
+    # ArchipelagoMine's legacy container predates AutoPatchRegister.
+    patch_endings.add(".apmetfus")
+
     files = []
     patches = []
     for path in sorted(output.iterdir()):
@@ -69,7 +221,7 @@ def generate(yaml_text: str, work_directory: str, seed: str = "") -> str:
         if path.suffix.lower() == ".zip":
             with zipfile.ZipFile(path, "r") as archive:
                 for member in archive.namelist():
-                    if member.lower().endswith((".apmetfus", ".aptmc")):
+                    if Path(member).suffix.lower() in patch_endings:
                         patch_path = output / Path(member).name
                         with archive.open(member) as source, patch_path.open("wb") as target:
                             shutil.copyfileobj(source, target)
@@ -78,7 +230,7 @@ def generate(yaml_text: str, work_directory: str, seed: str = "") -> str:
                         files.append(patch_info)
 
     if not patches:
-        raise RuntimeError("Generation completed, but no supported GBA player patch was produced")
+        raise RuntimeError("Generation completed, but no Archipelago player patch was produced")
     return json.dumps({
         "seed": str(numeric_seed),
         "players": player_names,
@@ -95,8 +247,10 @@ def _safe_patch_output_name(value: object) -> str:
     return name
 
 
-def patch_game(patch_bytes) -> str:
-    """Return the game declared by a supported player patch."""
+def patch_game(patch_bytes, work_directory: str = "") -> str:
+    """Return the game declared by a player patch."""
+    if work_directory:
+        _load_worlds(work_directory)
     with zipfile.ZipFile(BytesIO(bytes(patch_bytes)), "r") as archive:
         if "patch_file.json" in archive.namelist():
             return "Metroid Fusion"
@@ -105,9 +259,65 @@ def patch_game(patch_bytes) -> str:
         except KeyError as error:
             raise ValueError("The selected file is not a supported Archipelago GBA patch") from error
         game = manifest.get("game")
-        if game != "The Minish Cap":
-            raise ValueError(f"Unsupported Archipelago patch game: {game}")
-        return game
+        if not isinstance(game, str) or not game.strip():
+            raise ValueError("The Archipelago patch does not declare a game")
+        return game.strip()
+
+
+def _matching_base_rom(raw_rom: bytes, checksum: str) -> bytes:
+    """Validate common AP checksums, accepting a legacy 512-byte copier header."""
+    expected = checksum.lower()
+    candidates = [raw_rom]
+    if len(raw_rom) % 0x400 == 0x200:
+        candidates.append(raw_rom[0x200:])
+    algorithms = {32: hashlib.md5, 40: hashlib.sha1, 64: hashlib.sha256}
+    algorithm = algorithms.get(len(expected))
+    if algorithm is None:
+        raise ValueError(f"Unsupported base ROM checksum format ({len(expected)} hexadecimal characters)")
+    for candidate in candidates:
+        if algorithm(candidate).hexdigest().lower() == expected:
+            return candidate
+    actual = algorithm(candidates[-1]).hexdigest().upper()
+    raise ValueError(f"Wrong base ROM for this patch. Its {algorithm().name.upper()} is {actual}.")
+
+
+def _apply_procedure_patch(patch_data: bytes, raw_rom: bytes, work_directory: str) -> tuple[bytes, str]:
+    """Apply an APProcedurePatch using the user-supplied ROM instead of desktop settings."""
+    _load_worlds(work_directory)
+    from worlds.Files import AutoPatchExtensionRegister, AutoPatchRegister
+
+    with zipfile.ZipFile(BytesIO(patch_data), "r") as archive:
+        try:
+            manifest = json.loads(archive.read("archipelago.json"))
+        except KeyError as error:
+            raise ValueError("The selected file has no Archipelago patch manifest") from error
+    game = manifest.get("game")
+    handler = AutoPatchRegister.patch_types.get(game)
+    if handler is None:
+        raise ValueError(f"The installed {game} world does not register a ROM patch handler")
+    if getattr(handler, "result_file_ending", "").lower() != ".gba":
+        raise ValueError(f"{game} produces {getattr(handler, 'result_file_ending', 'an unsupported format')}, not a GBA ROM")
+    checksum = manifest.get("base_checksum")
+    if not isinstance(checksum, str) or not checksum:
+        raise ValueError(f"The {game} patch does not declare a base ROM checksum")
+    rom = _matching_base_rom(raw_rom, checksum)
+
+    patch = handler()
+    patch.read(BytesIO(patch_data))
+    extender = AutoPatchExtensionRegister.get_handler(game)
+    procedure = getattr(patch, "procedure", manifest.get("procedure"))
+    if not isinstance(procedure, list):
+        raise ValueError(f"The {game} patch has no supported patch procedure")
+    for step in procedure:
+        if not isinstance(step, (list, tuple)) or len(step) != 2:
+            raise ValueError(f"The {game} patch contains an invalid procedure step")
+        name, arguments = step
+        handlers = extender if isinstance(extender, list) else [extender]
+        operation = next((getattr(item, name, None) for item in handlers if hasattr(item, name)), None)
+        if operation is None:
+            raise ValueError(f"The installed {game} world does not support patch operation {name}")
+        rom = operation(patch, rom, *arguments)
+    return bytes(rom), game
 
 
 def _apply_tokens(rom: bytes, token_data: bytes) -> bytes:
@@ -202,11 +412,16 @@ def patch_rom(patch_bytes, base_rom_bytes, output_path: str, work_directory: str
     # remove a legacy 512-byte copier header before applying the BPS patch.
     rom = raw_rom[0x200:] if len(raw_rom) % 0x400 == 0x200 else raw_rom
     stripped_md5 = hashlib.md5(rom).hexdigest()
-    game = patch_game(patch_data_bytes)
+    game = patch_game(patch_data_bytes, work_directory)
     destination = Path(output_path).resolve()
     destination.parent.mkdir(parents=True, exist_ok=True)
     if game == "The Minish Cap":
         result = _patch_minish_cap(patch_data_bytes, rom)
+        destination.write_bytes(result)
+        return str(destination)
+
+    if game != "Metroid Fusion":
+        result, _ = _apply_procedure_patch(patch_data_bytes, raw_rom, work_directory)
         destination.write_bytes(result)
         return str(destination)
 

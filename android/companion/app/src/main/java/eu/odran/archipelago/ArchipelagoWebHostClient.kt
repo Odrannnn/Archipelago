@@ -159,6 +159,14 @@ class ArchipelagoWebHostClient(context: Context) {
 
     fun sessionSyncUrl(): String = "$BASE_URL/session/$websiteSessionId"
 
+    /** Returns the established website cookie for the app's private authenticated WebView. */
+    fun authenticatedBrowserCookie(): String {
+        ensureWebsiteSession()
+        return checkNotNull(preferences.getString(SESSION_COOKIE, null)).also {
+            check(it.isNotBlank()) { "archipelago.gg did not return a website session cookie." }
+        }
+    }
+
     private fun ensureWebsiteSession() {
         execute(Request.Builder().url(sessionSyncUrl()).get().build()).use { response ->
             if (!response.isSuccessful) {
