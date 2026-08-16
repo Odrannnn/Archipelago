@@ -19,6 +19,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import java.io.File
+import java.security.MessageDigest
 import kotlin.concurrent.thread
 
 /** Starts the persistent bridge service and displays its current status. */
@@ -33,6 +34,7 @@ class MainActivity : Activity() {
     private var retroArchButton: Button? = null
     private var renderedRoom: JoinedRoom? = null
     private var pendingPlayerInvite: RoomInvite? = null
+    private var pendingRequiredApWorldInvite: RoomInvite? = null
     private var pendingPatchedRom: Pair<String, ByteArray>? = null
     private val refreshStatus = object : Runnable {
         override fun run() {
@@ -180,6 +182,10 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (resultCode != RESULT_OK) {
             if (requestCode == REQUEST_INVITE_BASE_ROM) pendingPlayerInvite = null
+            if (requestCode == REQUEST_INVITE_APWORLD) {
+                pendingRequiredApWorldInvite = null
+                inviteStatus.text = "APWorld import canceled · invitation not loaded."
+            }
             return
         }
         if (requestCode == REQUEST_MANAGE_ROOMS) {
@@ -197,6 +203,7 @@ class MainActivity : Activity() {
         when (requestCode) {
             REQUEST_OPEN_INVITE -> handleInvite(Intent(Intent.ACTION_VIEW, data.data))
             REQUEST_INVITE_BASE_ROM -> patchInviteBaseRom(data.data!!)
+            REQUEST_INVITE_APWORLD -> installRequiredInviteApWorld(data.data!!)
             REQUEST_SELECT_PATCHED_ROM -> rememberExistingPatchedRom(data.data!!, data.flags)
             REQUEST_SAVE_INVITE_ROM -> {
                 val export = pendingPatchedRom ?: return
@@ -205,7 +212,7 @@ class MainActivity : Activity() {
                     contentResolver.openOutputStream(destination)?.use { it.write(export.second) }
                         ?: error("Could not open the selected destination.")
                 }.onSuccess {
-                    rememberPatchedRom(export.first, destination, data.flags)
+                    rememberPatchedRom(export.first, destination, data.flags, export.second.sha256Hex())
                     inviteStatus.text = "Saved ${export.first} · ready to load in RetroArch."
                     pendingPatchedRom = null
                     offerRetroArchLaunch(export.first, destination)
@@ -226,19 +233,71 @@ class MainActivity : Activity() {
             inviteStatus.text = "Select a patched .gba file."
             return
         }
-        rememberPatchedRom(name, uri, flags)
-        inviteStatus.text = "Remembered $name · ready to launch in RetroArch."
+        val room = JoinedRoomStore.load(this)
+        if (room == null) {
+            inviteStatus.text = "There is no active imported room to associate with this ROM."
+            return
+        }
+        inviteStatus.text = "Verifying that $name matches this room's saved ROM…"
+        thread {
+            val result = runCatching {
+                val expectedHash = room.patchedRomSha256
+                    ?: room.patchedRomUri?.let { savedUri ->
+                        runCatching { sha256(Uri.parse(savedUri)) }.getOrNull()
+                    }
+                    ?: error(
+                        "This room has no verifiable saved ROM. Reopen its player invite, " +
+                            "patch the ROM, and save it again.",
+                    )
+                val selectedHash = sha256(uri)
+                require(selectedHash.equals(expectedHash, ignoreCase = true)) {
+                    "That is not the ROM previously saved for this room. " +
+                        "Select an identical copy or patch and save this room's ROM again."
+                }
+                selectedHash
+            }
+            handler.post {
+                result.onSuccess { selectedHash ->
+                    rememberPatchedRom(name, uri, flags, selectedHash)
+                    inviteStatus.text = "Remembered verified ROM $name · ready to launch in RetroArch."
+                }.onFailure {
+                    inviteStatus.text = "Could not change the saved ROM shortcut: ${it.message}"
+                }
+            }
+        }
     }
 
-    private fun rememberPatchedRom(name: String, uri: Uri, flags: Int) {
+    private fun rememberPatchedRom(name: String, uri: Uri, flags: Int, sha256: String) {
         val permissionFlags = flags and (
             Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
         )
         if (permissionFlags != 0 && flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0) {
             runCatching { contentResolver.takePersistableUriPermission(uri, permissionFlags) }
         }
-        JoinedRoomStore.rememberPatchedRom(this, name, uri)?.let { renderJoinedRoom(it) }
+        JoinedRoomStore.rememberPatchedRom(this, name, uri, sha256)?.let { renderJoinedRoom(it) }
     }
+
+    private fun sha256(uri: Uri): String = contentResolver.openInputStream(uri)?.buffered()?.use { input ->
+        val digest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var totalBytes = 0L
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            if (count == 0) continue
+            totalBytes += count
+            require(totalBytes <= MAX_GBA_ROM_BYTES) { "The selected file is too large to be a GBA ROM." }
+            digest.update(buffer, 0, count)
+        }
+        require(totalBytes > 0) { "The selected ROM is empty." }
+        digest.digest().toHexString()
+    } ?: error("Could not read the selected ROM.")
+
+    private fun ByteArray.sha256Hex(): String = MessageDigest.getInstance("SHA-256")
+        .digest(this)
+        .toHexString()
+
+    private fun ByteArray.toHexString(): String = joinToString("") { "%02x".format(it) }
 
     private fun chooseExistingPatchedRom() {
         startActivityForResult(
@@ -309,10 +368,116 @@ class MainActivity : Activity() {
             )
             .setNegativeButton("Cancel", null)
             .setPositiveButton(if (invite.hasPlayerPatch) "Load and patch" else "Load room") { _, _ ->
-                resolveAndLoadRoom(invite)
+                loadInviteAfterApWorldCheck(invite)
             }
             .show()
     }
+
+    private fun loadInviteAfterApWorldCheck(invite: RoomInvite) {
+        if (!invite.hasPlayerPatch) {
+            resolveAndLoadRoom(invite)
+            return
+        }
+        val game = invite.gameName
+        if (game.isNullOrBlank()) {
+            inviteStatus.text = "Could not load invitation: its player patch does not declare a game."
+            return
+        }
+        if (ImportedApWorldStore.list(this).any { it.game == game }) {
+            resolveAndLoadRoom(invite)
+            return
+        }
+        pendingRequiredApWorldInvite = invite
+        AlertDialog.Builder(this)
+            .setTitle("$game APWorld required")
+            .setMessage(
+                "This invitation needs the $game APWorld for ROM patching and live synchronization. " +
+                    "APWorlds contain executable Python code, so import one only from an author you trust.",
+            )
+            .setNegativeButton("Cancel") { _, _ ->
+                pendingRequiredApWorldInvite = null
+                inviteStatus.text = "Invitation not loaded · $game APWorld is required."
+            }
+            .setPositiveButton("Import APWorld") { _, _ -> chooseRequiredInviteApWorld() }
+            .show()
+    }
+
+    private fun chooseRequiredInviteApWorld() {
+        startActivityForResult(
+            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "application/octet-stream"
+            },
+            REQUEST_INVITE_APWORLD,
+        )
+    }
+
+    private fun installRequiredInviteApWorld(uri: Uri) {
+        val invite = pendingRequiredApWorldInvite ?: return
+        val requiredGame = invite.gameName ?: return
+        inviteStatus.text = "Validating and installing the required $requiredGame APWorld…"
+        thread(name = "invite-apworld-install") {
+            var matchingWorldInstalled = false
+            runCatching {
+                val installed = ImportedApWorldStore.install(this, uri)
+                if (installed.game != requiredGame) {
+                    ImportedApWorldStore.remove(this, installed.packageName)
+                    error("The selected APWorld is for ${installed.game}; this invitation requires $requiredGame.")
+                }
+                matchingWorldInstalled = true
+                val catalog = OfflineGenerator.refreshCatalog(this)
+                val capability = catalog.firstOrNull { it.game == requiredGame }
+                    ?: error(
+                        "The $requiredGame APWorld was installed but did not load: " +
+                            shortWorldFailure(OfflineGenerator.cachedWorldFailures()[installed.packageName]),
+                    )
+                require(capability.romPatch) {
+                    "The installed $requiredGame APWorld does not provide compatible GBA ROM patching."
+                }
+                require(capability.liveBridge) {
+                    "The installed $requiredGame APWorld does not provide compatible Android live synchronization."
+                }
+                installed
+            }.onSuccess { installed ->
+                pendingRequiredApWorldInvite = null
+                runOnUiThread {
+                    inviteStatus.text =
+                        "Installed ${installed.game} ${installed.worldVersion} · continuing invitation…"
+                    resolveAndLoadRoom(invite)
+                }
+            }.onFailure { error ->
+                runOnUiThread {
+                    inviteStatus.text = "Could not install the required APWorld: ${error.message}"
+                    if (matchingWorldInstalled) {
+                        pendingRequiredApWorldInvite = null
+                        AlertDialog.Builder(this)
+                            .setTitle("Required APWorld unavailable")
+                            .setMessage(
+                                "${error.message}\n\nOpen Manage installed APWorlds to inspect or remove it. " +
+                                    "A failed world may require restarting the companion before installing another version.",
+                            )
+                            .setPositiveButton("Close", null)
+                            .show()
+                    } else {
+                        AlertDialog.Builder(this)
+                            .setTitle("Could not import required APWorld")
+                            .setMessage(error.message ?: error.javaClass.simpleName)
+                            .setNegativeButton("Cancel") { _, _ -> pendingRequiredApWorldInvite = null }
+                            .setPositiveButton("Choose another") { _, _ -> chooseRequiredInviteApWorld() }
+                            .show()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun shortWorldFailure(failure: String?): String = failure
+        ?.lineSequence()
+        ?.map(String::trim)
+        ?.filter(String::isNotEmpty)
+        ?.lastOrNull()
+        ?.take(240)
+        ?: "no world class was registered"
 
     private fun resolveAndLoadRoom(roomId: String) = resolveAndLoadRoom(RoomInvite(roomId, ""))
 
@@ -383,14 +548,23 @@ class MainActivity : Activity() {
     private fun patchInviteBaseRom(uri: Uri) {
         val invite = pendingPlayerInvite ?: return
         val game = invite.gameName ?: return
-        inviteStatus.text = "Validating and caching the selected base ROM…"
+        inviteStatus.text = "Validating the selected base ROM…"
         thread(name = "shared-invite-rom-patching") {
             runCatching {
                 val selectedBytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
                     ?: error("Could not read the selected base ROM.")
-                BaseRomCache.store(this, selectedBytes, game)
-            }.onSuccess { baseBytes ->
-                patchInviteBaseRom(baseBytes, cachedNow = true)
+                val baseBytes = if (BaseRomCache.hasBuiltInValidation(game)) {
+                    BaseRomCache.store(this, selectedBytes, game)
+                } else {
+                    selectedBytes
+                }
+                baseBytes to selectedBytes.takeUnless { BaseRomCache.hasBuiltInValidation(game) }
+            }.onSuccess { (baseBytes, cacheAfterSuccessfulPatch) ->
+                patchInviteBaseRom(
+                    baseBytes,
+                    cachedNow = true,
+                    cacheAfterSuccessfulPatch = cacheAfterSuccessfulPatch,
+                )
             }.onFailure { error ->
                 pendingPlayerInvite = null
                 runOnUiThread {
@@ -400,13 +574,17 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun patchInviteBaseRom(baseBytes: ByteArray, cachedNow: Boolean) {
+    private fun patchInviteBaseRom(
+        baseBytes: ByteArray,
+        cachedNow: Boolean,
+        cacheAfterSuccessfulPatch: ByteArray? = null,
+    ) {
         val invite = pendingPlayerInvite ?: return
         val patchBytes = invite.patchBytes ?: return
         val game = invite.gameName ?: return
         runOnUiThread {
-            val cacheDescription = if (cachedNow) "newly cached" else "cached"
-            inviteStatus.text = "Creating ${invite.playerName}'s patched $game ROM using the $cacheDescription base ROM…"
+            val baseDescription = if (cachedNow) "selected" else "cached"
+            inviteStatus.text = "Creating ${invite.playerName}'s patched $game ROM using the $baseDescription base ROM…"
         }
         thread(name = "shared-invite-rom-patching") {
             runCatching {
@@ -414,7 +592,11 @@ class MainActivity : Activity() {
                 val output = File(filesDir, "imported_invites/output/$outputName").apply {
                     parentFile?.mkdirs()
                 }
-                OfflineGenerator.patchRom(this, patchBytes, baseBytes, output)
+                OfflineGenerator.patchRom(this, patchBytes, baseBytes, output).also {
+                    if (cacheAfterSuccessfulPatch != null) {
+                        BaseRomCache.storeAfterSuccessfulPatch(this, cacheAfterSuccessfulPatch, game)
+                    }
+                }
             }.onSuccess { output ->
                 pendingPlayerInvite = null
                 val export = output.name to output.readBytes()
@@ -486,7 +668,12 @@ class MainActivity : Activity() {
             }
         }, matchWrapParams())
         if (!room.patchedRomUri.isNullOrBlank()) {
-            joinedRoomContainer.addView(Button(this).apply {
+            val actionHeight = (48 * resources.displayMetrics.density).toInt()
+            val romActions = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+            }
+            val launchButton = Button(this).apply {
                 retroArchButton = this
                 text = if (RetroArchLauncher.isRunningRom(
                         room.gameName,
@@ -522,17 +709,51 @@ class MainActivity : Activity() {
                             "Could not open the saved ROM. Patch and save it again if it was moved or deleted."
                     }
                 }
-            }, matchWrapParams())
+            }
+            romActions.addView(
+                launchButton,
+                LinearLayout.LayoutParams(0, actionHeight, 1f),
+            )
+            if (room.playerSlot != null) {
+                romActions.addView(Button(this).apply {
+                    text = "⚙"
+                    textSize = 20f
+                    contentDescription = "Change saved ROM shortcut"
+                    tooltipText = "Change saved ROM shortcut"
+                    minimumWidth = 0
+                    setPadding(0, 0, 0, 0)
+                    setOnClickListener {
+                        AlertDialog.Builder(this@MainActivity)
+                            .setTitle("Change saved ROM shortcut?")
+                            .setMessage(
+                                "Choose another copy of the exact patched .gba already saved for this room. " +
+                                    "The app will verify its SHA-256 fingerprint before changing the shortcut. " +
+                                    "It does not modify or delete the current ROM.",
+                            )
+                            .setNegativeButton("Cancel", null)
+                            .setPositiveButton("Pick matching ROM") { _, _ -> chooseExistingPatchedRom() }
+                            .show()
+                    }
+                }, LinearLayout.LayoutParams(
+                    actionHeight,
+                    actionHeight,
+                ).apply {
+                    marginStart = (8 * resources.displayMetrics.density).toInt()
+                })
+            }
+            joinedRoomContainer.addView(romActions, matchWrapParams())
         }
-        if (room.playerSlot != null) {
-            joinedRoomContainer.addView(Button(this).apply {
-                text = if (room.patchedRomUri.isNullOrBlank()) {
-                    "Choose existing patched ROM"
-                } else {
-                    "Change saved ROM shortcut"
-                }
-                setOnClickListener { chooseExistingPatchedRom() }
-            }, matchWrapParams())
+        if (room.playerSlot != null && room.patchedRomUri.isNullOrBlank()) {
+            if (room.patchedRomSha256 != null) {
+                joinedRoomContainer.addView(Button(this).apply {
+                    text = "Choose matching patched ROM"
+                    setOnClickListener { chooseExistingPatchedRom() }
+                }, matchWrapParams())
+            } else {
+                joinedRoomContainer.addView(TextView(this).apply {
+                    text = "No verified ROM is saved for this room. Reopen its player invite to patch and save it."
+                }, matchWrapParams())
+            }
         }
         joinedRoomContainer.addView(Button(this).apply {
             text = "Open room and player patches"
@@ -578,5 +799,7 @@ class MainActivity : Activity() {
         private const val REQUEST_SAVE_INVITE_ROM = 303
         private const val REQUEST_SELECT_PATCHED_ROM = 304
         private const val REQUEST_MANAGE_ROOMS = 305
+        private const val REQUEST_INVITE_APWORLD = 306
+        private const val MAX_GBA_ROM_BYTES = 32L * 1024 * 1024 + 512
     }
 }

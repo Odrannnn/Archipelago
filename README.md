@@ -90,7 +90,7 @@ status, open authenticated room controls and the instance list inside the app,
 open trackers, and explicitly synchronize its website session with a normal
 browser when requested.
 
-Player-specific `.apinvite` files contain the public room identifiers, the
+Player-specific version 2 `.apinvite` files contain the public room identifiers, the
 selected player and slot, that player's game-specific patch, and a SHA-256
 integrity hash. A recipient can open the invite to wake the room, resolve its
 current port, configure the companion, patch their own clean ROM locally, and

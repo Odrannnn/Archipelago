@@ -1,0 +1,6 @@
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/archipelago_logo"
+    android:insetLeft="24%"
+    android:insetTop="24%"
+    android:insetRight="24%"
+    android:insetBottom="24%" />

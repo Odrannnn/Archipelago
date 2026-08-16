@@ -140,8 +140,8 @@ opening the invite verifies and wakes the public room, loads its current port,
 remembers the selected player, and reuses a cached legally supplied clean base
 ROM or asks for it when no valid cache exists. The embedded generator applies
 the patch locally and prompts the recipient to save the ready-to-run `.gba`.
-Older metadata-only invites remain supported, and
-**Open multiplayer invite** provides a file-picker fallback when a receiving app
+Only player-specific version 2 invites are accepted. **Open multiplayer invite**
+provides a file-picker fallback when a receiving app
 does not open the attachment directly. **Sync website session** is separate and
 its secret link must not be shared.
 

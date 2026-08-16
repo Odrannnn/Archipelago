@@ -11,7 +11,9 @@
 
     <application
         android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
         android:label="Archipelago Companion"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:usesCleartextTraffic="true"
         android:theme="@style/AppTheme">
         <activity
@@ -35,7 +37,6 @@
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="application/vnd.gg.archipelago.companion-invite" />
-                <data android:mimeType="application/vnd.gg.archipelago.companion-invite+json" />
             </intent-filter>
         </activity>
         <activity

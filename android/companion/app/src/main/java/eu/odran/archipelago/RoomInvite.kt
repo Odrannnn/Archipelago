@@ -43,10 +43,8 @@ data class RoomInvite(
 
     companion object {
         const val MIME_TYPE = "application/vnd.gg.archipelago.companion-invite"
-        const val LEGACY_MIME_TYPE = "application/vnd.gg.archipelago.companion-invite+json"
         const val URI_SCHEME = "archipelago-companion"
         private const val FORMAT = "gg.archipelago.android.room-invite"
-        private const val LEGACY_VERSION = 1
         private const val PLAYER_PATCH_VERSION = 2
         private const val METADATA_ENTRY = "invite.json"
         private const val PATCH_ENTRY = "player.apmetfus"
@@ -137,22 +135,10 @@ data class RoomInvite(
             val bytes = context.contentResolver.openInputStream(uri)?.use { it.readNBytes(MAX_INVITE_BYTES + 1) }
                 ?: error("Could not read the shared invitation.")
             require(bytes.size <= MAX_INVITE_BYTES) { "The shared invitation is too large." }
-            return if (bytes.size >= 4 && bytes[0] == 'P'.code.toByte() && bytes[1] == 'K'.code.toByte()) {
-                parsePlayerPackage(bytes)
-            } else {
-                parseLegacyJson(bytes)
+            require(bytes.size >= 4 && bytes[0] == 'P'.code.toByte() && bytes[1] == 'K'.code.toByte()) {
+                "Only player-specific version 2 Archipelago Companion invitations are supported."
             }
-        }
-
-        private fun parseLegacyJson(bytes: ByteArray): RoomInvite {
-            require(bytes.size <= MAX_METADATA_BYTES) { "The legacy invitation is too large." }
-            val root = JSONObject(bytes.toString(Charsets.UTF_8))
-            require(root.optString("format") == FORMAT && root.optInt("version") == LEGACY_VERSION) {
-                "This is not a supported Archipelago Companion invitation."
-            }
-            val roomId = root.getString("room_id")
-            validateRoomId(roomId)
-            return RoomInvite(roomId, root.optString("seed_id"))
+            return parsePlayerPackage(bytes)
         }
 
         private fun parsePlayerPackage(bytes: ByteArray): RoomInvite {
@@ -237,6 +223,7 @@ data class JoinedRoom(
     val patchedRomName: String? = null,
     val patchedRomUri: String? = null,
     val gameName: String = "Metroid Fusion",
+    val patchedRomSha256: String? = null,
 )
 
 object JoinedRoomStore {
@@ -267,6 +254,7 @@ object JoinedRoomStore {
             previousPlayerRom?.patchedRomName,
             previousPlayerRom?.patchedRomUri,
             selectedGame,
+            previousPlayerRom?.patchedRomSha256,
         )
         rooms.removeAll { it.roomId == joined.roomId }
         rooms += joined
@@ -275,11 +263,13 @@ object JoinedRoomStore {
     }
 
     @Synchronized
-    fun rememberPatchedRom(context: Context, name: String, uri: Uri): JoinedRoom? {
+    fun rememberPatchedRom(context: Context, name: String, uri: Uri, sha256: String): JoinedRoom? {
+        require(SHA256_PATTERN.matches(sha256)) { "Invalid patched ROM fingerprint." }
         val current = load(context) ?: return null
         val updated = current.copy(
             patchedRomName = File(name).name,
             patchedRomUri = uri.toString(),
+            patchedRomSha256 = sha256.lowercase(),
         )
         val rooms = loadAll(context).filterNot { it.roomId == updated.roomId } + updated
         persist(context, rooms, updated.roomId)
@@ -361,6 +351,7 @@ object JoinedRoomStore {
         put("patchedRomName", patchedRomName)
         put("patchedRomUri", patchedRomUri)
         put("gameName", gameName)
+        put("patchedRomSha256", patchedRomSha256)
     }
 
     private fun roomFromJson(data: JSONObject) = JoinedRoom(
@@ -378,7 +369,12 @@ object JoinedRoomStore {
         data.optString("gameName", "Metroid Fusion")
             .takeIf { it.isNotBlank() && it != "null" }
             ?: "Metroid Fusion",
+        data.optString("patchedRomSha256")
+            .takeIf { SHA256_PATTERN.matches(it) }
+            ?.lowercase(),
     )
+
+    private val SHA256_PATTERN = Regex("[0-9a-fA-F]{64}")
 }
 
 /** Reads the standard AP patch manifest without requiring game-specific code. */
