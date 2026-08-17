@@ -75,7 +75,10 @@ structure, and compatibility with the embedded Archipelago 0.6.8 core, then
 loads the world's full option model for YAML editing and mixed-game generation.
 Generated player patches are discovered through Archipelago's patch registry;
 standard procedure patches which produce `.gba`, `.gbc`, or `.gb` files can be applied through
-their registered APWorld handler without app-specific patch code. APWorlds are
+their registered APWorld handler without app-specific patch code. Self-connecting
+games which produce no player patch can still generate, save, and host their seed
+ZIP; ROM creation and player-specific companion invitations are simply unavailable.
+APWorlds are
 executable Python and are not sandboxed, so only packages from trusted authors
 should be installed. Imported worlds with a standard GBA, GB, or GBC `BizHawkClient` can
 also provide live item/location synchronization directly. Non-standard clients,

@@ -1156,7 +1156,11 @@ class GeneratorActivity : Activity() {
                 }, CompanionUi.insetTop(this, this@GeneratorActivity, 4))
                 addView(TextView(this@GeneratorActivity).apply {
                     val playerCount = entry.players.size
-                    val patchSummary = "$availablePatches/${entry.patches.size} patches"
+                    val patchSummary = if (entry.patches.isEmpty()) {
+                        "no player patch · hosting only"
+                    } else {
+                        "$availablePatches/${entry.patches.size} patches"
+                    }
                     text = "$playerCount player${if (playerCount == 1) "" else "s"} · $patchSummary · " +
                         if (zipAvailable) "ZIP ready" else "ZIP missing"
                     setTextColor(if (zipAvailable) CompanionUi.textMuted else CompanionUi.danger)
@@ -1279,6 +1283,12 @@ class GeneratorActivity : Activity() {
             return
         }
         rooms.forEach { room ->
+            val linkedEntry = HostedRoomHistoryLinks.historyId(this, room.roomId)?.let { linkedId ->
+                SeedHistoryStore.list(this).firstOrNull { it.id == linkedId }
+            }
+            val linkedSeedHasInvitePatch = linkedEntry?.let { entry ->
+                entry.patches.isNotEmpty() && entry.patches.all { File(it.path).isFile }
+            }
             hostedRoomsContainer.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(0, 12, 0, 20)
@@ -1298,7 +1308,12 @@ class GeneratorActivity : Activity() {
                     textSize = 16f
                 })
                 addView(Button(this@GeneratorActivity).apply {
-                    text = "Share multiplayer invite"
+                    text = if (linkedSeedHasInvitePatch == false) {
+                        "Player invite unavailable (no patch)"
+                    } else {
+                        "Share multiplayer invite"
+                    }
+                    isEnabled = linkedSeedHasInvitePatch != false
                     setOnClickListener { shareHostedRoom(room) }
                 }, matchWrapParams())
                 addView(Button(this@GeneratorActivity).apply {

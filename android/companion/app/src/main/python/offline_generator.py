@@ -497,8 +497,8 @@ def generate(yaml_text: str, work_directory: str, seed: str = "") -> str:
                         patches.append(patch_info)
                         files.append(patch_info)
 
-    if not patches:
-        raise RuntimeError("Generation completed, but no Archipelago player patch was produced")
+    if not any(Path(file["path"]).suffix.lower() == ".zip" for file in files):
+        raise RuntimeError("Generation completed, but no hostable Archipelago seed ZIP was produced")
     return json.dumps({
         "seed": str(numeric_seed),
         "players": player_names,

@@ -102,7 +102,10 @@ are extracted rather than imported directly from ZIP so worlds which use
 then supplies the game list, complete visible option model, player patch suffix,
 and output format dynamically. Imported templates use readable scalar defaults
 generated from the APWorld's option classes, and can participate in the same
-mixed-game YAML and seed flow as other imported games. Updating a world consists of
+mixed-game YAML and seed flow as other imported games. APWorlds for self-connecting
+games may produce only the hostable room ZIP and no player patch; those seeds can be
+saved and hosted normally, while ROM creation and player-specific companion invites
+remain unavailable. Updating a world consists of
 removing it and importing the newer package; after removing an already-loaded
 world, fully restart the app before importing another version.
 
@@ -126,9 +129,9 @@ manager records Python import failures by package and exposes the full diagnosti
 instead of leaving a failed world labelled only as not loaded.
 
 Completed runs are copied into persistent app-private seed history together
-with their source YAML, room ZIP, player names, and all player patches. A
+with their source YAML, room ZIP, player names, and any player patches. A
 history entry can restore its exact generation settings, export the ZIP again,
-or select any player's patch for local ROM creation. Deleting an entry removes
+or, when patches exist, select a player's patch for local ROM creation. Deleting an entry removes
 its stored files. Uninstalling the app or clearing its app data also removes
 the history.
 
