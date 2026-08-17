@@ -444,15 +444,26 @@ class AndroidLadxClient:
             await ctx.send_msgs([{"cmd": "Sync"}])
 
 
-class AndroidOracleOfSeasonsRecovery:
-    """Restore server-owned OoS checks which were lost to an unsaved reset."""
+class AndroidOracleRecovery:
+    """Restore server-owned Oracle checks which were lost to an unsaved reset."""
 
-    game = "The Legend of Zelda - Oracle of Seasons"
+    games = frozenset({
+        "The Legend of Zelda - Oracle of Seasons",
+        "The Legend of Zelda - Oracle of Ages",
+    })
+    _labels = {
+        "The Legend of Zelda - Oracle of Seasons": "OoS",
+        "The Legend of Zelda - Oracle of Ages": "OoA",
+    }
 
     def __init__(self, handler: Any) -> None:
         import importlib
 
         client_module = importlib.import_module(type(handler).__module__)
+        self.game = str(handler.game)
+        if self.game not in self.games:
+            raise ValueError(f"Unsupported Oracle recovery game: {self.game}")
+        self.label = self._labels[self.game]
         ram_addresses = client_module.RAM_ADDRS
         self._game_state = int(ram_addresses["game_state"][0])
         self._received_item_index = int(ram_addresses["received_item_index"][0])
@@ -461,7 +472,10 @@ class AndroidOracleOfSeasonsRecovery:
         self._location_flags_size = int(ram_addresses["location_flags"][1])
         self._map_group = int(ram_addresses["current_map_group"][0])
         self._map_id = int(ram_addresses["current_map_id"][0])
-        self._blocked_room = int(client_module.ROOM_BLAINOS_GYM)
+        blocked_room = getattr(client_module, "ROOM_BLAINOS_GYM", None)
+        self._blocked_rooms = set() if blocked_room is None else {int(blocked_room)}
+        self._item_encoder = getattr(client_module, "get_item_id_and_subid", None)
+        self._item_names = getattr(handler, "item_id_to_name", {})
         self._pending_local: tuple[int, int, int, bytes] | None = None
         self._checks: list[tuple[int, tuple[int, ...], int]] = []
         for name, location in client_module.LOCATIONS_DATA.items():
@@ -475,6 +489,32 @@ class AndroidOracleOfSeasonsRecovery:
                 addresses = tuple(int(address) for address in raw_addresses if int(address) != 0xFFFF)
             if addresses:
                 self._checks.append((int(location_id), addresses, int(location.get("bit_mask", 0x20))))
+
+    def _encode_item(self, item: int) -> bytes:
+        if callable(self._item_encoder):
+            item_name = self._item_names.get(item)
+            if item_name is None:
+                raise ValueError(f"{self.label} item {item} has no APWorld name mapping")
+            item_id, item_subid = self._item_encoder(item_name)
+        else:
+            item_id, item_subid = divmod(item, 0x100)
+            if item_id == 0x30:
+                item_subid &= 0x7F
+        if not 0 <= int(item_id) <= 0xFF or not 0 <= int(item_subid) <= 0xFF:
+            raise ValueError(f"{self.label} item {item} is outside the ROM protocol range")
+        return bytes((int(item_id), int(item_subid)))
+
+    def bridge_reconnected(self) -> bool:
+        """Report whether an in-flight delivery needs reconciling after reconnect.
+
+        A RetroArch restart can load an older save while the Android runtime and
+        its Archipelago connection stay alive. The next watcher pass compares
+        the live item counter with the queued delivery before retrying it.
+        """
+        return self._pending_local is not None
+
+    def reset(self) -> None:
+        self._pending_local = None
 
     async def before_watcher(self, ctx: "AndroidClientContext") -> None:
         """Finish a local replay before the APWorld can queue another remote item."""
@@ -490,30 +530,34 @@ class AndroidOracleOfSeasonsRecovery:
             (self._received_item_index, 2, _SYSTEM_BUS),
             (flag_address, 1, _SYSTEM_BUS),
         ])
-        if game_state[0] != 2 or mailbox[0] != 0:
+        if game_state[0] != 2:
+            return
+        if mailbox[0] != 0:
             return
 
         original_value = int.from_bytes(original_index, "little")
         current_value = int.from_bytes(current_index, "little")
-        if current_value == original_value:
+        if current_value <= original_value:
             # The mailbox disappeared without being consumed, normally because
-            # another reset happened during recovery. Leave the flag rolled
-            # back so the item can be attempted again.
+            # another reset loaded an older item counter during recovery. Leave
+            # the flag rolled back so the item can be attempted again.
             self._pending_local = None
-            ctx.diagnostic = f"OoS local recovery interrupted check={location_id}; retrying"
-            return
-        if current_value != original_value + 1:
             ctx.diagnostic = (
-                f"OoS local recovery waiting check={location_id} "
-                f"counter={original_value}->{current_value}"
+                f"{self.label} local recovery rolled back check={location_id} "
+                f"counter={original_value}->{current_value}; retrying"
             )
             return
 
+        # Compensate only for the local replay we inserted. This is normally
+        # original + 1, but subtracting one from the observed value also keeps
+        # any legitimate remote deliveries which completed around a reconnect.
+        compensated_value = current_value - 1
+        compensated_index = compensated_value.to_bytes(2, "little")
         current_flag = current_flag_bytes[0]
         completed = await bizhawk.guarded_write(
             ctx.bizhawk_ctx,
             [
-                (self._received_item_index, original_index, _SYSTEM_BUS),
+                (self._received_item_index, compensated_index, _SYSTEM_BUS),
                 (flag_address, bytes((current_flag | mask,)), _SYSTEM_BUS),
             ],
             [
@@ -526,8 +570,8 @@ class AndroidOracleOfSeasonsRecovery:
         if completed:
             self._pending_local = None
         ctx.diagnostic = (
-            f"OoS completed local recovery check={location_id} "
-            f"counter={current_value}->{original_value} written={completed}"
+            f"{self.label} completed local recovery check={location_id} "
+            f"counter={current_value}->{compensated_value} written={completed}"
         )
 
     async def recover(self, ctx: "AndroidClientContext") -> None:
@@ -545,7 +589,9 @@ class AndroidOracleOfSeasonsRecovery:
             (self._map_group, 1, _SYSTEM_BUS),
             (self._map_id, 1, _SYSTEM_BUS),
         ])
-        if game_state[0] != 2 or ((map_group[0] << 8) | map_id[0]) == self._blocked_room:
+        if game_state[0] != 2:
+            return
+        if ((map_group[0] << 8) | map_id[0]) in self._blocked_rooms:
             return
 
         for location_id, addresses, mask in self._checks:
@@ -570,12 +616,7 @@ class AndroidOracleOfSeasonsRecovery:
             ]
             if local_item:
                 item = int(location_item.item)
-                item_id, item_subid = divmod(item, 0x100)
-                if item_id == 0x30:
-                    item_subid &= 0x7F
-                if not 0 <= item_id <= 0xFF:
-                    raise ValueError(f"OoS item {item} is outside the ROM protocol range")
-                writes = [(self._received_item, bytes((item_id, item_subid)), _SYSTEM_BUS)]
+                writes = [(self._received_item, self._encode_item(item), _SYSTEM_BUS)]
                 guards.append((self._received_item, mailbox, _SYSTEM_BUS))
             else:
                 writes = [(flag_address, bytes((current_flag | mask,)), _SYSTEM_BUS)]
@@ -584,7 +625,7 @@ class AndroidOracleOfSeasonsRecovery:
             if restored and local_item:
                 self._pending_local = (location_id, flag_address, mask, received_index)
             ctx.diagnostic = (
-                f"OoS queued rolled-back check={location_id} item={int(location_item.item)} "
+                f"{self.label} queued rolled-back check={location_id} item={int(location_item.item)} "
                 f"receiver={int(location_item.player)} local={local_item} written={restored}"
             )
             return
@@ -775,11 +816,12 @@ class AndroidBizHawkRuntime:
                     continue
                 self.handler = handler
                 self.recovery = None
-                if ctx.game == AndroidOracleOfSeasonsRecovery.game:
+                if ctx.game in AndroidOracleRecovery.games:
                     try:
-                        self.recovery = AndroidOracleOfSeasonsRecovery(handler)
+                        self.recovery = AndroidOracleRecovery(handler)
                     except Exception as exc:
-                        self.last_error = f"OoS recovery unavailable: {type(exc).__name__}: {exc}"
+                        label = AndroidOracleRecovery._labels.get(str(ctx.game), "Oracle")
+                        self.last_error = f"{label} recovery unavailable: {type(exc).__name__}: {exc}"
                 self.ctx = ctx
                 return json.dumps({
                     "matched": True,
@@ -894,7 +936,9 @@ class AndroidBizHawkRuntime:
 
     def restore_server_snapshot(self, snapshot_json: str) -> bool:
         """Restore a complete server snapshot before the live room reconnects."""
-        if self.ctx is None or not isinstance(self.handler, AndroidLadxClient):
+        if self.ctx is None or not (
+            isinstance(self.handler, AndroidLadxClient) or self.recovery is not None
+        ):
             return False
         snapshot = json.loads(snapshot_json)
         ctx = self.ctx
@@ -946,9 +990,10 @@ class AndroidBizHawkRuntime:
         # Treat an absent volatile reset marker as a reset on the first watcher
         # pass. If the marker is still present, the running emulator state was
         # not reset and should not be rewound merely because Android restarted.
-        self.handler._reset_marker_initialized = True
+        if isinstance(self.handler, AndroidLadxClient):
+            self.handler._reset_marker_initialized = True
         ctx.diagnostic = (
-            f"LADX restored server snapshot slot={ctx.slot} "
+            f"{ctx.game} restored server snapshot slot={ctx.slot} "
             f"checks={len(checked)} items={len(ctx.items_received)}"
         )
         return True
@@ -958,7 +1003,7 @@ class AndroidBizHawkRuntime:
         ctx = self.ctx
         if (
             ctx is None
-            or not isinstance(self.handler, AndroidLadxClient)
+            or not (isinstance(self.handler, AndroidLadxClient) or self.recovery is not None)
             or ctx.slot is None
         ):
             return json.dumps({"cacheable": False})
@@ -1031,10 +1076,19 @@ class AndroidBizHawkRuntime:
     def bridge_reconnected(self) -> None:
         if isinstance(self.handler, AndroidLadxClient):
             self.handler.bridge_reconnected()
+        if self.recovery is not None:
+            reconciling = self.recovery.bridge_reconnected()
+            if self.ctx is not None:
+                suffix = "; pending delivery will be reconciled" if reconciling else ""
+                self.ctx.diagnostic = (
+                    f"{self.recovery.label} bridge reconnected; rescanning server checks{suffix}"
+                )
 
     def reset_connection(self) -> None:
         if self.ctx is None:
             return
+        if self.recovery is not None:
+            self.recovery.reset()
         self.ctx.server_locations.clear()
         self.ctx.checked_locations.clear()
         self.ctx.locations_checked.clear()

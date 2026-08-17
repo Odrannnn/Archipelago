@@ -255,7 +255,7 @@ class PythonArchipelagoSession(
     }
 
     companion object {
-        private const val DIAGNOSTIC_TAG = "LadxRecovery"
+        private const val DIAGNOSTIC_TAG = "ItemRecovery"
         private val HANDSHAKE_TIMEOUT_MS = TimeUnit.SECONDS.toMillis(15)
         private val SNAPSHOT_PACKETS = setOf("Connected", "RoomUpdate", "ReceivedItems", "LocationInfo")
     }
