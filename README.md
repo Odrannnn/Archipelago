@@ -25,8 +25,8 @@ Archipelago room without a PC.
 The app bundles five compatible worlds from the pinned Archipelago core:
 Castlevania: Circle of the Moon, Link's Awakening DX, Mario & Luigi: Superstar
 Saga, Pokémon Emerald, and Yu-Gi-Oh! 2006. They can generate, patch, and play
-without a manual APWorld import. Other compatible GBA worlds can still be added as
-trusted `.apworld` files. The GBA worlds use their standard `BizHawkClient`
+without a manual APWorld import. Other compatible GBA and GB/GBC worlds can still be added as
+trusted `.apworld` files. Those worlds use their standard `BizHawkClient`
 through the reusable Python-to-mGBA path; Link's Awakening DX uses a dedicated
 Android adapter over the same bridge and does not require Network Commands.
 The rest of this repository remains based on the upstream
@@ -64,23 +64,27 @@ With a built-in or imported compatible game world, on the phone it can:
 - create and edit per-player YAML documents with an independent game choice;
 - generate single-player, same-game multiplayer, or mixed-game multiworld seeds offline;
 - retain seed history, settings, ZIPs, and player-specific APWorld patches;
-- validate the correct legally obtained clean ROM for the selected game, including ROMs with a
-  legacy 512-byte copier header;
-- cache the validated base ROM privately for later patches; and
-- save a ready-to-run `.gba` or `.gbc` for each player.
+- ask for every clean ROM input declared by the selected APWorld and let that
+  APWorld validate each file;
+- cache successfully used ROM inputs privately for later patches; and
+- save a ready-to-run `.gba`, `.gbc`, or `.gb` for each player.
 
 The on-device game-world manager lists the built-ins and can also import trusted
 `.apworld` packages into app-private storage. It validates archive paths, extraction limits, manifest
 structure, and compatibility with the embedded Archipelago 0.6.8 core, then
 loads the world's full option model for YAML editing and mixed-game generation.
 Generated player patches are discovered through Archipelago's patch registry;
-standard procedure patches which produce `.gba` or `.gbc` files can be applied to a
-checksum-validated user ROM without app-specific patch code. APWorlds are
+standard procedure patches which produce `.gba`, `.gbc`, or `.gb` files can be applied through
+their registered APWorld handler without app-specific patch code. APWorlds are
 executable Python and are not sandboxed, so only packages from trusted authors
-should be installed. Imported worlds with a standard GBA `BizHawkClient` can
+should be installed. Imported worlds with a standard GBA, GB, or GBC `BizHawkClient` can
 also provide live item/location synchronization directly. Non-standard clients,
 other emulator systems, and unsupported memory domains still require explicit
 compatibility work.
+
+Oracle of Seasons APWorld `20.1.13` and Oracle of Ages APWorld `1.0.2` are
+supported as trusted community imports. Their conventional GBC clients use the
+bridge's system-bus and flat cartridge-ROM domains for live synchronization.
 
 No base ROM is bundled, uploaded, or placed in an invitation.
 

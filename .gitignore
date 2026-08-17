@@ -204,6 +204,7 @@ Thumbs.db
 android/companion/.android-user/
 android/companion/.gradle-user/
 android/companion/.gradle/
+android/companion/.kotlin/
 android/companion/local.properties
 android/companion/release-signing.properties
 android/companion/**/build/

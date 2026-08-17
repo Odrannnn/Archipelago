@@ -30,9 +30,10 @@ able to reclaim its loopback port during the first initialization call. The
 libretro hook retries the bind once per second from `retro_run()` until the
 listener is restored, so a reset cannot permanently strand the companion.
 
-The current protocol is deliberately small. Version 5 supports `HELLO`,
+The current protocol is deliberately small. Version 6 supports `HELLO`,
 `PING`, `ROM_SHA1`, `READ`, `GUARD`, `WRITE`, `MESSAGE`, `GUARDED_WRITE`,
-`BATCH_READ`, `GUARDED_READ`, `GUARDED_WRITES`, and `SAVEDATA_READ`.
+`BATCH_READ`, `GUARDED_READ`, `GUARDED_WRITES`, `SAVEDATA_READ`, and
+`ROM_READ`.
 `GUARDED_WRITE` compares one or more memory guards and performs its write in
 the same `retro_run()` poll, which games such as The Minish Cap need for safe
 item injection. `MESSAGE` queues a UTF-8 string for RetroArch's OSD;
@@ -46,11 +47,16 @@ the first write in a multi-write transaction.
 offset, independently of the emulated cartridge's current SRAM-enable state.
 This lets LADX recover its saved receive counter after a reset even though the
 game unmaps external SRAM during normal gameplay.
+`ROM_READ` reads the loaded Game Boy cartridge by physical file offset rather
+than through its currently selected memory bank. This provides the flat
+BizHawk `ROM` domain needed by standard GB/GBC clients for ROM identification
+and embedded slot authentication.
 All integers are big-endian, the header is 20 bytes, and payloads are capped at
 4096 bytes (OSD text is capped at 511 bytes). `READ` carries its requested byte count as a four-byte payload;
 the response carries the requested memory bytes. `SAVEDATA_READ` uses the same
 four-byte length payload and treats the header address as a save-data byte
-offset. See the companion's
+offset. `ROM_READ` uses the same request shape against the cartridge file.
+See the companion's
 `BridgeProtocol.kt` for the matching wire definitions.
 
 When building the Android shared library with NDK r27 or older, pass both

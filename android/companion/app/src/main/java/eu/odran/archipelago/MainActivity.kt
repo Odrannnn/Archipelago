@@ -37,6 +37,8 @@ class MainActivity : Activity() {
     private var pendingPlayerInvite: RoomInvite? = null
     private var pendingRequiredApWorldInvite: RoomInvite? = null
     private var pendingPatchedRom: Pair<String, ByteArray>? = null
+    private var pendingInviteRomRequirements: RomRequirements? = null
+    private val pendingInviteRomInputs = linkedMapOf<String, ByteArray>()
     private val refreshStatus = object : Runnable {
         override fun run() {
             status.text = BridgeService.statusText
@@ -226,7 +228,9 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (resultCode != RESULT_OK) {
-            if (requestCode == REQUEST_INVITE_BASE_ROM) pendingPlayerInvite = null
+            if (requestCode == REQUEST_INVITE_BASE_ROM) {
+                clearPendingInviteRomSelection(clearInvite = true)
+            }
             if (requestCode == REQUEST_INVITE_APWORLD) {
                 pendingRequiredApWorldInvite = null
                 inviteStatus.text = "APWorld import canceled · invitation not loaded."
@@ -247,7 +251,7 @@ class MainActivity : Activity() {
         if (data?.data == null) return
         when (requestCode) {
             REQUEST_OPEN_INVITE -> handleInvite(Intent(Intent.ACTION_VIEW, data.data))
-            REQUEST_INVITE_BASE_ROM -> patchInviteBaseRom(data.data!!)
+            REQUEST_INVITE_BASE_ROM -> acceptInviteBaseRom(data.data!!)
             REQUEST_INVITE_APWORLD -> installRequiredInviteApWorld(data.data!!)
             REQUEST_SELECT_PATCHED_ROM -> rememberExistingPatchedRom(data.data!!, data.flags)
             REQUEST_SAVE_INVITE_ROM -> {
@@ -339,7 +343,9 @@ class MainActivity : Activity() {
     } ?: error("Could not read the selected ROM.")
 
     private fun isSupportedRomName(name: String): Boolean =
-        name.endsWith(".gba", ignoreCase = true) || name.endsWith(".gbc", ignoreCase = true)
+        name.endsWith(".gba", ignoreCase = true) ||
+            name.endsWith(".gbc", ignoreCase = true) ||
+            name.endsWith(".gb", ignoreCase = true)
 
     private fun ByteArray.sha256Hex(): String = MessageDigest.getInstance("SHA-256")
         .digest(this)
@@ -431,7 +437,7 @@ class MainActivity : Activity() {
             inviteStatus.text = "Could not load invitation: its player patch does not declare a game."
             return
         }
-        if (OfflineGenerator.isBundledGame(game) || ImportedApWorldStore.list(this).any { it.game == game }) {
+        if (OfflineGenerator.isBundledGame(this, game) || ImportedApWorldStore.list(this).any { it.game == game }) {
             resolveAndLoadRoom(invite)
             return
         }
@@ -475,10 +481,8 @@ class MainActivity : Activity() {
                 matchingWorldInstalled = true
                 val catalog = OfflineGenerator.refreshCatalog(this)
                 val capability = catalog.firstOrNull { it.game == requiredGame }
-                    ?: error(
-                        "The $requiredGame APWorld was installed but did not load: " +
-                            shortWorldFailure(OfflineGenerator.cachedWorldFailures()[installed.packageName]),
-                    )
+                    ?: error(OfflineGenerator.cachedWorldFailures()[installed.packageName]
+                        ?: "The $requiredGame APWorld was installed but did not register its game.")
                 require(capability.romPatch) {
                     "The installed $requiredGame APWorld does not provide compatible ROM patching."
                 }
@@ -519,14 +523,6 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun shortWorldFailure(failure: String?): String = failure
-        ?.lineSequence()
-        ?.map(String::trim)
-        ?.filter(String::isNotEmpty)
-        ?.lastOrNull()
-        ?.take(240)
-        ?: "no world class was registered"
-
     private fun resolveAndLoadRoom(roomId: String) = resolveAndLoadRoom(RoomInvite(roomId, ""))
 
     private fun resolveAndLoadRoom(invite: RoomInvite) {
@@ -566,73 +562,121 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun chooseInviteBaseRom() {
+    private fun chooseInviteBaseRom(requirements: RomRequirements, input: RomInputRequirement) {
+        AlertDialog.Builder(this)
+            .setTitle("Clean ROM required for ${requirements.game}")
+            .setMessage(
+                "Requested by the installed game world:\n${input.description}\n\n" +
+                    "Select a clean original ROM, not an already patched or randomized ROM. " +
+                    "The game world will validate it, and the app will cache it privately for later rooms.",
+            )
+            .setNegativeButton("Cancel") { _, _ -> clearPendingInviteRomSelection(clearInvite = true) }
+            .setPositiveButton("Choose clean ROM") { _, _ -> openInviteBaseRomPicker(input) }
+            .show()
+    }
+
+    private fun openInviteBaseRomPicker(input: RomInputRequirement) {
+        val picker = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/octet-stream"
+        }
+        val label = input.description.ifBlank { input.fileName.ifBlank { "clean ROM" } }
         startActivityForResult(
-            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "application/octet-stream"
-            },
+            Intent.createChooser(picker, "Choose $label"),
             REQUEST_INVITE_BASE_ROM,
         )
+    }
+
+    private fun showIncorrectInviteBaseRom(
+        requirements: RomRequirements,
+        input: RomInputRequirement,
+        error: Throwable,
+    ) {
+        AlertDialog.Builder(this)
+            .setTitle("Incorrect clean ROM")
+            .setMessage(
+                "The ${requirements.game} APWorld rejected the selected file.\n\n" +
+                    "Required: ${input.description}\n\n" +
+                    (error.message ?: "The file did not pass the APWorld's validation."),
+            )
+            .setNegativeButton("Cancel") { _, _ -> clearPendingInviteRomSelection(clearInvite = true) }
+            .setPositiveButton("Choose another ROM") { _, _ -> openInviteBaseRomPicker(input) }
+            .show()
     }
 
     private fun patchInviteWithCachedBaseRomOrChoose() {
         val invite = pendingPlayerInvite ?: return
         val game = invite.gameName ?: return
-        inviteStatus.text = "Room loaded for ${invite.playerName}. Checking for a cached base ROM…"
+        val patchBytes = invite.patchBytes ?: return
+        inviteStatus.text = "Room loaded for ${invite.playerName}. Checking for cached ROM inputs…"
         thread(name = "shared-invite-rom-cache-check") {
-            val cachedRom = BaseRomCache.load(this, game)
-            if (cachedRom == null) {
-                runOnUiThread {
-                    inviteStatus.text = "Room loaded for ${invite.playerName}. Select your clean base ROM once; it will be cached privately."
-                    chooseInviteBaseRom()
+            runCatching { OfflineGenerator.romRequirements(this, patchBytes) }
+                .onSuccess { requirements ->
+                    pendingInviteRomRequirements = requirements
+                    pendingInviteRomInputs.clear()
+                    requirements.inputs.forEach { input ->
+                        BaseRomCache.load(this, requirements.game, input.key)?.let { bytes ->
+                            pendingInviteRomInputs[input.key] = bytes
+                        }
+                    }
+                    continueInviteRomSelection()
                 }
-            } else {
-                patchInviteBaseRom(cachedRom, cachedNow = false)
-            }
+                .onFailure { error -> runOnUiThread {
+                    inviteStatus.text =
+                        "Could not determine the required ROMs: ${error.message ?: error.javaClass.simpleName}"
+                } }
         }
     }
 
-    private fun patchInviteBaseRom(uri: Uri) {
+    private fun continueInviteRomSelection() {
         val invite = pendingPlayerInvite ?: return
-        val game = invite.gameName ?: return
-        inviteStatus.text = "Validating the selected base ROM…"
-        thread(name = "shared-invite-rom-patching") {
+        val requirements = pendingInviteRomRequirements ?: return
+        val missing = requirements.inputs.firstOrNull { it.key !in pendingInviteRomInputs }
+        if (missing == null) {
+            patchInviteRomInputs(pendingInviteRomInputs.toMap())
+            return
+        }
+        runOnUiThread {
+            inviteStatus.text = "Room loaded for ${invite.playerName}. Select ${missing.description}."
+            chooseInviteBaseRom(requirements, missing)
+        }
+    }
+
+    private fun acceptInviteBaseRom(uri: Uri) {
+        val invite = pendingPlayerInvite ?: return
+        val requirements = pendingInviteRomRequirements ?: return
+        val input = requirements.inputs.firstOrNull { it.key !in pendingInviteRomInputs } ?: return
+        inviteStatus.text = "Reading ${input.description}…"
+        thread(name = "shared-invite-rom-input") {
             runCatching {
                 val selectedBytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
                     ?: error("Could not read the selected base ROM.")
-                val baseBytes = if (BaseRomCache.hasBuiltInValidation(game)) {
-                    BaseRomCache.store(this, selectedBytes, game)
-                } else {
-                    selectedBytes
-                }
-                baseBytes to selectedBytes.takeUnless { BaseRomCache.hasBuiltInValidation(game) }
-            }.onSuccess { (baseBytes, cacheAfterSuccessfulPatch) ->
-                patchInviteBaseRom(
-                    baseBytes,
-                    cachedNow = true,
-                    cacheAfterSuccessfulPatch = cacheAfterSuccessfulPatch,
+                OfflineGenerator.validateRomInput(
+                    this,
+                    invite.patchBytes ?: error("The invitation has no player patch."),
+                    input.key,
+                    selectedBytes,
                 )
+                selectedBytes
+            }.onSuccess { selectedBytes ->
+                pendingInviteRomInputs[input.key] = selectedBytes
+                continueInviteRomSelection()
             }.onFailure { error ->
-                pendingPlayerInvite = null
                 runOnUiThread {
-                    inviteStatus.text = "Could not cache the base ROM: ${error.message ?: error.javaClass.simpleName}"
+                    inviteStatus.text = "The selected file was rejected. Choose the correct clean ROM."
+                    showIncorrectInviteBaseRom(requirements, input, error)
                 }
             }
         }
     }
 
-    private fun patchInviteBaseRom(
-        baseBytes: ByteArray,
-        cachedNow: Boolean,
-        cacheAfterSuccessfulPatch: ByteArray? = null,
-    ) {
+    private fun patchInviteRomInputs(romInputs: Map<String, ByteArray>) {
         val invite = pendingPlayerInvite ?: return
         val patchBytes = invite.patchBytes ?: return
         val game = invite.gameName ?: return
+        val requirements = pendingInviteRomRequirements ?: return
         runOnUiThread {
-            val baseDescription = if (cachedNow) "selected" else "cached"
-            inviteStatus.text = "Creating ${invite.playerName}'s patched $game ROM using the $baseDescription base ROM…"
+            inviteStatus.text = "Validating ROM inputs and creating ${invite.playerName}'s patched $game ROM…"
         }
         thread(name = "shared-invite-rom-patching") {
             runCatching {
@@ -642,13 +686,13 @@ class MainActivity : Activity() {
                 val output = File(filesDir, "imported_invites/output/$outputName").apply {
                     parentFile?.mkdirs()
                 }
-                OfflineGenerator.patchRom(this, patchBytes, baseBytes, output).also {
-                    if (cacheAfterSuccessfulPatch != null) {
-                        BaseRomCache.storeAfterSuccessfulPatch(this, cacheAfterSuccessfulPatch, game)
+                OfflineGenerator.patchRom(this, patchBytes, romInputs, output).also {
+                    romInputs.forEach { (key, bytes) ->
+                        BaseRomCache.storeAfterSuccessfulPatch(this, bytes, requirements.game, key)
                     }
                 }
             }.onSuccess { output ->
-                pendingPlayerInvite = null
+                clearPendingInviteRomSelection(clearInvite = true)
                 val export = output.name to output.readBytes()
                 pendingPatchedRom = export
                 runOnUiThread {
@@ -663,12 +707,19 @@ class MainActivity : Activity() {
                     )
                 }
             }.onFailure { error ->
-                pendingPlayerInvite = null
+                BaseRomCache.forget(this, requirements.game)
+                clearPendingInviteRomSelection(clearInvite = true)
                 runOnUiThread {
                     inviteStatus.text = "Could not patch the base ROM: ${error.message ?: error.javaClass.simpleName}"
                 }
             }
         }
+    }
+
+    private fun clearPendingInviteRomSelection(clearInvite: Boolean = false) {
+        pendingInviteRomRequirements = null
+        pendingInviteRomInputs.clear()
+        if (clearInvite) pendingPlayerInvite = null
     }
 
     private fun renderJoinedRoom(room: JoinedRoom?) {

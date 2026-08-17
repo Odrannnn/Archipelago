@@ -24,7 +24,7 @@ class LADXPatchExtensions(worlds.Files.APPatchExtension):
     def generate_rom(caller: worlds.Files.APProcedurePatch, rom: bytes, data_file: str) -> bytes:
         patch_data = json.loads(caller.get_file(data_file).decode("utf-8"))
         # TODO local option overrides
-        rom_name = "base.gbc"
+        rom_name = f"base{caller.result_file_ending}"
         out_name = f"{patch_data['out_base']}{caller.result_file_ending}"
         parser = get_parser()
         args = parser.parse_args([rom_name, "-o", out_name, "--dump"])

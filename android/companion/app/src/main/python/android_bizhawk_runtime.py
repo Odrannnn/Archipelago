@@ -108,7 +108,7 @@ class AndroidLadxClient:
     async def _identity(self, ctx: "AndroidClientContext") -> bytes | None:
         from worlds import _bizhawk as bizhawk
 
-        if await bizhawk.get_system(ctx.bizhawk_ctx) != "GB":
+        if await bizhawk.get_system(ctx.bizhawk_ctx) not in {"GB", "GBC"}:
             return None
         auth, cgb_flag = await bizhawk.read(ctx.bizhawk_ctx, [
             (self._slot_name, 12, _SYSTEM_BUS),
@@ -444,6 +444,161 @@ class AndroidLadxClient:
             await ctx.send_msgs([{"cmd": "Sync"}])
 
 
+class AndroidOracleOfSeasonsRecovery:
+    """Restore server-owned OoS checks which were lost to an unsaved reset."""
+
+    game = "The Legend of Zelda - Oracle of Seasons"
+
+    def __init__(self, handler: Any) -> None:
+        import importlib
+
+        client_module = importlib.import_module(type(handler).__module__)
+        ram_addresses = client_module.RAM_ADDRS
+        self._game_state = int(ram_addresses["game_state"][0])
+        self._received_item_index = int(ram_addresses["received_item_index"][0])
+        self._received_item = int(ram_addresses["received_item"][0])
+        self._location_flags = int(ram_addresses["location_flags"][0])
+        self._location_flags_size = int(ram_addresses["location_flags"][1])
+        self._map_group = int(ram_addresses["current_map_group"][0])
+        self._map_id = int(ram_addresses["current_map_id"][0])
+        self._blocked_room = int(client_module.ROOM_BLAINOS_GYM)
+        self._pending_local: tuple[int, int, int, bytes] | None = None
+        self._checks: list[tuple[int, tuple[int, ...], int]] = []
+        for name, location in client_module.LOCATIONS_DATA.items():
+            location_id = handler.location_name_to_id.get(name)
+            raw_addresses = location.get("flag_byte")
+            if location_id is None or raw_addresses is None or raw_addresses == 0xFFFF:
+                continue
+            if isinstance(raw_addresses, int):
+                addresses = (raw_addresses,)
+            else:
+                addresses = tuple(int(address) for address in raw_addresses if int(address) != 0xFFFF)
+            if addresses:
+                self._checks.append((int(location_id), addresses, int(location.get("bit_mask", 0x20))))
+
+    async def before_watcher(self, ctx: "AndroidClientContext") -> None:
+        """Finish a local replay before the APWorld can queue another remote item."""
+        if self._pending_local is None:
+            return
+
+        from worlds import _bizhawk as bizhawk
+
+        location_id, flag_address, mask, original_index = self._pending_local
+        game_state, mailbox, current_index, current_flag_bytes = await bizhawk.read(ctx.bizhawk_ctx, [
+            (self._game_state, 1, _SYSTEM_BUS),
+            (self._received_item, 1, _SYSTEM_BUS),
+            (self._received_item_index, 2, _SYSTEM_BUS),
+            (flag_address, 1, _SYSTEM_BUS),
+        ])
+        if game_state[0] != 2 or mailbox[0] != 0:
+            return
+
+        original_value = int.from_bytes(original_index, "little")
+        current_value = int.from_bytes(current_index, "little")
+        if current_value == original_value:
+            # The mailbox disappeared without being consumed, normally because
+            # another reset happened during recovery. Leave the flag rolled
+            # back so the item can be attempted again.
+            self._pending_local = None
+            ctx.diagnostic = f"OoS local recovery interrupted check={location_id}; retrying"
+            return
+        if current_value != original_value + 1:
+            ctx.diagnostic = (
+                f"OoS local recovery waiting check={location_id} "
+                f"counter={original_value}->{current_value}"
+            )
+            return
+
+        current_flag = current_flag_bytes[0]
+        completed = await bizhawk.guarded_write(
+            ctx.bizhawk_ctx,
+            [
+                (self._received_item_index, original_index, _SYSTEM_BUS),
+                (flag_address, bytes((current_flag | mask,)), _SYSTEM_BUS),
+            ],
+            [
+                (self._game_state, game_state, _SYSTEM_BUS),
+                (self._received_item, mailbox, _SYSTEM_BUS),
+                (self._received_item_index, current_index, _SYSTEM_BUS),
+                (flag_address, current_flag_bytes, _SYSTEM_BUS),
+            ],
+        )
+        if completed:
+            self._pending_local = None
+        ctx.diagnostic = (
+            f"OoS completed local recovery check={location_id} "
+            f"counter={current_value}->{original_value} written={completed}"
+        )
+
+    async def recover(self, ctx: "AndroidClientContext") -> None:
+        """Reapply one rolled-back check and its local item per watcher pass."""
+        if self._pending_local is not None or ctx.slot is None or not ctx.checked_locations:
+            return
+
+        from worlds import _bizhawk as bizhawk
+
+        game_state, mailbox, received_index, flag_bytes, map_group, map_id = await bizhawk.read(ctx.bizhawk_ctx, [
+            (self._game_state, 1, _SYSTEM_BUS),
+            (self._received_item, 1, _SYSTEM_BUS),
+            (self._received_item_index, 2, _SYSTEM_BUS),
+            (self._location_flags, self._location_flags_size, _SYSTEM_BUS),
+            (self._map_group, 1, _SYSTEM_BUS),
+            (self._map_id, 1, _SYSTEM_BUS),
+        ])
+        if game_state[0] != 2 or ((map_group[0] << 8) | map_id[0]) == self._blocked_room:
+            return
+
+        for location_id, addresses, mask in self._checks:
+            if location_id not in ctx.checked_locations:
+                continue
+            current_values = [flag_bytes[address - self._location_flags] for address in addresses]
+            if any(value & mask == mask for value in current_values):
+                continue
+            location_item = ctx.locations_info.get(location_id)
+            if location_item is None:
+                continue
+
+            local_item = int(location_item.player) == int(ctx.slot)
+            if local_item and mailbox[0] != 0:
+                return
+
+            flag_address = addresses[0]
+            current_flag = current_values[0]
+            guards = [
+                (self._game_state, game_state, _SYSTEM_BUS),
+                (flag_address, bytes((current_flag,)), _SYSTEM_BUS),
+            ]
+            if local_item:
+                item = int(location_item.item)
+                item_id, item_subid = divmod(item, 0x100)
+                if item_id == 0x30:
+                    item_subid &= 0x7F
+                if not 0 <= item_id <= 0xFF:
+                    raise ValueError(f"OoS item {item} is outside the ROM protocol range")
+                writes = [(self._received_item, bytes((item_id, item_subid)), _SYSTEM_BUS)]
+                guards.append((self._received_item, mailbox, _SYSTEM_BUS))
+            else:
+                writes = [(flag_address, bytes((current_flag | mask,)), _SYSTEM_BUS)]
+
+            restored = await bizhawk.guarded_write(ctx.bizhawk_ctx, writes, guards)
+            if restored and local_item:
+                self._pending_local = (location_id, flag_address, mask, received_index)
+            ctx.diagnostic = (
+                f"OoS queued rolled-back check={location_id} item={int(location_item.item)} "
+                f"receiver={int(location_item.player)} local={local_item} written={restored}"
+            )
+            return
+
+
+_CUSTOM_CLIENT_ADAPTERS = (
+    (frozenset({"GB", "GBC"}), AndroidLadxClient),
+)
+
+
+def custom_client_games() -> set[str]:
+    return {adapter.game for _, adapter in _CUSTOM_CLIENT_ADAPTERS}
+
+
 def _plain(value: Any) -> Any:
     if isinstance(value, dict):
         return {str(key): _plain(item) for key, item in value.items()}
@@ -556,13 +711,14 @@ class AndroidBizHawkRuntime:
         self.recover_after_bridge_reconnect = bool(recover_after_bridge_reconnect)
         self.loop = asyncio.new_event_loop()
         self.handler = None
+        self.recovery = None
         self.ctx = None
         self.last_error = ""
         self._load_worlds()
 
     def _load_worlds(self) -> None:
-        from offline_generator import _load_standard_gba_clients
-        _load_standard_gba_clients(self.work_directory)
+        from offline_generator import _load_standard_mgba_clients
+        _load_standard_mgba_clients(self.work_directory)
 
     def _run(self, awaitable):
         result = self.loop.run_until_complete(awaitable)
@@ -574,14 +730,18 @@ class AndroidBizHawkRuntime:
         from worlds._bizhawk.client import AutoBizHawkClientRegister
 
         self.last_error = ""
-        if str(self.backend.getSystem()) == "GB":
-            handler = AndroidLadxClient(self.recover_after_bridge_reconnect)
+        system = str(self.backend.getSystem())
+        for systems, adapter in _CUSTOM_CLIENT_ADAPTERS:
+            if system not in systems:
+                continue
+            handler = adapter(self.recover_after_bridge_reconnect)
             ctx = AndroidClientContext(self.backend)
             ctx.client_handler = handler
             try:
                 if self._run(handler.validate_rom(ctx)):
                     self._run(handler.set_auth(ctx))
                     self.handler = handler
+                    self.recovery = None
                     self.ctx = ctx
                     return json.dumps({
                         "matched": True,
@@ -596,10 +756,11 @@ class AndroidBizHawkRuntime:
                 self.last_error = f"{type(exc).__name__}: {exc}"
             self.handler = None
             self.ctx = None
-            return json.dumps({"matched": False, "error": self.last_error})
+
+        compatible_systems = {"GBA"} if system == "GBA" else {"GB", "GBC"}
 
         for systems, handlers in AutoBizHawkClientRegister.game_handlers.items():
-            if "GBA" not in systems:
+            if compatible_systems.isdisjoint(systems):
                 continue
             for registered in handlers.values():
                 handler = type(registered)()
@@ -613,10 +774,16 @@ class AndroidBizHawkRuntime:
                     self.last_error = f"{type(exc).__name__}: {exc}"
                     continue
                 self.handler = handler
+                self.recovery = None
+                if ctx.game == AndroidOracleOfSeasonsRecovery.game:
+                    try:
+                        self.recovery = AndroidOracleOfSeasonsRecovery(handler)
+                    except Exception as exc:
+                        self.last_error = f"OoS recovery unavailable: {type(exc).__name__}: {exc}"
                 self.ctx = ctx
                 return json.dumps({
                     "matched": True,
-                    "game": ctx.game or getattr(handler, "game", "Imported GBA game"),
+                    "game": ctx.game or getattr(handler, "game", "Imported mGBA game"),
                     "auth": ctx.auth or "",
                     "items_handling": int(ctx.items_handling),
                     "want_slot_data": bool(ctx.want_slot_data),
@@ -624,6 +791,7 @@ class AndroidBizHawkRuntime:
                     "client": f"{type(handler).__module__}.{type(handler).__name__}",
                 })
         self.handler = None
+        self.recovery = None
         self.ctx = None
         return json.dumps({"matched": False, "error": self.last_error})
 
@@ -687,7 +855,7 @@ class AndroidBizHawkRuntime:
             ctx.missing_locations.update(missing)
             ctx.server_locations = checked | missing
             ctx.slot_data = args.get("slot_data", {})
-            ctx.server = SimpleNamespace(socket=SimpleNamespace(closed=False))
+            ctx.server = SimpleNamespace(socket=SimpleNamespace(open=True, closed=False))
             self._update_players(args.get("players", []))
             self._request_checked_location_info(checked)
         elif cmd == "RoomUpdate":
@@ -841,7 +1009,11 @@ class AndroidBizHawkRuntime:
         error = ""
         if watch_game:
             try:
+                if self.recovery is not None:
+                    self._run(self.recovery.before_watcher(self.ctx))
                 self._run(self.handler.game_watcher(self.ctx))
+                if self.recovery is not None:
+                    self._run(self.recovery.recover(self.ctx))
             except Exception as exc:
                 error = f"{type(exc).__name__}: {exc}"
                 self.last_error = error

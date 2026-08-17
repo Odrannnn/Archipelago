@@ -80,6 +80,7 @@ chaquopy {
             install("PyYAML==6.0.3")
             install("schema==0.7.8")
             install("pathspec==1.0.4")
+            install("platformdirs==4.10.1")
             install("typing_extensions==4.15.0")
         }
     }

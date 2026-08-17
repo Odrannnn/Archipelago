@@ -45,9 +45,9 @@ data class RoomInvite(
         const val MIME_TYPE = "application/vnd.gg.archipelago.companion-invite"
         const val URI_SCHEME = "archipelago-companion"
         private const val FORMAT = "gg.archipelago.android.room-invite"
-        private const val PLAYER_PATCH_VERSION = 2
+        private const val PLAYER_PATCH_VERSION = 3
         private const val METADATA_ENTRY = "invite.json"
-        private const val PATCH_ENTRY = "player.apmetfus"
+        private const val PATCH_ENTRY = "player.patch"
         private const val MAX_METADATA_BYTES = 64 * 1024
         private const val MAX_PATCH_BYTES = 32 * 1024 * 1024
         private const val MAX_INVITE_BYTES = 40 * 1024 * 1024
@@ -136,7 +136,7 @@ data class RoomInvite(
                 ?: error("Could not read the shared invitation.")
             require(bytes.size <= MAX_INVITE_BYTES) { "The shared invitation is too large." }
             require(bytes.size >= 4 && bytes[0] == 'P'.code.toByte() && bytes[1] == 'K'.code.toByte()) {
-                "Only player-specific version 2 Archipelago Companion invitations are supported."
+                "Only player-specific Archipelago Companion invitation packages are supported."
             }
             return parsePlayerPackage(bytes)
         }
@@ -222,7 +222,7 @@ data class JoinedRoom(
     val playerName: String? = null,
     val patchedRomName: String? = null,
     val patchedRomUri: String? = null,
-    val gameName: String = "Metroid Fusion",
+    val gameName: String = "",
     val patchedRomSha256: String? = null,
 )
 
@@ -242,7 +242,7 @@ object JoinedRoomStore {
         val availableGames = OfflineGenerator.availableGames(context)
         val selectedGame = invite?.gameName ?: previous?.gameName ?: room.players.firstNotNullOfOrNull { player ->
             availableGames.firstOrNull { game -> player.endsWith(" ($game)") }
-        } ?: "Metroid Fusion"
+        }.orEmpty()
         val joined = JoinedRoom(
             room.roomId,
             room.trackerId,
@@ -366,9 +366,9 @@ object JoinedRoomStore {
         data.optString("playerName").takeIf { it.isNotBlank() && it != "null" },
         data.optString("patchedRomName").takeIf { it.isNotBlank() && it != "null" },
         data.optString("patchedRomUri").takeIf { it.isNotBlank() && it != "null" },
-        data.optString("gameName", "Metroid Fusion")
+        data.optString("gameName")
             .takeIf { it.isNotBlank() && it != "null" }
-            ?: "Metroid Fusion",
+            .orEmpty(),
         data.optString("patchedRomSha256")
             .takeIf { SHA256_PATTERN.matches(it) }
             ?.lowercase(),
@@ -379,7 +379,6 @@ object JoinedRoomStore {
 
 /** Reads the standard AP patch manifest without requiring game-specific code. */
 private fun patchGame(patch: ByteArray): String {
-    var legacyMetroidFusion = false
     ZipInputStream(ByteArrayInputStream(patch)).use { zip ->
         while (true) {
             val entry = zip.nextEntry ?: break
@@ -387,7 +386,6 @@ private fun patchGame(patch: ByteArray): String {
                 "The player patch contains an invalid entry."
             }
             when (entry.name) {
-                "patch_file.json" -> legacyMetroidFusion = true
                 "archipelago.json" -> {
                     val manifestBytes = zip.readNBytes(MAX_PATCH_MANIFEST_BYTES + 1)
                     require(manifestBytes.size <= MAX_PATCH_MANIFEST_BYTES) { "The patch manifest is too large." }
@@ -399,8 +397,7 @@ private fun patchGame(patch: ByteArray): String {
             zip.closeEntry()
         }
     }
-    if (legacyMetroidFusion) return "Metroid Fusion"
-    error("The selected file is not a supported Archipelago player patch.")
+    error("The selected file has no standard Archipelago patch manifest.")
 }
 
 private const val MAX_PATCH_MANIFEST_BYTES = 64 * 1024

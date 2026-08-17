@@ -28,10 +28,16 @@ game-specific Archipelago logic. No memory port is exposed to the LAN.
   and Cucco checks, and completion reporting.
 - `companion/` can install additional trusted `.apworld` packages into private
   storage for dynamic templates, mixed-game generation, registered patch
-  discovery, generic standard GBA procedure patching, and live execution of
-  standard GBA `BizHawkClient` implementations through the mGBA bridge.
+  discovery, generic standard GBA/GB/GBC procedure patching, and live execution of
+  standard GBA, GB, and GBC `BizHawkClient` implementations through the mGBA bridge.
   Imported Python is executable and unsandboxed; non-standard clients can still
   require explicit compatibility work.
+- Oracle of Seasons APWorld `20.1.13` and Oracle of Ages APWorld `1.0.2` are
+  compatible community imports. Protocol 6 supplies their flat BizHawk `ROM`
+  domain for patched-ROM detection and embedded slot authentication.
+- ROM patching discovers every checksum-validated user file declared by an
+  APWorld. This supports multi-ROM handlers such as Oracle of Seasons cross-item
+  mode without adding game or filename branches to the companion.
 - `companion/` now authenticates to the room, resolves item and location IDs
   from the server data package, delivers queued items using the ROM's receipt
   counter, reports checked locations, and reports goal completion at credits.
@@ -49,7 +55,7 @@ native code in shared writable storage. Copy the uncompressed `.so` to
 Downloads, then use RetroArch's **Load Core > Install or Restore a Core**
 command to copy it into RetroArch's private core directory. Keep a distinct
 filename such as
-`mgba_apbridge_v8_libretro_android.so` so the stock mGBA core is not overwritten.
+`mgba_apbridge_v9_libretro_android.so` so the stock mGBA core is not overwritten.
 
 For NDK r27 and older, configure CMake with:
 

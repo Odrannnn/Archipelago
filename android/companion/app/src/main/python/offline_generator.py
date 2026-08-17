@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import importlib
 import inspect
 import json
@@ -11,11 +10,57 @@ import pkgutil
 import shutil
 import sys
 import tempfile
+import typing
 import zipfile
 from io import BytesIO
 from pathlib import Path
 
+from world_compatibility import apply_world_compatibility
+
 os.environ["SKIP_REQUIREMENTS_UPDATE"] = "1"
+
+MGBA_ROM_EXTENSIONS = frozenset({".gb", ".gbc", ".gba"})
+
+
+def _world_load_failure(package_name: str, game: str, error: Exception) -> str:
+    """Turn an APWorld import exception into an actionable Android error."""
+    current: BaseException | None = error
+    seen: set[int] = set()
+    missing: ModuleNotFoundError | None = None
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, ModuleNotFoundError):
+            missing = current
+            break
+        current = current.__cause__ or current.__context__
+
+    technical = f"{type(error).__name__}: {error}"
+    if missing is not None:
+        module = (missing.name or str(missing)).strip("'\"")
+        own_module = f"worlds.{package_name}"
+        if module == own_module or module.startswith(f"{own_module}."):
+            return (
+                f"Incomplete APWorld package: {game} could not find its own module '{module}'.\n"
+                "The archive may be damaged or packaged incorrectly. Download it again from the APWorld author.\n"
+                f"Technical details: {technical}"
+            )
+        return (
+            f"Missing Python dependency '{module}' required by {game}.\n"
+            "That module is not bundled with this companion, and the Android APWorld installer cannot add Python "
+            "packages itself. Update the companion or use an Android-compatible APWorld release; if neither is "
+            "available, report the dependency name to the companion or APWorld maintainer.\n"
+            f"Technical details: {technical}"
+        )
+
+    if isinstance(error, ImportError):
+        return (
+            f"Incompatible Python import while loading {game}.\n"
+            "This APWorld expects a Python module or Archipelago API that is different from the version embedded "
+            "in the companion. Use an APWorld release compatible with this companion.\n"
+            f"Technical details: {technical}"
+        )
+
+    return technical
 
 
 def _prepare_runtime(work_directory: str) -> tuple[Path, Path]:
@@ -60,6 +105,7 @@ def _load_worlds(work_directory: str):
         module_name = f"worlds.{package.name}"
         if module_name in sys.modules:
             continue
+        game = package.name
         try:
             manifest = json.loads((package / "archipelago.json").read_text(encoding="utf-8"))
             game = manifest.get("game")
@@ -71,19 +117,25 @@ def _load_worlds(work_directory: str):
             world = AutoWorldRegister.world_types.get(game)
             if world is None:
                 raise RuntimeError(f"{package.name} did not register game {game}")
-            world.world_version = tuplize_version(manifest.get("world_version", "0.0.0"))
+            version = str(manifest.get("world_version", "0.0.0"))
+            world.world_version = tuplize_version(version)
             world.manifest = {
                 key: value for key, value in manifest.items()
                 if key not in ("version", "compatible_version")
             }
+            apply_world_compatibility(module_name, game, version)
             worlds.network_data_package["games"][game] = world.get_data_package_data()
         except Exception as error:
-            worlds.failed_world_loads[package.name] = f"{type(error).__name__}: {error}"
+            worlds.failed_world_loads[package.name] = _world_load_failure(
+                package.name,
+                str(game),
+                error,
+            )
     return worlds, AutoWorldRegister
 
 
-def _load_standard_gba_clients(work_directory: str):
-    """Register conventional BizHawk client modules from every loaded world."""
+def _load_standard_mgba_clients(work_directory: str):
+    """Register conventional GBA, GB, and GBC BizHawk clients from every loaded world."""
     worlds, registry = _load_worlds(work_directory)
     for module in pkgutil.iter_modules(worlds.__path__, "worlds."):
         if module.name.rsplit(".", 1)[-1].startswith("_"):
@@ -357,16 +409,18 @@ def yaml_from_player_forms(players_json: str) -> str:
 
 def world_catalog(work_directory: str) -> str:
     """Describe loaded world capabilities without promising a live adapter."""
-    worlds, registry = _load_standard_gba_clients(work_directory)
+    worlds, registry = _load_standard_mgba_clients(work_directory)
     from worlds.Files import AutoPatchRegister
     from worlds._bizhawk.client import AutoBizHawkClientRegister
 
-    standard_gba_clients = {
+    standard_mgba_clients = {
         game
         for systems, handlers in AutoBizHawkClientRegister.game_handlers.items()
-        if "GBA" in systems
+        if not {"GBA", "GB", "GBC"}.isdisjoint(systems)
         for game in handlers
     }
+    from android_bizhawk_runtime import custom_client_games
+    bridge_games = standard_mgba_clients | custom_client_games()
 
     installed_root = Path(work_directory).resolve() / "worlds"
     installed_modules = {f"worlds.{path.name}" for path in installed_root.iterdir() if path.is_dir()}
@@ -385,8 +439,8 @@ def world_catalog(work_directory: str) -> str:
             "result_extension": result_extension,
             "generation": True,
             "template": True,
-            "rom_patch": bool(patch_type and result_extension.lower() in {".gba", ".gbc"}),
-            "live_bridge": game in standard_gba_clients or game == "Links Awakening DX",
+            "rom_patch": bool(patch_type and result_extension.lower() in MGBA_ROM_EXTENSIONS),
+            "live_bridge": game in bridge_games,
         })
     return json.dumps({"worlds": result, "failures": worlds.failed_world_loads})
 
@@ -426,9 +480,6 @@ def generate(yaml_text: str, work_directory: str, seed: str = "") -> str:
 
     from worlds.Files import AutoPatchRegister
     patch_endings = {ending.lower() for ending in AutoPatchRegister.file_endings}
-    # ArchipelagoMine's legacy container predates AutoPatchRegister.
-    patch_endings.add(".apmetfus")
-
     files = []
     patches = []
     for path in sorted(output.iterdir()):
@@ -456,25 +507,15 @@ def generate(yaml_text: str, work_directory: str, seed: str = "") -> str:
     })
 
 
-def _safe_patch_output_name(value: object) -> str:
-    """Return a plain .gba filename from an untrusted patch manifest value."""
-    name = Path(str(value)).name
-    if name in {"", ".", ".."} or not name.lower().endswith(".gba"):
-        raise ValueError("The Metroid Fusion patch contains an invalid output filename")
-    return name
-
-
 def patch_game(patch_bytes, work_directory: str = "") -> str:
     """Return the game declared by a player patch."""
     if work_directory:
         _load_worlds(work_directory)
     with zipfile.ZipFile(BytesIO(bytes(patch_bytes)), "r") as archive:
-        if "patch_file.json" in archive.namelist():
-            return "Metroid Fusion"
         try:
             manifest = json.loads(archive.read("archipelago.json"))
         except KeyError as error:
-            raise ValueError("The selected file is not a supported Archipelago GBA patch") from error
+            raise ValueError("The selected file has no standard Archipelago patch manifest") from error
         game = manifest.get("game")
         if not isinstance(game, str) or not game.strip():
             raise ValueError("The Archipelago patch does not declare a game")
@@ -486,8 +527,6 @@ def patch_result_extension(patch_bytes, work_directory: str = "") -> str:
     if work_directory:
         _load_worlds(work_directory)
     with zipfile.ZipFile(BytesIO(bytes(patch_bytes)), "r") as archive:
-        if "patch_file.json" in archive.namelist():
-            return ".gba"
         try:
             manifest = json.loads(archive.read("archipelago.json"))
         except KeyError as error:
@@ -498,32 +537,104 @@ def patch_result_extension(patch_bytes, work_directory: str = "") -> str:
     if handler is None:
         raise ValueError(f"The installed {game} world does not register a ROM patch handler")
     extension = str(getattr(handler, "result_file_ending", "")).lower()
-    if extension not in {".gba", ".gbc"}:
+    if extension not in MGBA_ROM_EXTENSIONS:
         raise ValueError(f"{game} produces {extension or 'an unsupported ROM format'}")
     return extension
 
 
-def _matching_base_rom(raw_rom: bytes, checksum: str) -> bytes:
-    """Validate common AP checksums, accepting a legacy 512-byte copier header."""
-    expected = checksum.lower()
-    candidates = [raw_rom]
-    if len(raw_rom) % 0x400 == 0x200:
-        candidates.append(raw_rom[0x200:])
-    algorithms = {32: hashlib.md5, 40: hashlib.sha1, 64: hashlib.sha256}
-    algorithm = algorithms.get(len(expected))
-    if algorithm is None:
-        raise ValueError(f"Unsupported base ROM checksum format ({len(expected)} hexadecimal characters)")
-    for candidate in candidates:
-        if algorithm(candidate).hexdigest().lower() == expected:
-            return candidate
-    actual = algorithm(candidates[-1]).hexdigest().upper()
-    raise ValueError(f"Wrong base ROM for this patch. Its {algorithm().name.upper()} is {actual}.")
+def _rom_requirements(game: str, work_directory: str) -> tuple[object, list[dict[str, object]]]:
+    """Discover validated user files declared by an APWorld's settings group."""
+    _, registry = _load_worlds(work_directory)
+    world = registry.world_types.get(game)
+    if world is None:
+        raise ValueError(f"No installed world handles game {game}")
+
+    from settings import UserFilePath, get_settings
+
+    settings_group = get_settings()[world.settings_key]
+    def user_file_type(annotation: object) -> type[UserFilePath] | None:
+        if isinstance(annotation, type) and issubclass(annotation, UserFilePath):
+            return annotation
+        for candidate in typing.get_args(annotation):
+            match = user_file_type(candidate)
+            if match is not None:
+                return match
+        return None
+
+    requirements = []
+    for name, annotation in settings_group.__class__.get_type_hints().items():
+        setting_type = user_file_type(annotation)
+        if setting_type is None:
+            continue
+        if not getattr(setting_type, "md5s", None):
+            continue
+        declared_value = next(
+            (group_type.__dict__[name] for group_type in settings_group.__class__.__mro__ if name in group_type.__dict__),
+            "",
+        )
+        current_value = settings_group.__dict__.get(name, declared_value)
+        description = getattr(setting_type, "description", None)
+        if not description:
+            documentation = inspect.cleandoc(setting_type.__doc__ or "").strip()
+            description = documentation.splitlines()[0] if documentation else None
+        declared_name = getattr(setting_type, "copy_to", None) or str(current_value)
+        requirements.append({
+            "key": name,
+            "description": description or f"Clean, unmodified file required by {game}",
+            "file_name": Path(str(declared_name)).name,
+            "_setting_type": setting_type,
+        })
+    if not requirements:
+        raise ValueError(f"The installed {game} world does not declare any validated ROM files")
+    return settings_group, requirements
 
 
-def _apply_procedure_patch(patch_data: bytes, raw_rom: bytes, work_directory: str) -> tuple[bytes, str]:
-    """Apply an APProcedurePatch using the user-supplied ROM instead of desktop settings."""
-    _load_worlds(work_directory)
-    from worlds.Files import AutoPatchExtensionRegister, AutoPatchRegister
+def rom_requirements(patch_bytes, work_directory: str) -> str:
+    """Describe every validated ROM input requested by the registered APWorld."""
+    game = patch_game(patch_bytes, work_directory)
+    _, requirements = _rom_requirements(game, work_directory)
+    return json.dumps({
+        "game": game,
+        "inputs": [
+            {key: value for key, value in requirement.items() if not key.startswith("_")}
+            for requirement in requirements
+        ],
+    })
+
+
+def validate_rom_input(patch_bytes, input_key: str, rom_bytes, work_directory: str) -> None:
+    """Run the APWorld's declared validator for one Android-selected ROM."""
+    game = patch_game(patch_bytes, work_directory)
+    _, requirements = _rom_requirements(game, work_directory)
+    requirement = next(
+        (item for item in requirements if item["key"] == input_key),
+        None,
+    )
+    if requirement is None:
+        raise ValueError(f"{game} did not request ROM input {input_key}")
+    setting_type = requirement["_setting_type"]
+    suffix = Path(str(requirement.get("file_name", ""))).suffix or ".rom"
+    temporary_root = Path(work_directory).resolve()
+    with tempfile.NamedTemporaryFile(prefix="rom-validation-", suffix=suffix, dir=temporary_root, delete=False) as file:
+        temporary_path = Path(file.name)
+        file.write(bytes(rom_bytes))
+    try:
+        setting_type.validate(str(temporary_path))
+    except Exception as error:
+        description = requirement["description"]
+        raise ValueError(f"The selected file is not the required {description}.") from error
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def _apply_procedure_patch(
+    patch_data: bytes,
+    rom_inputs: dict[str, bytes],
+    work_directory: str,
+) -> tuple[bytes, str]:
+    """Stage Android-selected data and run the APWorld's normal desktop patch path."""
+    _, registry = _load_worlds(work_directory)
+    from worlds.Files import AutoPatchRegister
 
     with zipfile.ZipFile(BytesIO(patch_data), "r") as archive:
         try:
@@ -534,185 +645,89 @@ def _apply_procedure_patch(patch_data: bytes, raw_rom: bytes, work_directory: st
     handler = AutoPatchRegister.patch_types.get(game)
     if handler is None:
         raise ValueError(f"The installed {game} world does not register a ROM patch handler")
+    world = registry.world_types.get(game)
+    if world is None:
+        raise ValueError(f"No installed world handles game {game}")
     result_extension = getattr(handler, "result_file_ending", "").lower()
-    if result_extension not in {".gba", ".gbc"}:
+    if result_extension not in MGBA_ROM_EXTENSIONS:
         raise ValueError(
             f"{game} produces {getattr(handler, 'result_file_ending', 'an unsupported ROM format')}"
         )
-    checksum = manifest.get("base_checksum")
-    if not isinstance(checksum, str) or not checksum:
-        raise ValueError(f"The {game} patch does not declare a base ROM checksum")
-    rom = _matching_base_rom(raw_rom, checksum)
 
-    patch = handler()
-    patch.read(BytesIO(patch_data))
-    extender = AutoPatchExtensionRegister.get_handler(game)
-    procedure = getattr(patch, "procedure", manifest.get("procedure"))
-    if not isinstance(procedure, list):
-        raise ValueError(f"The {game} patch has no supported patch procedure")
-    for step in procedure:
-        if not isinstance(step, (list, tuple)) or len(step) != 2:
-            raise ValueError(f"The {game} patch contains an invalid procedure step")
-        name, arguments = step
-        handlers = extender if isinstance(extender, list) else [extender]
-        operation = next((getattr(item, name, None) for item in handlers if hasattr(item, name)), None)
-        if operation is None:
-            raise ValueError(f"The installed {game} world does not support patch operation {name}")
-        rom = operation(patch, rom, *arguments)
-    return bytes(rom), game
+    settings_group, requirements = _rom_requirements(game, work_directory)
+    expected_keys = {str(requirement["key"]) for requirement in requirements}
+    missing_keys = expected_keys - rom_inputs.keys()
+    if missing_keys:
+        raise ValueError(f"Missing ROM input(s) requested by {game}: {', '.join(sorted(missing_keys))}")
 
+    package_prefix = ".".join(world.__module__.split(".")[:2])
 
-def _apply_tokens(rom: bytes, token_data: bytes) -> bytes:
-    result = bytearray(rom)
-    if len(token_data) < 4:
-        raise ValueError("Invalid Minish Cap token data")
-    count = int.from_bytes(token_data[:4], "little")
-    position = 4
-    for _ in range(count):
-        if position + 9 > len(token_data):
-            raise ValueError("Truncated Minish Cap token data")
-        token_type = token_data[position]
-        offset = int.from_bytes(token_data[position + 1:position + 5], "little")
-        size = int.from_bytes(token_data[position + 5:position + 9], "little")
-        position += 9
-        if position + size > len(token_data):
-            raise ValueError("Truncated Minish Cap token payload")
-        data = token_data[position:position + size]
-        position += size
-        end = offset + size
-        if token_type == 0:  # WRITE
-            if end > len(result):
-                result.extend(bytes(end - len(result)))
-            result[offset:end] = data
-        elif token_type == 1:  # COPY: source offset + length
-            if size != 8:
-                raise ValueError("Invalid Minish Cap COPY token")
-            length = int.from_bytes(data[:4], "little")
-            source = int.from_bytes(data[4:], "little")
-            copied = bytes(result[source:source + length])
-            if offset + length > len(result):
-                result.extend(bytes(offset + length - len(result)))
-            result[offset:offset + length] = copied
-        elif token_type == 2:  # RLE: length + byte
-            if size != 8:
-                raise ValueError("Invalid Minish Cap RLE token")
-            length = int.from_bytes(data[:4], "little")
-            value = int.from_bytes(data[4:], "little") & 0xFF
-            if offset + length > len(result):
-                result.extend(bytes(offset + length - len(result)))
-            result[offset:offset + length] = bytes([value]) * length
-        elif token_type in (3, 4, 5):
-            if size != 1 or offset >= len(result):
-                raise ValueError("Invalid Minish Cap bitwise token")
-            if token_type == 3:
-                result[offset] &= data[0]
-            elif token_type == 4:
-                result[offset] |= data[0]
-            else:
-                result[offset] ^= data[0]
-        else:
-            raise ValueError(f"Unknown Minish Cap token type {token_type}")
-    if position != len(token_data):
-        raise ValueError("Unexpected trailing Minish Cap token data")
-    return bytes(result)
+    def clear_source_caches() -> None:
+        for attribute in ("source_data", "base_rom_bytes"):
+            if attribute in handler.__dict__:
+                delattr(handler, attribute)
+        for module_name, module in tuple(sys.modules.items()):
+            if module is None or not (module_name == package_prefix or module_name.startswith(package_prefix + ".")):
+                continue
+            for value in vars(module).values():
+                if callable(value) and "base_rom_bytes" in getattr(value, "__dict__", {}):
+                    delattr(value, "base_rom_bytes")
 
+    temporary_root = Path(work_directory).resolve()
+    with tempfile.TemporaryDirectory(prefix="apworld-patch-", dir=temporary_root) as temporary:
+        temporary_path = Path(temporary)
+        patch_extension = getattr(handler, "patch_file_ending", ".ap")
+        staged_patch = temporary_path / f"player{patch_extension}"
+        staged_output = temporary_path / f"result{result_extension}"
+        staged_patch.write_bytes(patch_data)
 
-def _patch_minish_cap(patch_data: bytes, rom: bytes) -> bytes:
-    expected_md5 = "2af78edbe244b5de44471368ae2b6f0b"
-    actual_md5 = hashlib.md5(rom).hexdigest()
-    if actual_md5 != expected_md5:
-        raise ValueError(
-            "Wrong base ROM. Select an unmodified European The Legend of Zelda: "
-            f"The Minish Cap ROM. Its MD5 is {actual_md5.upper()}."
-        )
-    with zipfile.ZipFile(BytesIO(patch_data), "r") as archive:
+        missing = object()
+        previous_settings = {}
+        for index, requirement in enumerate(requirements):
+            key = str(requirement["key"])
+            setting_type = requirement["_setting_type"]
+            previous_settings[key] = settings_group.__dict__.get(key, missing)
+            suffix = Path(str(requirement.get("file_name", ""))).suffix or ".rom"
+            staged_rom = temporary_path / f"input-{index}{suffix}"
+            staged_rom.write_bytes(rom_inputs[key])
+            setattr(settings_group, key, setting_type(str(staged_rom)))
+
+        clear_source_caches()
         try:
-            manifest = json.loads(archive.read("archipelago.json"))
-            base_patch = archive.read("base_patch.bsdiff4")
-            tokens = archive.read("token_data.bin")
-        except KeyError as error:
-            raise ValueError("The selected file is not a complete Minish Cap Archipelago patch") from error
-    if manifest.get("game") != "The Minish Cap" or manifest.get("base_checksum") != expected_md5:
-        raise ValueError("The selected file is not a compatible Minish Cap Archipelago patch")
-    expected_procedure = [["apply_bsdiff4", ["base_patch.bsdiff4"]], ["apply_tokens", ["token_data.bin"]]]
-    if manifest.get("procedure") != expected_procedure:
-        raise ValueError("The Minish Cap patch declares an unsupported patching procedure")
-    import bsdiff4
-    return _apply_tokens(bsdiff4.patch(rom, base_patch), tokens)
+            patch = handler(str(staged_patch))
+            patch.patch(str(staged_output))
+            if not staged_output.is_file():
+                raise ValueError(f"The {game} APWorld did not produce a patched ROM")
+            return staged_output.read_bytes(), game
+        finally:
+            clear_source_caches()
+            for key, previous in previous_settings.items():
+                if previous is missing:
+                    settings_group.__dict__.pop(key, None)
+                else:
+                    setattr(settings_group, key, previous)
 
 
-def patch_rom(patch_bytes, base_rom_bytes, output_path: str, work_directory: str) -> str:
-    """Apply a supported mGBA player patch to a legally supplied base ROM."""
+def patch_rom(patch_bytes, rom_input_paths_json: str, output_path: str, work_directory: str) -> str:
+    """Apply a standard APWorld player patch to Android-selected ROM inputs."""
     # Invite patching can be the first Python operation after the Android process
     # starts. Configure Archipelago's writable paths before importing the APWorld;
     # otherwise its default relative Players path resolves against Android's `/`.
     _prepare_runtime(work_directory)
     patch_data_bytes = bytes(patch_bytes)
-    raw_rom = bytes(base_rom_bytes)
-    raw_md5 = hashlib.md5(raw_rom).hexdigest()
-    # Match Utils.read_snes_rom, which Archipelago also uses for GBA files:
-    # remove a legacy 512-byte copier header before applying the BPS patch.
-    rom = raw_rom[0x200:] if len(raw_rom) % 0x400 == 0x200 else raw_rom
-    stripped_md5 = hashlib.md5(rom).hexdigest()
     game = patch_game(patch_data_bytes, work_directory)
     _, registry = _load_worlds(work_directory)
     if game not in registry.world_types:
         raise ValueError(f"Install the {game} APWorld before patching this ROM")
     destination = Path(output_path).resolve()
     destination.parent.mkdir(parents=True, exist_ok=True)
-    if game == "The Minish Cap":
-        result = _patch_minish_cap(patch_data_bytes, rom)
-        destination.write_bytes(result)
-        return str(destination)
-
-    if game != "Metroid Fusion":
-        result, _ = _apply_procedure_patch(patch_data_bytes, raw_rom, work_directory)
-        destination.write_bytes(result)
-        return str(destination)
-
-    accepted_md5s = {
-        "af5040fc0f579800151ee2a683e2e5b5",
-        "5d07cc8a45eae858bea6dfc97f63e813",
-        "27d02a4f03e172e029c9b82ac3db79f7",
+    raw_paths = json.loads(rom_input_paths_json)
+    if not isinstance(raw_paths, dict):
+        raise ValueError("ROM inputs must be a key-to-file mapping")
+    rom_inputs = {
+        str(key): Path(str(path)).read_bytes()
+        for key, path in raw_paths.items()
     }
-    if raw_md5 not in accepted_md5s and stripped_md5 not in accepted_md5s:
-        raise ValueError(
-            "Wrong base ROM. Select an unmodified North American Metroid Fusion ROM. "
-            f"Its MD5 is {raw_md5.upper()}."
-        )
-
-    with zipfile.ZipFile(BytesIO(patch_data_bytes), "r") as archive:
-        try:
-            placement = json.loads(archive.read("patch_file.json"))
-        except KeyError as error:
-            raise ValueError("The selected file is not a Metroid Fusion Archipelago patch") from error
-
-    from worlds.metroidfusion import MetroidFusionWorld
-    from worlds.metroidfusion.data import memory
-    from worlds.metroidfusion.mars_patcher import patcher
-    import Utils
-
-    patcher.validate_patch_data_mf(placement)
-    with tempfile.TemporaryDirectory(dir=destination.parent) as temp_directory:
-        temp = Path(temp_directory)
-        base_path = temp / "base.gba"
-        intermediate_path = temp / _safe_patch_output_name(placement.get("OutputFile"))
-        base_path.write_bytes(rom)
-        patcher.patch(str(base_path), str(intermediate_path), placement, lambda _message, _progress: None)
-        result = bytearray(intermediate_path.read_bytes())
-
-    rom_name = bytearray(placement["RomName"], "utf-8")[:20]
-    rom_name.extend([0] * (20 - len(rom_name)))
-    result[memory.rom_name_location:memory.rom_name_location + 20] = rom_name
-
-    generation_version = placement.get("GenerationVersion")
-    if isinstance(generation_version, str):
-        parsed_generation = Utils.tuplize_version(generation_version)
-    else:
-        parsed_generation = Utils.Version(0, 0, int(generation_version))
-    result[memory.generation_version_location:memory.generation_version_location + 3] = bytes(parsed_generation)
-    result[memory.patching_version_location:memory.patching_version_location + 3] = bytes(
-        map(int, MetroidFusionWorld.version.split("."))
-    )
+    result, _ = _apply_procedure_patch(patch_data_bytes, rom_inputs, work_directory)
     destination.write_bytes(result)
     return str(destination)

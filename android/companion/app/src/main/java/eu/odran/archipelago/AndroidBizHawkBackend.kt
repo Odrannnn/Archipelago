@@ -12,19 +12,35 @@ class AndroidBizHawkBackend(
     bridge: MGBABridgeClient,
     private val platform: Int,
 ) {
+    private data class DomainRead(val offset: Long, val length: Int, val domain: String)
+
     @Volatile private var bridge: MGBABridgeClient? = bridge
     private val system = when (platform) {
         0 -> "GBA"
-        1 -> "GB"
+        1 -> bridge.romRead(0x143, 1).single().let { colorFlag ->
+            if ((colorFlag.toInt() and 0xff) in setOf(0x80, 0xc0)) "GBC" else "GB"
+        }
         else -> error("Unsupported mGBA platform: $platform")
     }
     fun read(requestsJson: String): String {
-        val requests = parseReads(JSONArray(requestsJson))
-        return encodeReads(currentBridge().batchRead(requests))
+        val requests = parseDomainReads(JSONArray(requestsJson))
+        val activeBridge = currentBridge()
+        val reads = if (requests.all { it.domain != "ROM" }) {
+            activeBridge.batchRead(requests.map(::busReadRequest))
+        } else {
+            requests.map { request ->
+                if (request.domain == "ROM") {
+                    activeBridge.romRead(request.offset, request.length)
+                } else {
+                    activeBridge.read(busAddress(request.domain, request.offset), request.length)
+                }
+            }
+        }
+        return encodeReads(reads)
     }
 
     fun guardedRead(requestsJson: String, guardsJson: String): String? {
-        val requests = parseReads(JSONArray(requestsJson))
+        val requests = parseDomainReads(JSONArray(requestsJson)).map(::busReadRequest)
         val guards = parseGuards(JSONArray(guardsJson))
         return currentBridge().guardedRead(requests, guards)?.let(::encodeReads)
     }
@@ -61,9 +77,12 @@ class AndroidBizHawkBackend(
 
     fun getMemorySize(domain: String): Int {
         val normalized = normaliseDomain(domain)
-        if (system == "GB") {
-            require(normalized == "SYSTEM BUS") { "Unsupported GB memory domain: $domain" }
-            return 0x00010000
+        if (system in setOf("GB", "GBC")) {
+            return when (normalized) {
+                "SYSTEM BUS" -> 0x00010000
+                "ROM" -> 0x00800000
+                else -> error("Unsupported $system memory domain: $domain")
+            }
         }
         return when (normalized) {
             "SYSTEM BUS" -> 0x10000000
@@ -79,14 +98,20 @@ class AndroidBizHawkBackend(
         }
     }
 
-    private fun parseReads(array: JSONArray): List<MGBABridgeClient.ReadRequest> =
+    private fun parseDomainReads(array: JSONArray): List<DomainRead> =
         List(array.length()) { index ->
             val item = array.getJSONArray(index)
-            MGBABridgeClient.ReadRequest(
-                address = busAddress(item.getString(2), item.getLong(0)),
+            DomainRead(
+                offset = item.getLong(0).also { require(it >= 0) { "Memory offset must be positive" } },
                 length = item.getInt(1),
+                domain = normaliseDomain(item.getString(2)),
             )
         }
+
+    private fun busReadRequest(request: DomainRead) = MGBABridgeClient.ReadRequest(
+        address = busAddress(request.domain, request.offset),
+        length = request.length,
+    )
 
     private fun parseGuards(array: JSONArray): List<MGBABridgeClient.MemoryGuard> =
         List(array.length()) { index ->
@@ -108,9 +133,9 @@ class AndroidBizHawkBackend(
 
     private fun busAddress(domain: String, offset: Long): Long {
         require(offset >= 0) { "Memory offset must be positive" }
-        if (system == "GB") {
+        if (system in setOf("GB", "GBC")) {
             require(normaliseDomain(domain) == "SYSTEM BUS") {
-                "Unsupported GB memory domain: $domain"
+                "Unsupported $system bus memory domain: $domain"
             }
             require(offset <= 0xffff) { "GB system-bus offset is out of range" }
             return offset

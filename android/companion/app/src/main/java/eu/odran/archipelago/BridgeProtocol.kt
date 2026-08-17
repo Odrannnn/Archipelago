@@ -14,6 +14,8 @@ object BridgeProtocol {
     const val GUARDED_WRITE_PROTOCOL_VERSION = 3
     const val ATOMIC_BATCH_PROTOCOL_VERSION = 4
     const val SAVEDATA_READ_PROTOCOL_VERSION = 5
+    const val ROM_READ_PROTOCOL_VERSION = 6
+    const val MIN_SUPPORTED_PROTOCOL_VERSION = ROM_READ_PROTOCOL_VERSION
 
     const val HELLO = 1
     const val PING = 2
@@ -27,6 +29,7 @@ object BridgeProtocol {
     const val GUARDED_READ = 10
     const val GUARDED_WRITES = 11
     const val SAVEDATA_READ = 12
+    const val ROM_READ = 13
 
     const val OK = 0
     const val BAD_REQUEST = 1

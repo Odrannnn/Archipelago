@@ -5,22 +5,23 @@
  *   u32 magic ("APB1"), u16 type, u16 status, u32 id, u32 address, u32 length
  *
  * The server binds only to 127.0.0.1. READ, WRITE, and GUARD operate on the
- * emulated system bus, while SAVEDATA_READ snapshots the core's battery-save
- * backing store independently of the cartridge's current SRAM mapping. The
- * maximum transfer is kept intentionally small so polling it from retro_run
- * never introduces a frame hitch. The Android companion may batch adjacent
- * requests.
+ * emulated system bus, SAVEDATA_READ snapshots the core's battery-save backing
+ * store independently of the cartridge's current SRAM mapping, and ROM_READ
+ * reads the loaded Game Boy cartridge by physical file offset. The maximum
+ * transfer is kept intentionally small so polling it from retro_run never
+ * introduces a frame hitch. The Android companion may batch adjacent requests.
  */
 #include "archipelago_bridge.h"
 
 #include <mgba/core/core.h>
 
 #include <stdlib.h>
+#include <string.h>
 
 #define APB_MAGIC 0x41504231u
 #define APB_HEADER_SIZE 20u
 #define APB_MAX_PAYLOAD 4096u
-#define APB_PROTOCOL_VERSION 5u
+#define APB_PROTOCOL_VERSION 6u
 
 enum APBType {
 	APB_HELLO = 1,
@@ -35,6 +36,7 @@ enum APBType {
 	APB_GUARDED_READ = 10,
 	APB_GUARDED_WRITES = 11,
 	APB_SAVEDATA_READ = 12,
+	APB_ROM_READ = 13,
 };
 
 enum APBStatus {
@@ -156,6 +158,41 @@ static bool _processRequest(struct APBridge* bridge, struct mCore* core, const s
 		}
 		memcpy(data, (const uint8_t*) savedata + request->address, readLength);
 		free(savedata);
+		return _sendResponse(bridge, request, APB_OK, data, readLength);
+	}
+	case APB_ROM_READ: {
+		/* BizHawk exposes a flat ROM domain even for banked Game Boy carts.
+		 * Locate mGBA's cart0 block and read its physical backing buffer so AP
+		 * clients can inspect headers and authentication data above 64 KiB. */
+		const struct mCoreMemoryBlock* blocks = NULL;
+		const uint8_t* rom = NULL;
+		size_t blockCount;
+		size_t block;
+		size_t romSize = 0;
+		if (request->length != 4) {
+			return _sendResponse(bridge, request, APB_BAD_REQUEST, NULL, 0);
+		}
+		readLength = _readU32(payload);
+		if (readLength > APB_MAX_PAYLOAD) {
+			return _sendResponse(bridge, request, APB_TOO_LARGE, NULL, 0);
+		}
+		if (!core->listMemoryBlocks || !core->getMemoryBlock) {
+			return _sendResponse(bridge, request, APB_UNSUPPORTED, NULL, 0);
+		}
+		blockCount = core->listMemoryBlocks(core, &blocks);
+		for (block = 0; block < blockCount; ++block) {
+			if (blocks[block].internalName && !strcmp(blocks[block].internalName, "cart0")) {
+				rom = core->getMemoryBlock(core, blocks[block].id, &romSize);
+				break;
+			}
+		}
+		if (!rom) {
+			return _sendResponse(bridge, request, APB_UNSUPPORTED, NULL, 0);
+		}
+		if (request->address > romSize || readLength > romSize - request->address) {
+			return _sendResponse(bridge, request, APB_BAD_REQUEST, NULL, 0);
+		}
+		memcpy(data, rom + request->address, readLength);
 		return _sendResponse(bridge, request, APB_OK, data, readLength);
 	}
 	case APB_GUARD:

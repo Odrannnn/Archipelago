@@ -73,6 +73,20 @@ class MGBABridgeClient {
         }.payload
     }
 
+    /** Reads bytes by physical file offset from the loaded Game Boy cartridge ROM. */
+    fun romRead(offset: Long, length: Int): ByteArray {
+        check(protocolVersion >= BridgeProtocol.ROM_READ_PROTOCOL_VERSION) {
+            "ROM-domain clients require mGBA Archipelago bridge protocol " +
+                BridgeProtocol.ROM_READ_PROTOCOL_VERSION
+        }
+        require(offset >= 0) { "ROM offset must be positive" }
+        require(length in 0..BridgeProtocol.MAX_PAYLOAD)
+        val requestLength = ByteBuffer.allocate(Int.SIZE_BYTES).putInt(length).array()
+        return request(BridgeProtocol.ROM_READ, offset, requestLength).also { response ->
+            require(response.payload.size == length) { "Short bridge ROM read" }
+        }.payload
+    }
+
     fun guard(address: Long, expected: ByteArray): Boolean {
         val response = request(BridgeProtocol.GUARD, address, expected, allowGuardFailure = true)
         return response.status == BridgeProtocol.OK

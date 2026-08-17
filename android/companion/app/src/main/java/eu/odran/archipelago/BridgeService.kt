@@ -102,19 +102,17 @@ class BridgeService : Service() {
                         publish("Waiting for the custom mGBA core on 127.0.0.1:${BridgeProtocol.PORT}…")
                         candidate.connect()
                         val (version, platform) = candidate.hello()
-                        if (version < BridgeProtocol.SAVEDATA_READ_PROTOCOL_VERSION) {
+                        if (version < BridgeProtocol.MIN_SUPPORTED_PROTOCOL_VERSION) {
                             throw IllegalStateException(
                                 "The installed custom mGBA core reports bridge protocol $version; " +
-                                    "supported live clients require protocol ${BridgeProtocol.SAVEDATA_READ_PROTOCOL_VERSION}",
+                                    "supported live clients require protocol ${BridgeProtocol.MIN_SUPPORTED_PROTOCOL_VERSION}",
                             )
                         }
 
                         val existingRuntime = runtime
                         if (existingRuntime != null && existingRuntime.acceptsPlatform(platform)) {
                             existingRuntime.attachBridge(candidate, platform)
-                            if (activeIdentity?.first == "Links Awakening DX") {
-                                existingRuntime.bridgeReconnected()
-                            }
+                            existingRuntime.bridgeReconnected()
                         } else {
                             val oldSession = session
                             oldSession?.close()

@@ -17,7 +17,7 @@ The bridge can become available before RetroArch has loaded any content.
 core remains connected. It starts a room session when a compatible patched ROM
 appears and closes that session if the content is unloaded or replaced.
 If RetroArch is backgrounded long enough for the local socket to time out, the
-service also closes that room session before retrying. The matching v8 core
+service also closes that room session before retrying. The matching v9 core
 adopts the newest queued loopback connection on resume, avoiding a stale client
 which could otherwise prevent reconnection after switching apps.
 
@@ -38,22 +38,23 @@ Enter the game server as `archipelago.gg:PORT` (for example,
 
 There is one live path for built-in and imported games. At startup the Python
 runtime discovers conventional `client.py` and `Client.py` modules, registers
-their standard Archipelago `BizHawkClient` implementations, and asks each GBA
+their standard Archipelago `BizHawkClient` implementations, and asks each mGBA
 client to validate the loaded ROM. The selected client owns ROM detection,
 authentication, slot-data handling, location checks, item application,
 DeathLink, completion, and any game-specific save reconciliation.
 
 Kotlin owns the WebSocket and forwards Archipelago packets to that client.
 The Android BizHawk compatibility layer translates its reads, guarded reads,
-writes, guarded writes, hashes, and on-screen messages into version-5 atomic
+writes, guarded writes, hashes, ROM-domain reads, and on-screen messages into version-6 atomic
 transactions handled by the custom mGBA core. The built-in Castlevania: Circle
 of the Moon, Mario & Luigi: Superstar Saga, Pokémon Emerald, and Yu-Gi-Oh! 2006
 worlds use this path. Imported Metroid Fusion `1.22.4`, The Minish Cap `0.3.1`,
-and Wario Land 4 `3.4.0` use the same runtime. Other console families still
-need a compatible libretro-core bridge.
+and Wario Land 4 `3.4.0` use the same runtime. Oracle of Seasons `20.1.13` and
+Oracle of Ages `1.0.2` are supported community imports using their standard
+GBC clients. Other console families still need a compatible libretro-core bridge.
 
 Link's Awakening DX is also bundled. Its custom client protocol is implemented
-as an Android adapter using the same version-5 atomic bridge operations against
+as an Android adapter using the same version-6 bridge operations against
 the Game Boy system bus. It detects the patched `.gbc`, authenticates with the
 embedded multiworld key, reports locations and victory, and delivers queued
 items without RetroArch's Network Commands interface.
@@ -110,11 +111,11 @@ app's filesystem but cannot sandbox or audit that code, so imports must come
 from trusted authors. Worlds may also depend on Python or native modules absent
 from the APK; these fail to load with a compatibility diagnostic. Generated
 patches are discovered through `AutoPatchRegister`. For registered
-`APProcedurePatch` handlers whose result is `.gba` or `.gbc`, the companion validates the
-manifest checksum against the user-selected ROM and runs the world's registered
-procedure/extension operations. Other ROM formats remain export-only.
+`APProcedurePatch` handlers whose result is `.gba`, `.gbc`, or `.gb`, the companion discovers
+the world's checksum-validated `UserFilePath` inputs, stages the selected files,
+and invokes the world's normal registered patch method. Other ROM formats remain export-only.
 
-A GBA world gains live play when it registers an ordinary
+A GBA, GB, or GBC world gains live play when it registers an ordinary
 Archipelago `BizHawkClient` and uses connector operations supported by the
 Android compatibility layer. Its validation, authentication, location checks,
 item delivery, DeathLink, storage messages, and completion logic execute from
@@ -146,24 +147,24 @@ selects a player slot, then opens Android's share sheet with a player-specific
 player's locally stored APWorld patch, protected by an integrity hash; it
 never contains a website-session credential or base ROM. On a second device,
 opening the invite verifies and wakes the public room, loads its current port,
-remembers the selected player, and reuses a cached legally supplied clean base
-ROM or asks for it when no valid cache exists. The embedded generator applies
-the patch locally and prompts the recipient to save the ready-to-run `.gba` or `.gbc`.
-Only player-specific version 2 invites are accepted. **Open multiplayer invite**
+remembers the selected player, and reuses cached legally supplied clean ROM
+inputs or asks for each missing file. The embedded generator applies the patch
+locally and prompts the recipient to save the ready-to-run `.gba`, `.gbc`, or `.gb`.
+Only player-specific version 3 invites are accepted. **Open multiplayer invite**
 provides a file-picker fallback when a receiving app
 does not open the attachment directly. **Sync website session** is separate and
 its secret link must not be shared.
 
-The app applies a selected supported player patch to a user-supplied base ROM,
-validates the ROM against the checksums declared by its APWorld, and supports a legacy
-512-byte copier header. After the first successful validation it stores a
-headerless copy in a per-game private no-backup cache and automatically reuses it
-for later local and invite patches. **Forget cached base ROM**, clearing app
-data, or uninstalling removes the copy. The app never bundles a ROM.
+The app applies a selected supported player patch through its registered APWorld
+handler. It discovers all checksum-validated ROM settings declared by that world,
+including secondary inputs used by multi-ROM patches. Only after the complete
+patch succeeds does it store the exact selected files in a per-game, per-input
+private no-backup cache. **Forget cached base ROM**, clearing app data, or
+uninstalling removes those copies. The app never bundles a ROM.
 
-After a patched `.gba` or `.gbc` is saved, the companion offers to launch it directly in
+After a patched `.gba`, `.gbc`, or `.gb` is saved, the companion offers to launch it directly in
 the installed 64-bit RetroArch package. The launch intent selects the custom
-`mgba_apbridge_v8_libretro_android.so` core and passes RetroArch's own standard
+`mgba_apbridge_v9_libretro_android.so` core and passes RetroArch's own standard
 `retroarch.cfg` path without creating or modifying the file, preserving controller
 mappings, overrides, and remaps. Each launch starts a fresh RetroArch task so a
 suspended video surface cannot leave the game running with audio but no picture.

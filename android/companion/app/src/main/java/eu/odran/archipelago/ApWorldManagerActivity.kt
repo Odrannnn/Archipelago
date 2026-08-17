@@ -105,7 +105,8 @@ class ApWorldManagerActivity : Activity() {
                         "Installed and loaded ${installed.game} ${installed.worldVersion}."
                     } else {
                         val failure = OfflineGenerator.cachedWorldFailures()[installed.packageName]
-                        "Installed ${installed.game}, but it did not load: ${shortFailure(failure)}"
+                        showLoadError(installed.game, failure ?: "No world class was registered.")
+                        "Installed ${installed.game}, but it could not load: ${shortFailure(failure)}"
                     }
                     renderWorlds()
                 }
@@ -125,7 +126,7 @@ class ApWorldManagerActivity : Activity() {
             setTextColor(CompanionUi.text)
             setTypeface(typeface, android.graphics.Typeface.BOLD)
         }, CompanionUi.insetTop(worldsContainer, this, 4))
-        OfflineGenerator.bundledWorlds().forEach { world ->
+        OfflineGenerator.bundledWorlds(this).forEach { world ->
             val game = world.game
             val capability = capabilities[game]
             val failure = failures[world.packageName]
@@ -253,7 +254,7 @@ class ApWorldManagerActivity : Activity() {
         ?.lineSequence()
         ?.map(String::trim)
         ?.filter(String::isNotEmpty)
-        ?.lastOrNull()
+        ?.firstOrNull()
         ?.take(240)
         ?: "no world class was registered"
 

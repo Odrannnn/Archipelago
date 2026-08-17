@@ -11,6 +11,17 @@ data class GeneratedArtifact(val name: String, val path: String, val kind: Strin
 
 data class BundledWorld(val game: String, val packageName: String)
 
+data class RomInputRequirement(
+    val key: String,
+    val description: String,
+    val fileName: String,
+)
+
+data class RomRequirements(
+    val game: String,
+    val inputs: List<RomInputRequirement>,
+)
+
 data class WorldCapability(
     val game: String,
     val version: String,
@@ -63,14 +74,7 @@ data class PlayerFormData(
 object OfflineGenerator {
     /** Chaquopy uses one interpreter. Generation and live clients share this lock. */
     internal val runtimeLock = Any()
-    private val bundledWorlds = listOf(
-        BundledWorld("Castlevania - Circle of the Moon", "cvcotm"),
-        BundledWorld("Links Awakening DX", "ladx"),
-        BundledWorld("Mario & Luigi Superstar Saga", "mlss"),
-        BundledWorld("Pokemon Emerald", "pokemon_emerald"),
-        BundledWorld("Yu-Gi-Oh! 2006", "yugioh06"),
-    )
-    private val bundledGameNames = bundledWorlds.mapTo(mutableSetOf()) { it.game }
+    @Volatile private var bundledWorldCache: List<BundledWorld>? = null
     @Volatile private var catalog: List<WorldCapability> = emptyList()
     @Volatile private var worldFailures: Map<String, String> = emptyMap()
 
@@ -83,12 +87,21 @@ object OfflineGenerator {
 
     internal fun workDirectory(context: Context): File = ImportedApWorldStore.runtimeRoot(context)
 
-    fun bundledWorlds(): List<BundledWorld> = bundledWorlds.toList()
+    fun bundledWorlds(context: Context): List<BundledWorld> = bundledWorldCache ?: synchronized(this) {
+        bundledWorldCache ?: context.assets.open("bundled_worlds.json").bufferedReader().use { reader ->
+            val entries = JSONArray(reader.readText())
+            List(entries.length()) { index ->
+                val entry = entries.getJSONObject(index)
+                BundledWorld(entry.getString("game"), entry.getString("package"))
+            }.also { bundledWorldCache = it }
+        }
+    }
 
-    fun isBundledGame(game: String): Boolean = game in bundledGameNames
+    fun isBundledGame(context: Context, game: String): Boolean =
+        bundledWorlds(context).any { it.game == game }
 
     fun availableGames(context: Context): List<String> =
-        (bundledGameNames + ImportedApWorldStore.list(context).map { it.game }).sorted()
+        (bundledWorlds(context).map { it.game } + ImportedApWorldStore.list(context).map { it.game }).sorted()
 
     fun defaultYaml(context: Context, game: String): String = synchronized(runtimeLock) {
         require(game in availableGames(context)) { "$game is not available; import its APWorld first" }
@@ -181,6 +194,42 @@ object OfflineGenerator {
             .toString()
     }
 
+    fun romRequirements(context: Context, patch: ByteArray): RomRequirements = synchronized(runtimeLock) {
+        val root = JSONObject(
+            python(context).getModule("offline_generator")
+                .callAttr("rom_requirements", patch, workDirectory(context).absolutePath)
+                .toString(),
+        )
+        val inputs = root.getJSONArray("inputs")
+        RomRequirements(
+            game = root.getString("game"),
+            inputs = List(inputs.length()) { index ->
+                val input = inputs.getJSONObject(index)
+                RomInputRequirement(
+                    key = input.getString("key"),
+                    description = input.getString("description"),
+                    fileName = input.optString("file_name"),
+                )
+            },
+        )
+    }
+
+    fun validateRomInput(
+        context: Context,
+        patch: ByteArray,
+        inputKey: String,
+        rom: ByteArray,
+    ) = synchronized(runtimeLock) {
+        python(context).getModule("offline_generator").callAttr(
+            "validate_rom_input",
+            patch,
+            inputKey,
+            rom,
+            workDirectory(context).absolutePath,
+        )
+        Unit
+    }
+
     fun refreshCatalog(context: Context): List<WorldCapability> = synchronized(runtimeLock) {
         val result = python(context).getModule("offline_generator")
             .callAttr("world_catalog", workDirectory(context).absolutePath)
@@ -238,11 +287,28 @@ object OfflineGenerator {
         )
     }
 
-    fun patchRom(context: Context, patch: ByteArray, baseRom: ByteArray, output: File): File = synchronized(runtimeLock) {
+    fun patchRom(
+        context: Context,
+        patch: ByteArray,
+        romInputs: Map<String, ByteArray>,
+        output: File,
+    ): File = synchronized(runtimeLock) {
         val workDirectory = workDirectory(context)
-        python(context).getModule("offline_generator")
-            .callAttr("patch_rom", patch, baseRom, output.absolutePath, workDirectory.absolutePath)
-        output
+        val inputDirectory = File(workDirectory, "rom-inputs").apply {
+            check(isDirectory || mkdirs()) { "Could not create temporary ROM input storage" }
+        }
+        val stagedInputs = romInputs.mapValues { (key, bytes) ->
+            File.createTempFile("input-", ".rom", inputDirectory).apply { writeBytes(bytes) }
+        }
+        try {
+            val paths = JSONObject()
+            stagedInputs.forEach { (key, file) -> paths.put(key, file.absolutePath) }
+            python(context).getModule("offline_generator")
+                .callAttr("patch_rom", patch, paths.toString(), output.absolutePath, workDirectory.absolutePath)
+            output
+        } finally {
+            stagedInputs.values.forEach { it.delete() }
+        }
     }
 
     private fun parseChoices(array: JSONArray?): List<FormChoice> = if (array == null) {

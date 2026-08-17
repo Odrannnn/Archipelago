@@ -7,6 +7,7 @@ bridge. Community APWorlds remain user-imported.
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
@@ -14,7 +15,11 @@ from pathlib import Path
 COMPANION = Path(__file__).resolve().parents[1]
 ARCHIPELAGO = COMPANION.parents[1]
 DESTINATION = COMPANION / "app" / "src" / "main" / "python"
-BUNDLED_WORLDS = ("cvcotm", "ladx", "pokemon_emerald", "mlss", "yugioh06")
+BUNDLED_WORLD_MANIFEST = COMPANION / "app" / "src" / "main" / "assets" / "bundled_worlds.json"
+BUNDLED_WORLDS = tuple(
+    entry["package"]
+    for entry in json.loads(BUNDLED_WORLD_MANIFEST.read_text(encoding="utf-8"))
+)
 
 CORE_MODULES = (
     "BaseClasses.py",
@@ -48,6 +53,7 @@ def main() -> None:
         path.name: path.read_bytes()
         for path in (DESTINATION / "worlds" / "_bizhawk").glob("*.py")
     }
+    android_launcher_components = (DESTINATION / "worlds" / "LauncherComponents.py").read_bytes()
     if not android_bizhawk:
         raise RuntimeError("The Android BizHawk compatibility package is missing")
     managed_entries = (*CORE_MODULES, "rule_builder", "worlds", "bsdiff4.py", "jellyfish.py", "orjson.py",
@@ -69,6 +75,7 @@ def main() -> None:
     worlds.mkdir()
     for module in ("__init__.py", "AutoWorld.py", "Files.py"):
         shutil.copy2(ARCHIPELAGO / "worlds" / module, worlds / module)
+    (worlds / "LauncherComponents.py").write_bytes(android_launcher_components)
     copy_tree(ARCHIPELAGO / "worlds" / "generic", worlds / "generic")
     bizhawk = worlds / "_bizhawk"
     bizhawk.mkdir()
@@ -112,7 +119,10 @@ def main() -> None:
     ladx_rom = worlds / "ladx" / "Rom.py"
     text = ladx_rom.read_text(encoding="utf-8")
     old = "        rom_name = get_base_rom_path()\n        out_name = f\"{patch_data['out_base']}{caller.result_file_ending}\"\n"
-    new = "        rom_name = \"base.gbc\"\n        out_name = f\"{patch_data['out_base']}{caller.result_file_ending}\"\n"
+    new = (
+        "        rom_name = f\"base{caller.result_file_ending}\"\n"
+        "        out_name = f\"{patch_data['out_base']}{caller.result_file_ending}\"\n"
+    )
     if old not in text:
         raise RuntimeError("Could not adapt the LADX procedure patch for Android")
     ladx_rom.write_text(text.replace(old, new, 1), encoding="utf-8", newline="\n")

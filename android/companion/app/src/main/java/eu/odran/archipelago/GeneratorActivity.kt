@@ -74,6 +74,8 @@ class GeneratorActivity : Activity() {
     private var renderingAdvancedYaml = false
     private var advancedYamlDirty = false
     private var historyEntryCount = 0
+    private var pendingRomRequirements: RomRequirements? = null
+    private val pendingRomInputs = linkedMapOf<String, ByteArray>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -973,7 +975,6 @@ class GeneratorActivity : Activity() {
 
     private fun gameFromPatchFile(patch: File): String? = runCatching {
         ZipFile(patch).use { archive ->
-            if (archive.getEntry("patch_file.json") != null) return@use "Metroid Fusion"
             val manifest = archive.getEntry("archipelago.json") ?: return@use null
             archive.getInputStream(manifest).bufferedReader(Charsets.UTF_8).use { reader ->
                 JSONObject(reader.readText()).optString("game").takeIf { it.isNotBlank() }
@@ -1469,97 +1470,161 @@ class GeneratorActivity : Activity() {
         renderPatchChoices()
     }
 
-    private fun chooseBaseRom() {
+    private fun chooseBaseRom(requirements: RomRequirements, input: RomInputRequirement) {
+        AlertDialog.Builder(this)
+            .setTitle("Clean ROM required for ${requirements.game}")
+            .setMessage(
+                "Requested by the installed game world:\n${input.description}\n\n" +
+                    "Select a clean original ROM, not an already patched or randomized ROM. " +
+                    "The game world will validate it, and the app will cache it privately for later seeds.",
+            )
+            .setNegativeButton("Cancel") { _, _ ->
+                pendingRomRequirements = null
+                pendingRomInputs.clear()
+                patchButton.isEnabled = canPatchSelectedRom()
+            }
+            .setPositiveButton("Choose clean ROM") { _, _ -> openBaseRomPicker(input) }
+            .show()
+    }
+
+    private fun openBaseRomPicker(input: RomInputRequirement) {
+        val picker = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/octet-stream"
+        }
+        val label = input.description.ifBlank { input.fileName.ifBlank { "clean ROM" } }
         startActivityForResult(
-            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "application/octet-stream"
-            },
+            Intent.createChooser(picker, "Choose $label"),
             REQUEST_BASE_ROM,
         )
+    }
+
+    private fun showIncorrectBaseRom(
+        requirements: RomRequirements,
+        input: RomInputRequirement,
+        error: Throwable,
+    ) {
+        AlertDialog.Builder(this)
+            .setTitle("Incorrect clean ROM")
+            .setMessage(
+                "The ${requirements.game} APWorld rejected the selected file.\n\n" +
+                    "Required: ${input.description}\n\n" +
+                    (error.message ?: "The file did not pass the APWorld's validation."),
+            )
+            .setNegativeButton("Cancel") { _, _ ->
+                pendingRomRequirements = null
+                pendingRomInputs.clear()
+                patchButton.isEnabled = canPatchSelectedRom()
+            }
+            .setPositiveButton("Choose another ROM") { _, _ -> openBaseRomPicker(input) }
+            .show()
     }
 
     private fun patchWithCachedBaseRomOrChoose() {
         val selectedPatch = patchFile ?: return
         val game = selectedPatchGame()
         patchButton.isEnabled = false
-        status.text = "Checking for a cached $game base ROM…"
+        status.text = "Checking for cached ROM inputs for $game…"
         thread(name = "offline-rom-cache-check") {
-            val cachedRom = BaseRomCache.load(this, game)
-            if (cachedRom == null) {
-                runOnUiThread {
-                    patchButton.isEnabled = true
-                    forgetBaseRomButton.isEnabled = false
-                    status.text = "Select your clean $game base ROM. It will be cached privately for later seeds."
-                    chooseBaseRom()
+            runCatching { OfflineGenerator.romRequirements(this, selectedPatch.readBytes()) }
+                .onSuccess { requirements ->
+                    pendingRomRequirements = requirements
+                    pendingRomInputs.clear()
+                    requirements.inputs.forEach { input ->
+                        BaseRomCache.load(this, requirements.game, input.key)?.let { bytes ->
+                            pendingRomInputs[input.key] = bytes
+                        }
+                    }
+                    continueRomSelection(selectedPatch)
                 }
-            } else {
-                runOnUiThread {
-                    forgetBaseRomButton.isEnabled = true
-                    status.text = "Using the cached base ROM to patch ${selectedPatch.name}…"
+                .onFailure { error ->
+                    runOnUiThread { patchButton.isEnabled = true }
+                    showError("Could not determine the required ROMs", error)
                 }
-                patchBaseRom(selectedPatch, cachedRom)
-            }
         }
     }
 
-    private fun patchBaseRom(uri: Uri) {
+    private fun continueRomSelection(selectedPatch: File) {
+        val requirements = pendingRomRequirements ?: return
+        val missing = requirements.inputs.firstOrNull { it.key !in pendingRomInputs }
+        if (missing == null) {
+            runOnUiThread {
+                forgetBaseRomButton.isEnabled = true
+                status.text = "Validating ROM inputs and patching ${selectedPatch.name}…"
+            }
+            patchRomInputs(selectedPatch, pendingRomInputs.toMap())
+            return
+        }
+        runOnUiThread {
+            patchButton.isEnabled = true
+            forgetBaseRomButton.isEnabled = BaseRomCache.isPresent(this, requirements.game)
+            status.text = "Select ${missing.description}."
+            chooseBaseRom(requirements, missing)
+        }
+    }
+
+    private fun acceptBaseRom(uri: Uri) {
         val selectedPatch = patchFile ?: return
-        val game = selectedPatchGame()
+        val requirements = pendingRomRequirements ?: return
+        val input = requirements.inputs.firstOrNull { it.key !in pendingRomInputs } ?: return
         patchButton.isEnabled = false
-        status.text = "Validating and caching the selected base ROM…"
-        thread(name = "offline-rom-patching") {
+        status.text = "Reading ${input.description}…"
+        thread(name = "offline-rom-input") {
             runCatching {
                 val selectedBytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
                     ?: error("Could not read the selected ROM")
-                val baseBytes = if (BaseRomCache.hasBuiltInValidation(game)) {
-                    BaseRomCache.store(this, selectedBytes, game)
-                } else {
-                    selectedBytes
-                }
-                val output = createPatchedRom(selectedPatch, baseBytes)
-                if (!BaseRomCache.hasBuiltInValidation(game)) {
-                    BaseRomCache.storeAfterSuccessfulPatch(this, selectedBytes, game)
-                }
-                output
-            }.onSuccess { output ->
+                OfflineGenerator.validateRomInput(
+                    this,
+                    selectedPatch.readBytes(),
+                    input.key,
+                    selectedBytes,
+                )
+                pendingRomInputs[input.key] = selectedBytes
+            }.onSuccess {
+                continueRomSelection(selectedPatch)
+            }.onFailure { error ->
                 runOnUiThread {
                     patchButton.isEnabled = true
-                    forgetBaseRomButton.isEnabled = true
-                    status.text = "ROM created and base ROM cached. Choose where to save it."
-                    beginExport(output.name, output.readBytes())
+                    status.text = "The selected file was rejected. Choose the correct clean ROM."
+                    showIncorrectBaseRom(requirements, input, error)
                 }
-            }.onFailure {
-                runOnUiThread { patchButton.isEnabled = true }
-                showError("ROM patching failed", it)
             }
         }
     }
 
-    private fun patchBaseRom(selectedPatch: File, baseBytes: ByteArray) {
+    private fun patchRomInputs(selectedPatch: File, romInputs: Map<String, ByteArray>) {
+        val requirements = pendingRomRequirements ?: return
         thread(name = "offline-rom-patching") {
-            runCatching { createPatchedRom(selectedPatch, baseBytes) }
+            runCatching {
+                createPatchedRom(selectedPatch, romInputs).also {
+                    romInputs.forEach { (key, bytes) ->
+                        BaseRomCache.storeAfterSuccessfulPatch(this, bytes, requirements.game, key)
+                    }
+                }
+            }
                 .onSuccess { output -> runOnUiThread {
+                    pendingRomRequirements = null
+                    pendingRomInputs.clear()
                     patchButton.isEnabled = true
                     forgetBaseRomButton.isEnabled = true
-                    status.text = "ROM created using the cached base ROM. Choose where to save it."
+                    status.text = "ROM created and clean ROM inputs cached. Choose where to save it."
                     beginExport(output.name, output.readBytes())
                 } }
                 .onFailure {
-                    if (!BaseRomCache.hasBuiltInValidation(selectedPatchGame())) {
-                        BaseRomCache.forget(this, selectedPatchGame())
-                    }
+                    BaseRomCache.forget(this, requirements.game)
+                    pendingRomRequirements = null
+                    pendingRomInputs.clear()
                     runOnUiThread { patchButton.isEnabled = true }
                     showError("ROM patching failed", it)
                 }
         }
     }
 
-    private fun createPatchedRom(selectedPatch: File, baseBytes: ByteArray): File {
+    private fun createPatchedRom(selectedPatch: File, romInputs: Map<String, ByteArray>): File {
         val patchBytes = selectedPatch.readBytes()
         val extension = OfflineGenerator.patchResultExtension(this, patchBytes)
         val output = File(filesDir, "offline_generator/output/${selectedPatch.nameWithoutExtension}$extension")
-        return OfflineGenerator.patchRom(this, patchBytes, baseBytes, output)
+        return OfflineGenerator.patchRom(this, patchBytes, romInputs, output)
     }
 
     private fun beginExport(name: String, bytes: ByteArray) {
@@ -1583,11 +1648,15 @@ class GeneratorActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (resultCode != RESULT_OK || data?.data == null) {
-            if (requestCode == REQUEST_BASE_ROM) patchButton.isEnabled = canPatchSelectedRom()
+            if (requestCode == REQUEST_BASE_ROM) {
+                pendingRomRequirements = null
+                pendingRomInputs.clear()
+                patchButton.isEnabled = canPatchSelectedRom()
+            }
             return
         }
         when (requestCode) {
-            REQUEST_BASE_ROM -> patchBaseRom(data.data!!)
+            REQUEST_BASE_ROM -> acceptBaseRom(data.data!!)
             REQUEST_EXPORT -> {
                 val export = pendingExport ?: return
                 val destination = data.data!!
@@ -1597,7 +1666,8 @@ class GeneratorActivity : Activity() {
                 }.onSuccess {
                     status.text = "Saved ${export.first}"
                     if (export.first.endsWith(".gba", ignoreCase = true) ||
-                        export.first.endsWith(".gbc", ignoreCase = true)
+                        export.first.endsWith(".gbc", ignoreCase = true) ||
+                        export.first.endsWith(".gb", ignoreCase = true)
                     ) {
                         offerRetroArchLaunch(export.first, destination)
                     }
