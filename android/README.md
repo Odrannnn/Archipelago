@@ -22,13 +22,11 @@ game-specific Archipelago logic. No memory port is exposed to the LAN.
   live-client execution.
 - Link's Awakening DX uses an Android adapter for its custom client protocol,
   carried over the same loopback bridge without RetroArch Network Commands.
-- `companion/` now has a Metroid Fusion profile for ArchipelagoMine APWorld
-  `v1.22.4`: it recognizes the patched `MFU` ROM identifier, produces the AP
-  authentication token, reads checks/area/room/receipt state, detects credits,
-  and applies the APWorld's item-side RAM changes only during gameplay.
-- `companion/` also has a The Minish Cap profile for APWorld `v0.3.1`, including
-  ROM/seed verification, item queue injection, location flags, special Goron
-  and Cucco checks, and completion reporting.
+- Imported Metroid Fusion `1.22.4` and The Minish Cap `0.3.1` APWorlds register
+  their conventional upstream `BizHawkClient` implementations at runtime. The
+  companion discovers and executes those handlers generically; ROM identity,
+  authentication, checks, item delivery, save restoration, and completion
+  behavior remain owned by each APWorld rather than Android game profiles.
 - `companion/` can install additional trusted `.apworld` packages into private
   storage for dynamic templates, mixed-game generation, registered patch
   discovery, generic standard GBA/GB/GBC procedure patching, and live execution of
@@ -41,6 +39,9 @@ game-specific Archipelago logic. No memory port is exposed to the LAN.
 - ROM patching discovers every checksum-validated user file declared by an
   APWorld. This supports multi-ROM handlers such as Oracle of Seasons cross-item
   mode without adding game or filename branches to the companion.
+- Player-specific `.apinvite` files can omit the patch for self-connecting games.
+  Ship of Harkinian invites retain the selected slot, player name, and game so
+  the recipient can resolve the room and use the direct SoH launch action.
 - `companion/` now authenticates to the room, resolves item and location IDs
   from the server data package, delivers queued items using the ROM's receipt
   counter, reports checked locations, and reports goal completion at credits.

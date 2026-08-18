@@ -19,12 +19,31 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
 import java.security.MessageDigest
 import kotlin.concurrent.thread
 
 /** Starts the persistent bridge service and displays its current status. */
 class MainActivity : Activity() {
+    private data class RomPatchSession(
+        val patchName: String,
+        val patchBytes: ByteArray,
+        val game: String,
+        val playerName: String? = null,
+        val rememberForActiveRoom: Boolean = false,
+    )
+
+    private data class PatchedRomExport(
+        val name: String,
+        val bytes: ByteArray,
+        val game: String,
+        val rememberForActiveRoom: Boolean,
+        val playerSlot: Int? = null,
+        val serverAddress: String? = null,
+    )
+
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var status: TextView
     private lateinit var serverStatus: TextView
@@ -34,11 +53,12 @@ class MainActivity : Activity() {
     private lateinit var joinedRoomContainer: LinearLayout
     private var retroArchButton: Button? = null
     private var renderedRoom: JoinedRoom? = null
-    private var pendingPlayerInvite: RoomInvite? = null
     private var pendingRequiredApWorldInvite: RoomInvite? = null
-    private var pendingPatchedRom: Pair<String, ByteArray>? = null
-    private var pendingInviteRomRequirements: RomRequirements? = null
-    private val pendingInviteRomInputs = linkedMapOf<String, ByteArray>()
+    private var pendingRequiredApWorldPatch: RomPatchSession? = null
+    private var pendingPatchedRom: PatchedRomExport? = null
+    private var pendingRomPatch: RomPatchSession? = null
+    private var pendingRomRequirements: RomRequirements? = null
+    private val pendingRomInputs = linkedMapOf<String, ByteArray>()
     private val refreshStatus = object : Runnable {
         override fun run() {
             status.text = BridgeService.statusText
@@ -107,14 +127,20 @@ class MainActivity : Activity() {
         val save = Button(this).apply {
             text = "Save and connect"
             CompanionUi.stylePrimary(this)
+            setOnClickListener { saveManualConnection() }
+        }
+        val openPlayerPatch = Button(this).apply {
+            text = "Open player patch"
+            CompanionUi.styleSecondary(this)
             setOnClickListener {
-                ServerSettings.save(this@MainActivity, address.text.toString(), password.text.toString())
-                startForegroundService(
-                    Intent(this@MainActivity, BridgeService::class.java)
-                        .setAction(BridgeService.ACTION_RECONNECT),
+                saveManualConnection()
+                startActivityForResult(
+                    Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "*/*"
+                    },
+                    REQUEST_OPEN_PLAYER_PATCH,
                 )
-                status.text = "Settings saved · reconnecting…"
-                serverStatus.text = "⏳ Archipelago connecting"
             }
         }
         val generator = Button(this).apply {
@@ -203,8 +229,10 @@ class MainActivity : Activity() {
                 addView(address, CompanionUi.fullWidth())
                 addView(password, CompanionUi.fullWidth())
                 addView(save, CompanionUi.insetTop(save, this@MainActivity, 6))
+                addView(openPlayerPatch, CompanionUi.insetTop(openPlayerPatch, this@MainActivity, 6))
                 addView(TextView(this@MainActivity).apply {
-                    text = "Most invites configure this automatically. Use manual settings for direct server connections."
+                    text = "For a direct connection, save the server and open your player patch. " +
+                        "The app will create the ROM and then offer to open it in RetroArch."
                     CompanionUi.styleMuted(this)
                     setPadding(0, CompanionUi.dp(this@MainActivity, 8), 0, 0)
                 }, CompanionUi.fullWidth())
@@ -235,12 +263,16 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (resultCode != RESULT_OK) {
-            if (requestCode == REQUEST_INVITE_BASE_ROM) {
-                clearPendingInviteRomSelection(clearInvite = true)
+            if (requestCode == REQUEST_PATCH_BASE_ROM) {
+                clearPendingRomPatch()
             }
             if (requestCode == REQUEST_INVITE_APWORLD) {
                 pendingRequiredApWorldInvite = null
                 inviteStatus.text = "APWorld import canceled · invitation not loaded."
+            }
+            if (requestCode == REQUEST_PATCH_APWORLD) {
+                pendingRequiredApWorldPatch = null
+                inviteStatus.text = "APWorld import canceled · player patch not opened."
             }
             return
         }
@@ -258,25 +290,44 @@ class MainActivity : Activity() {
         if (data?.data == null) return
         when (requestCode) {
             REQUEST_OPEN_INVITE -> handleInvite(Intent(Intent.ACTION_VIEW, data.data))
-            REQUEST_INVITE_BASE_ROM -> acceptInviteBaseRom(data.data!!)
+            REQUEST_OPEN_PLAYER_PATCH -> openManualPlayerPatch(data.data!!)
+            REQUEST_PATCH_BASE_ROM -> acceptBaseRom(data.data!!)
             REQUEST_INVITE_APWORLD -> installRequiredInviteApWorld(data.data!!)
+            REQUEST_PATCH_APWORLD -> installRequiredPatchApWorld(data.data!!)
             REQUEST_SELECT_PATCHED_ROM -> rememberExistingPatchedRom(data.data!!, data.flags)
-            REQUEST_SAVE_INVITE_ROM -> {
+            REQUEST_SAVE_PATCHED_ROM -> {
                 val export = pendingPatchedRom ?: return
                 val destination = data.data!!
                 runCatching {
-                    contentResolver.openOutputStream(destination)?.use { it.write(export.second) }
+                    contentResolver.openOutputStream(destination)?.use { it.write(export.bytes) }
                         ?: error("Could not open the selected destination.")
                 }.onSuccess {
-                    rememberPatchedRom(export.first, destination, data.flags, export.second.sha256Hex())
-                    inviteStatus.text = "Saved ${export.first} · ready to load in RetroArch."
+                    if (export.rememberForActiveRoom) {
+                        rememberPatchedRom(export.name, destination, data.flags, export.bytes.sha256Hex())
+                    }
+                    inviteStatus.text = "Saved ${export.name} · ready to load in RetroArch."
                     pendingPatchedRom = null
-                    offerRetroArchLaunch(export.first, destination)
+                    offerRetroArchLaunch(
+                        export.name,
+                        destination,
+                        export.game,
+                        export.playerSlot,
+                        export.serverAddress,
+                    )
                 }.onFailure {
-                    inviteStatus.text = "Could not save ${export.first}: ${it.message}"
+                    inviteStatus.text = "Could not save ${export.name}: ${it.message}"
                 }
             }
         }
+    }
+
+    private fun saveManualConnection() {
+        ServerSettings.save(this, address.text.toString(), password.text.toString())
+        startForegroundService(
+            Intent(this, BridgeService::class.java).setAction(BridgeService.ACTION_RECONNECT),
+        )
+        status.text = "Settings saved · reconnecting…"
+        serverStatus.text = "⏳ Archipelago connecting"
     }
 
     private fun rememberExistingPatchedRom(uri: Uri, flags: Int) {
@@ -372,7 +423,13 @@ class MainActivity : Activity() {
         )
     }
 
-    private fun offerRetroArchLaunch(name: String, uri: Uri) {
+    private fun offerRetroArchLaunch(
+        name: String,
+        uri: Uri,
+        gameName: String? = null,
+        playerSlot: Int? = null,
+        serverAddress: String? = null,
+    ) {
         val coreDescription = if (RetroArchLauncher.isSnesRom(this, uri)) {
             "the custom SNES9x Archipelago core."
         } else {
@@ -389,9 +446,9 @@ class MainActivity : Activity() {
                     RetroArchLauncher.launch(
                         this,
                         uri,
-                        room?.gameName,
-                        room?.playerSlot,
-                        room?.serverAddress(),
+                        room?.gameName ?: gameName,
+                        room?.playerSlot ?: playerSlot,
+                        room?.serverAddress() ?: serverAddress,
                     )
                 }.onSuccess { resumed ->
                     inviteStatus.text = if (resumed) {
@@ -420,22 +477,41 @@ class MainActivity : Activity() {
         // Prevent an activity recreation from presenting the same invitation twice.
         setIntent(Intent(this, MainActivity::class.java))
         AlertDialog.Builder(this)
-            .setTitle(if (invite.hasPlayerPatch) "Load ${invite.playerName}'s multiplayer invite?" else "Load shared multiplayer room?")
+            .setTitle(
+                if (invite.hasPlayerIdentity) {
+                    "Load ${invite.playerName}'s multiplayer invite?"
+                } else {
+                    "Load shared multiplayer room?"
+                },
+            )
             .setMessage(
                 buildString {
                     if (invite.hasPlayerPatch) {
                         append("This invite is for player slot ${invite.playerSlot} and contains ${invite.patchName}. ")
+                    } else if (invite.hasPlayerIdentity) {
+                        append(
+                            "This invite is for ${invite.playerName}, slot ${invite.playerSlot}, in ${invite.gameName}. " +
+                                "That game does not require a player ROM patch. ",
+                        )
                     }
                     append("The companion will verify room ${invite.roomId.take(10)}… on archipelago.gg, wake its ")
                     append("server if necessary, and load its current connection address. ")
                     if (invite.hasPlayerPatch) {
                         append("It will use your cached clean ${invite.gameName} base ROM or ask for it once. ")
+                    } else if (invite.hasPlayerIdentity) {
+                        append("It will load the player connection and make the game's launch action available. ")
                     }
                     append("No website-session secret is imported.")
                 },
             )
             .setNegativeButton("Cancel", null)
-            .setPositiveButton(if (invite.hasPlayerPatch) "Load and patch" else "Load room") { _, _ ->
+            .setPositiveButton(
+                when {
+                    invite.hasPlayerPatch -> "Load and patch"
+                    invite.hasPlayerIdentity -> "Load player"
+                    else -> "Load room"
+                },
+            ) { _, _ ->
                 loadInviteAfterApWorldCheck(invite)
             }
             .show()
@@ -565,8 +641,15 @@ class MainActivity : Activity() {
                             }
                         }
                         if (invite.hasPlayerPatch) {
-                            pendingPlayerInvite = invite
-                            patchInviteWithCachedBaseRomOrChoose()
+                            startRomPatch(
+                                RomPatchSession(
+                                    patchName = invite.patchName ?: "Player${invite.playerSlot}.patch",
+                                    patchBytes = invite.patchBytes ?: return@runOnUiThread,
+                                    game = invite.gameName ?: return@runOnUiThread,
+                                    playerName = invite.playerName,
+                                    rememberForActiveRoom = true,
+                                ),
+                            )
                         }
                     }
                 }
@@ -576,7 +659,123 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun chooseInviteBaseRom(requirements: RomRequirements, input: RomInputRequirement) {
+    private fun openManualPlayerPatch(uri: Uri) {
+        val patchName = queryDisplayName(uri)
+            ?: uri.lastPathSegment?.substringAfterLast('/')
+            ?: "Player.patch"
+        inviteStatus.text = "Reading ${File(patchName).name}…"
+        thread(name = "manual-player-patch-read") {
+            runCatching {
+                val patchBytes = contentResolver.openInputStream(uri)?.use {
+                    it.readAtMost(MAX_PATCH_BYTES + 1)
+                } ?: error("Could not read the selected player patch.")
+                require(patchBytes.isNotEmpty()) { "The selected player patch is empty." }
+                require(patchBytes.size <= MAX_PATCH_BYTES) { "The selected player patch is too large." }
+                RomPatchSession(
+                    patchName = File(patchName).name,
+                    patchBytes = patchBytes,
+                    game = OfflineGenerator.patchGame(this, patchBytes),
+                )
+            }.onSuccess { session ->
+                runOnUiThread { prepareManualRomPatch(session) }
+            }.onFailure { error -> runOnUiThread {
+                inviteStatus.text =
+                    "Could not open the player patch: ${error.message ?: error.javaClass.simpleName}"
+            } }
+        }
+    }
+
+    private fun prepareManualRomPatch(session: RomPatchSession) {
+        if (OfflineGenerator.isBundledGame(this, session.game) ||
+            ImportedApWorldStore.list(this).any { it.game == session.game }
+        ) {
+            startRomPatch(session)
+            return
+        }
+        pendingRequiredApWorldPatch = session
+        AlertDialog.Builder(this)
+            .setTitle("${session.game} APWorld required")
+            .setMessage(
+                "This player patch needs the ${session.game} APWorld for ROM patching and live " +
+                    "synchronization. APWorlds contain executable Python code, so import one only " +
+                    "from an author you trust.",
+            )
+            .setNegativeButton("Cancel") { _, _ ->
+                pendingRequiredApWorldPatch = null
+                inviteStatus.text = "Player patch not opened · ${session.game} APWorld is required."
+            }
+            .setPositiveButton("Import APWorld") { _, _ -> chooseRequiredPatchApWorld() }
+            .show()
+    }
+
+    private fun chooseRequiredPatchApWorld() {
+        startActivityForResult(
+            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "application/octet-stream"
+            },
+            REQUEST_PATCH_APWORLD,
+        )
+    }
+
+    private fun installRequiredPatchApWorld(uri: Uri) {
+        val session = pendingRequiredApWorldPatch ?: return
+        inviteStatus.text = "Validating and installing the required ${session.game} APWorld…"
+        thread(name = "player-patch-apworld-install") {
+            var matchingWorldInstalled = false
+            runCatching {
+                val installed = ImportedApWorldStore.install(this, uri)
+                if (installed.game != session.game) {
+                    ImportedApWorldStore.remove(this, installed.packageName)
+                    error("The selected APWorld is for ${installed.game}; this patch requires ${session.game}.")
+                }
+                matchingWorldInstalled = true
+                val capability = OfflineGenerator.refreshCatalog(this).firstOrNull { it.game == session.game }
+                    ?: error(
+                        OfflineGenerator.cachedWorldFailures()[installed.packageName]
+                            ?: "The ${session.game} APWorld was installed but did not register its game.",
+                    )
+                require(capability.romPatch) {
+                    "The installed ${session.game} APWorld does not provide compatible ROM patching."
+                }
+                require(capability.liveBridge) {
+                    "The installed ${session.game} APWorld does not provide compatible Android live synchronization."
+                }
+                installed
+            }.onSuccess { installed ->
+                pendingRequiredApWorldPatch = null
+                runOnUiThread {
+                    inviteStatus.text = "Installed ${installed.game} ${installed.worldVersion} · continuing patch…"
+                    startRomPatch(session)
+                }
+            }.onFailure { error -> runOnUiThread {
+                inviteStatus.text = "Could not install the required APWorld: ${error.message}"
+                if (matchingWorldInstalled) {
+                    pendingRequiredApWorldPatch = null
+                    AlertDialog.Builder(this)
+                        .setTitle("Required APWorld unavailable")
+                        .setMessage(error.message ?: error.javaClass.simpleName)
+                        .setPositiveButton("Close", null)
+                        .show()
+                } else {
+                    AlertDialog.Builder(this)
+                        .setTitle("Could not import required APWorld")
+                        .setMessage(error.message ?: error.javaClass.simpleName)
+                        .setNegativeButton("Cancel") { _, _ -> pendingRequiredApWorldPatch = null }
+                        .setPositiveButton("Choose another") { _, _ -> chooseRequiredPatchApWorld() }
+                        .show()
+                }
+            } }
+        }
+    }
+
+    private fun queryDisplayName(uri: Uri): String? = runCatching {
+        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        }
+    }.getOrNull()
+
+    private fun chooseBaseRom(requirements: RomRequirements, input: RomInputRequirement) {
         AlertDialog.Builder(this)
             .setTitle("Clean ROM required for ${requirements.game}")
             .setMessage(
@@ -584,12 +783,12 @@ class MainActivity : Activity() {
                     "Select a clean original ROM, not an already patched or randomized ROM. " +
                     "The game world will validate it, and the app will cache it privately for later rooms.",
             )
-            .setNegativeButton("Cancel") { _, _ -> clearPendingInviteRomSelection(clearInvite = true) }
-            .setPositiveButton("Choose clean ROM") { _, _ -> openInviteBaseRomPicker(input) }
+            .setNegativeButton("Cancel") { _, _ -> clearPendingRomPatch() }
+            .setPositiveButton("Choose clean ROM") { _, _ -> openBaseRomPicker(input) }
             .show()
     }
 
-    private fun openInviteBaseRomPicker(input: RomInputRequirement) {
+    private fun openBaseRomPicker(input: RomInputRequirement) {
         val picker = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "application/octet-stream"
@@ -597,11 +796,11 @@ class MainActivity : Activity() {
         val label = input.description.ifBlank { input.fileName.ifBlank { "clean ROM" } }
         startActivityForResult(
             Intent.createChooser(picker, "Choose $label"),
-            REQUEST_INVITE_BASE_ROM,
+            REQUEST_PATCH_BASE_ROM,
         )
     }
 
-    private fun showIncorrectInviteBaseRom(
+    private fun showIncorrectBaseRom(
         requirements: RomRequirements,
         input: RomInputRequirement,
         error: Throwable,
@@ -613,27 +812,25 @@ class MainActivity : Activity() {
                     "Required: ${input.description}\n\n" +
                     (error.message ?: "The file did not pass the APWorld's validation."),
             )
-            .setNegativeButton("Cancel") { _, _ -> clearPendingInviteRomSelection(clearInvite = true) }
-            .setPositiveButton("Choose another ROM") { _, _ -> openInviteBaseRomPicker(input) }
+            .setNegativeButton("Cancel") { _, _ -> clearPendingRomPatch() }
+            .setPositiveButton("Choose another ROM") { _, _ -> openBaseRomPicker(input) }
             .show()
     }
 
-    private fun patchInviteWithCachedBaseRomOrChoose() {
-        val invite = pendingPlayerInvite ?: return
-        val game = invite.gameName ?: return
-        val patchBytes = invite.patchBytes ?: return
-        inviteStatus.text = "Room loaded for ${invite.playerName}. Checking for cached ROM inputs…"
-        thread(name = "shared-invite-rom-cache-check") {
-            runCatching { OfflineGenerator.romRequirements(this, patchBytes) }
+    private fun startRomPatch(session: RomPatchSession) {
+        pendingRomPatch = session
+        inviteStatus.text = "${patchStatusSubject(session)} Checking for cached ROM inputs…"
+        thread(name = "player-patch-rom-cache-check") {
+            runCatching { OfflineGenerator.romRequirements(this, session.patchBytes) }
                 .onSuccess { requirements ->
-                    pendingInviteRomRequirements = requirements
-                    pendingInviteRomInputs.clear()
+                    pendingRomRequirements = requirements
+                    pendingRomInputs.clear()
                     requirements.inputs.forEach { input ->
                         BaseRomCache.load(this, requirements.game, input.key)?.let { bytes ->
-                            pendingInviteRomInputs[input.key] = bytes
+                            pendingRomInputs[input.key] = bytes
                         }
                     }
-                    continueInviteRomSelection()
+                    continueRomSelection()
                 }
                 .onFailure { error -> runOnUiThread {
                     inviteStatus.text =
@@ -642,87 +839,98 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun continueInviteRomSelection() {
-        val invite = pendingPlayerInvite ?: return
-        val requirements = pendingInviteRomRequirements ?: return
-        val missing = requirements.inputs.firstOrNull { it.key !in pendingInviteRomInputs }
+    private fun continueRomSelection() {
+        val session = pendingRomPatch ?: return
+        val requirements = pendingRomRequirements ?: return
+        val missing = requirements.inputs.firstOrNull { it.key !in pendingRomInputs }
         if (missing == null) {
-            patchInviteRomInputs(pendingInviteRomInputs.toMap())
+            patchRomInputs(pendingRomInputs.toMap())
             return
         }
         runOnUiThread {
-            inviteStatus.text = "Room loaded for ${invite.playerName}. Select ${missing.description}."
-            chooseInviteBaseRom(requirements, missing)
+            inviteStatus.text = "${patchStatusSubject(session)} Select ${missing.description}."
+            chooseBaseRom(requirements, missing)
         }
     }
 
-    private fun acceptInviteBaseRom(uri: Uri) {
-        val invite = pendingPlayerInvite ?: return
-        val requirements = pendingInviteRomRequirements ?: return
-        val input = requirements.inputs.firstOrNull { it.key !in pendingInviteRomInputs } ?: return
+    private fun acceptBaseRom(uri: Uri) {
+        val session = pendingRomPatch ?: return
+        val requirements = pendingRomRequirements ?: return
+        val input = requirements.inputs.firstOrNull { it.key !in pendingRomInputs } ?: return
         inviteStatus.text = "Reading ${input.description}…"
         thread(name = "shared-invite-rom-input") {
             runCatching {
-                val selectedBytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                val selectedBytes = contentResolver.openInputStream(uri)?.use {
+                    it.readAtMost(MAX_ROM_BYTES.toInt() + 1)
+                }
                     ?: error("Could not read the selected base ROM.")
+                require(selectedBytes.size.toLong() <= MAX_ROM_BYTES) {
+                    "The selected base ROM is too large."
+                }
                 OfflineGenerator.validateRomInput(
                     this,
-                    invite.patchBytes ?: error("The invitation has no player patch."),
+                    session.patchBytes,
                     input.key,
                     selectedBytes,
                 )
                 selectedBytes
             }.onSuccess { selectedBytes ->
-                pendingInviteRomInputs[input.key] = selectedBytes
-                continueInviteRomSelection()
+                pendingRomInputs[input.key] = selectedBytes
+                continueRomSelection()
             }.onFailure { error ->
                 runOnUiThread {
                     inviteStatus.text = "The selected file was rejected. Choose the correct clean ROM."
-                    showIncorrectInviteBaseRom(requirements, input, error)
+                    showIncorrectBaseRom(requirements, input, error)
                 }
             }
         }
     }
 
-    private fun patchInviteRomInputs(romInputs: Map<String, ByteArray>) {
-        val invite = pendingPlayerInvite ?: return
-        val patchBytes = invite.patchBytes ?: return
-        val game = invite.gameName ?: return
-        val requirements = pendingInviteRomRequirements ?: return
+    private fun patchRomInputs(romInputs: Map<String, ByteArray>) {
+        val session = pendingRomPatch ?: return
+        val requirements = pendingRomRequirements ?: return
         runOnUiThread {
-            inviteStatus.text = "Validating ROM inputs and creating ${invite.playerName}'s patched $game ROM…"
+            inviteStatus.text = "Validating ROM inputs and creating the patched ${session.game} ROM…"
         }
-        thread(name = "shared-invite-rom-patching") {
+        thread(name = "player-rom-patching") {
             runCatching {
-                val extension = OfflineGenerator.patchResultExtension(this, patchBytes)
+                val extension = OfflineGenerator.patchResultExtension(this, session.patchBytes)
                 val outputName =
-                    "${File(invite.patchName ?: "Player${invite.playerSlot}.patch").nameWithoutExtension}$extension"
-                val output = File(filesDir, "imported_invites/output/$outputName").apply {
+                    "${File(session.patchName).nameWithoutExtension}$extension"
+                val output = File(filesDir, "patched_roms/output/$outputName").apply {
                     parentFile?.mkdirs()
                 }
-                OfflineGenerator.patchRom(this, patchBytes, romInputs, output).also {
+                OfflineGenerator.patchRom(this, session.patchBytes, romInputs, output).also {
                     romInputs.forEach { (key, bytes) ->
                         BaseRomCache.storeAfterSuccessfulPatch(this, bytes, requirements.game, key)
                     }
                 }
             }.onSuccess { output ->
-                clearPendingInviteRomSelection(clearInvite = true)
-                val export = output.name to output.readBytes()
+                val room = JoinedRoomStore.load(this).takeIf { session.rememberForActiveRoom }
+                val export = PatchedRomExport(
+                    name = output.name,
+                    bytes = output.readBytes(),
+                    game = session.game,
+                    rememberForActiveRoom = session.rememberForActiveRoom,
+                    playerSlot = room?.playerSlot,
+                    serverAddress = room?.serverAddress() ?: ServerSettings.load(this).address,
+                )
+                clearPendingRomPatch()
                 pendingPatchedRom = export
                 runOnUiThread {
-                    inviteStatus.text = "ROM created for ${invite.playerName}. Choose where to save it."
+                    inviteStatus.text = "Patched ${session.game} ROM created. Choose where to save it."
                     startActivityForResult(
                         Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                             addCategory(Intent.CATEGORY_OPENABLE)
                             type = "application/octet-stream"
-                            putExtra(Intent.EXTRA_TITLE, export.first)
+                            putExtra(Intent.EXTRA_TITLE, export.name)
                         },
-                        REQUEST_SAVE_INVITE_ROM,
+                        REQUEST_SAVE_PATCHED_ROM,
                     )
                 }
             }.onFailure { error ->
                 BaseRomCache.forget(this, requirements.game)
-                clearPendingInviteRomSelection(clearInvite = true)
+                clearPendingRomPatch()
                 runOnUiThread {
                     inviteStatus.text = "Could not patch the base ROM: ${error.message ?: error.javaClass.simpleName}"
                 }
@@ -730,10 +938,27 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun clearPendingInviteRomSelection(clearInvite: Boolean = false) {
-        pendingInviteRomRequirements = null
-        pendingInviteRomInputs.clear()
-        if (clearInvite) pendingPlayerInvite = null
+    private fun patchStatusSubject(session: RomPatchSession): String =
+        session.playerName?.let { "Room loaded for $it." } ?: "${session.game} player patch loaded."
+
+    private fun clearPendingRomPatch() {
+        pendingRomPatch = null
+        pendingRomRequirements = null
+        pendingRomInputs.clear()
+    }
+
+    private fun InputStream.readAtMost(maxBytes: Int): ByteArray {
+        val output = ByteArrayOutputStream(minOf(maxBytes, DEFAULT_BUFFER_SIZE))
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var remaining = maxBytes
+        while (remaining > 0) {
+            val count = read(buffer, 0, minOf(buffer.size, remaining))
+            if (count < 0) break
+            if (count == 0) continue
+            output.write(buffer, 0, count)
+            remaining -= count
+        }
+        return output.toByteArray()
     }
 
     private fun renderJoinedRoom(room: JoinedRoom?) {
@@ -964,11 +1189,14 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQUEST_OPEN_INVITE = 301
-        private const val REQUEST_INVITE_BASE_ROM = 302
-        private const val REQUEST_SAVE_INVITE_ROM = 303
+        private const val REQUEST_PATCH_BASE_ROM = 302
+        private const val REQUEST_SAVE_PATCHED_ROM = 303
         private const val REQUEST_SELECT_PATCHED_ROM = 304
         private const val REQUEST_MANAGE_ROOMS = 305
         private const val REQUEST_INVITE_APWORLD = 306
+        private const val REQUEST_OPEN_PLAYER_PATCH = 307
+        private const val REQUEST_PATCH_APWORLD = 308
+        private const val MAX_PATCH_BYTES = 32 * 1024 * 1024
         private const val MAX_ROM_BYTES = 32L * 1024 * 1024 + 512
     }
 }

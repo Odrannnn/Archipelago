@@ -63,7 +63,8 @@ The rest of this repository remains based on the upstream
 - Reports checked locations and game completion.
 - Receives and applies items, upgrades, capacities, keycards, Metroid count,
   and persistent state.
-- The Metroid Fusion APWorld client restores received upgrades after an older in-game save is loaded.
+- The dynamically registered upstream Metroid Fusion APWorld client restores received upgrades after an older
+  in-game save is loaded; the Android runtime adds no Metroid Fusion-specific recovery logic.
 - Displays new item messages through RetroArch's
   on-screen display.
 - Reconnects after RetroArch restarts, ROM reloads, app switching, suspension,
@@ -93,7 +94,8 @@ Generated player patches are discovered through Archipelago's patch registry;
 standard procedure patches which produce `.gba`, `.gbc`, `.gb`, `.sfc`, or `.smc` files can be applied through
 their registered APWorld handler without app-specific patch code. Self-connecting
 games which produce no player patch can still generate, save, and host their seed
-ZIP; ROM creation and player-specific companion invitations are simply unavailable.
+ZIP. Their player-specific companion invitations carry the selected slot, player
+name, and game without a ROM patch payload.
 Hosted `Ship of Harkinian` players are the exception to the generic launch limitation:
 the companion can select their slot and launch the Archipelago-enabled SoH Android
 port directly because that game owns its server connection and needs no emulator bridge.
@@ -118,12 +120,13 @@ status, open authenticated room controls and the instance list inside the app,
 open trackers, and explicitly synchronize its website session with a normal
 browser when requested.
 
-Player-specific version 2 `.apinvite` files contain the public room identifiers, the
-selected player and slot, that player's game-specific patch, and a SHA-256
-integrity hash. A recipient can open the invite to wake the room, resolve its
-current port, configure the companion, patch their own clean ROM locally, and
-save the finished game. Invitations never contain a base ROM, website-session
-credentials, or private hosting controls.
+Player-specific version 4 `.apinvite` files contain the public room identifiers,
+selected player, slot, and game. Games which require a player patch also include
+that patch and its SHA-256 integrity hash; patchless games such as Ship of
+Harkinian omit it. A recipient can open the invite to wake the room, resolve its
+current port, and configure the companion. The app either creates the patched ROM
+locally or exposes the patchless game's direct launch action. Invitations never
+contain a base ROM, website-session credentials, or private hosting controls.
 
 Imported rooms are stored in a room library. The user can switch active rooms,
 refresh their current server ports, retain a separate saved-ROM shortcut for

@@ -9,7 +9,9 @@ import androidx.core.content.FileProvider
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
 import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
@@ -24,16 +26,21 @@ data class RoomInvite(
     val patchBytes: ByteArray? = null,
     val gameName: String? = null,
 ) {
+    val hasPlayerIdentity: Boolean
+        get() = playerSlot != null && !playerName.isNullOrBlank() && !gameName.isNullOrBlank()
     val hasPlayerPatch: Boolean
-        get() = playerSlot != null && !playerName.isNullOrBlank() && !patchName.isNullOrBlank() && patchBytes != null
+        get() = hasPlayerIdentity && !patchName.isNullOrBlank() && patchBytes != null
     private fun metadataJson(version: Int) = JSONObject().apply {
         put("format", FORMAT)
         put("version", version)
         put("room_id", roomId)
         put("seed_id", seedId)
-        if (version >= PLAYER_PATCH_VERSION) {
+        if (version >= LEGACY_PATCH_VERSION) {
             put("player_slot", playerSlot)
             put("player_name", playerName)
+            if (version >= CURRENT_VERSION) put("game", gameName)
+        }
+        if (hasPlayerPatch) {
             put("patch_name", patchName)
             put("patch_game", gameName)
             put("patch_entry", PATCH_ENTRY)
@@ -45,7 +52,8 @@ data class RoomInvite(
         const val MIME_TYPE = "application/vnd.gg.archipelago.companion-invite"
         const val URI_SCHEME = "archipelago-companion"
         private const val FORMAT = "gg.archipelago.android.room-invite"
-        private const val PLAYER_PATCH_VERSION = 3
+        private const val LEGACY_PATCH_VERSION = 3
+        private const val CURRENT_VERSION = 4
         private const val METADATA_ENTRY = "invite.json"
         private const val PATCH_ENTRY = "player.patch"
         private const val MAX_METADATA_BYTES = 64 * 1024
@@ -59,11 +67,36 @@ data class RoomInvite(
             playerName: String,
             patchName: String,
             patchBytes: ByteArray,
+        ) = sharePlayer(context, room, playerSlot, playerName, patchGame(patchBytes), patchName, patchBytes)
+
+        fun sharePatchless(
+            context: Context,
+            room: HostedRoom,
+            playerSlot: Int,
+            playerName: String,
+            gameName: String,
+        ) = sharePlayer(context, room, playerSlot, playerName, gameName, null, null)
+
+        private fun sharePlayer(
+            context: Context,
+            room: HostedRoom,
+            playerSlot: Int,
+            playerName: String,
+            gameName: String,
+            patchName: String?,
+            patchBytes: ByteArray?,
         ) {
             require(playerSlot > 0) { "Invalid player slot." }
-            require(patchBytes.isNotEmpty() && patchBytes.size <= MAX_PATCH_BYTES) { "The player patch is too large." }
-            val safePatchName = File(patchName).name
-            val gameName = patchGame(patchBytes)
+            require(playerName.isNotBlank() && playerName.length <= 256) { "Invalid player name." }
+            require(gameName.isNotBlank() && gameName.length <= 256) { "Invalid player game." }
+            require((patchName == null) == (patchBytes == null)) { "Incomplete player patch." }
+            patchBytes?.let {
+                require(it.isNotEmpty() && it.size <= MAX_PATCH_BYTES) { "The player patch is too large." }
+                require(patchGame(it) == gameName) { "The player patch is for a different game." }
+            }
+            val safePatchName = patchName?.let {
+                File(it).name.also { name -> require(name.isNotBlank()) { "Invalid player patch name." } }
+            }
             val invite = RoomInvite(
                 roomId = room.roomId,
                 seedId = room.seedId,
@@ -80,11 +113,13 @@ data class RoomInvite(
             val file = File(directory, "Archipelago-${room.roomId.take(8)}-$safePlayer.apinvite")
             ZipOutputStream(file.outputStream().buffered()).use { zip ->
                 zip.putNextEntry(ZipEntry(METADATA_ENTRY))
-                zip.write(invite.metadataJson(PLAYER_PATCH_VERSION).toByteArray())
+                zip.write(invite.metadataJson(CURRENT_VERSION).toByteArray())
                 zip.closeEntry()
-                zip.putNextEntry(ZipEntry(PATCH_ENTRY))
-                zip.write(patchBytes)
-                zip.closeEntry()
+                patchBytes?.let {
+                    zip.putNextEntry(ZipEntry(PATCH_ENTRY))
+                    zip.write(it)
+                    zip.closeEntry()
+                }
             }
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
 
@@ -96,13 +131,24 @@ data class RoomInvite(
             val message = buildString {
                 appendLine("Join my Archipelago multiplayer seed as $playerName (slot $playerSlot)!")
                 appendLine()
-                appendLine("The attached companion invite contains your $gameName player patch.")
+                if (invite.hasPlayerPatch) {
+                    appendLine("The attached companion invite contains your $gameName player patch.")
+                } else {
+                    appendLine("$gameName does not need a player patch; the invite contains your player connection details.")
+                }
                 appendLine("Room-only fallback: $appLink")
                 appendLine("Room and player patches: $roomUrl")
                 if (room.lastPort > 0) appendLine("Server: archipelago.gg:${room.lastPort}")
                 trackerUrl?.let { appendLine("Tracker: $it") }
                 if (room.players.isNotEmpty()) appendLine("Players: ${room.players.joinToString()}")
-                append("Open the attached .apinvite with Archipelago Companion. It will reuse your cached clean base ROM or ask for it once.")
+                append("Open the attached .apinvite with Archipelago Companion. ")
+                append(
+                    if (invite.hasPlayerPatch) {
+                        "It will reuse your cached clean base ROM or ask for it once."
+                    } else {
+                        "It will load the room and make the game's launch action available."
+                    },
+                )
             }
             val send = Intent(Intent.ACTION_SEND).apply {
                 type = MIME_TYPE
@@ -132,7 +178,7 @@ data class RoomInvite(
                 }
                 else -> null
             } ?: return null
-            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readNBytes(MAX_INVITE_BYTES + 1) }
+            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readAtMost(MAX_INVITE_BYTES + 1) }
                 ?: error("Could not read the shared invitation.")
             require(bytes.size <= MAX_INVITE_BYTES) { "The shared invitation is too large." }
             require(bytes.size >= 4 && bytes[0] == 'P'.code.toByte() && bytes[1] == 'K'.code.toByte()) {
@@ -153,13 +199,13 @@ data class RoomInvite(
                     when (entry.name) {
                         METADATA_ENTRY -> {
                             require(metadata == null) { "The invitation contains duplicate metadata." }
-                            metadata = zip.readNBytes(MAX_METADATA_BYTES + 1).also {
+                            metadata = zip.readAtMost(MAX_METADATA_BYTES + 1).also {
                                 require(it.size <= MAX_METADATA_BYTES) { "The invitation metadata is too large." }
                             }
                         }
                         PATCH_ENTRY -> {
                             require(patch == null) { "The invitation contains duplicate player patches." }
-                            patch = zip.readNBytes(MAX_PATCH_BYTES + 1).also {
+                            patch = zip.readAtMost(MAX_PATCH_BYTES + 1).also {
                                 require(it.size <= MAX_PATCH_BYTES) { "The player patch is too large." }
                             }
                         }
@@ -169,7 +215,8 @@ data class RoomInvite(
                 }
             }
             val root = JSONObject((metadata ?: error("The invitation has no metadata.")).toString(Charsets.UTF_8))
-            require(root.optString("format") == FORMAT && root.optInt("version") == PLAYER_PATCH_VERSION) {
+            val version = root.optInt("version")
+            require(root.optString("format") == FORMAT && version in LEGACY_PATCH_VERSION..CURRENT_VERSION) {
                 "This is not a supported player-specific invitation."
             }
             val roomId = root.getString("room_id")
@@ -178,16 +225,40 @@ data class RoomInvite(
             require(playerSlot > 0) { "The invitation contains an invalid player slot." }
             val playerName = root.getString("player_name").trim()
             require(playerName.isNotBlank() && playerName.length <= 256) { "The invitation contains an invalid player name." }
-            val patchName = File(root.getString("patch_name")).name
-            val patchBytes = patch ?: error("The invitation has no player patch.")
-            require(patchBytes.isNotEmpty()) { "The invitation contains an empty player patch." }
-            require(root.optString("patch_entry") == PATCH_ENTRY) { "The invitation patch entry is invalid." }
-            require(patchBytes.sha256().equals(root.getString("patch_sha256"), ignoreCase = true)) {
-                "The player patch failed its integrity check."
+            if (version == LEGACY_PATCH_VERSION) require(patch != null) {
+                "The legacy invitation has no player patch."
             }
-            val gameName = patchGame(patchBytes)
-            root.optString("patch_game").takeIf { it.isNotBlank() && it != "null" }?.let { declaredGame ->
-                require(declaredGame == gameName) { "The invitation's patch game metadata does not match its patch." }
+            val patchName = root.optString("patch_name").takeIf { it.isNotBlank() }?.let { File(it).name }
+            require((patchName == null) == (patch == null)) { "The invitation has incomplete player patch data." }
+            val gameName = if (patch != null) {
+                require(patch.isNotEmpty()) { "The invitation contains an empty player patch." }
+                require(root.optString("patch_entry") == PATCH_ENTRY) { "The invitation patch entry is invalid." }
+                require(patch.sha256().equals(root.getString("patch_sha256"), ignoreCase = true)) {
+                    "The player patch failed its integrity check."
+                }
+                patchGame(patch).also { actualGame ->
+                    root.optString("patch_game").takeIf { it.isNotBlank() && it != "null" }?.let { declaredGame ->
+                        require(declaredGame == actualGame) {
+                            "The invitation's patch game metadata does not match its patch."
+                        }
+                    }
+                    root.optString("game").takeIf { it.isNotBlank() }?.let { declaredGame ->
+                        require(declaredGame == actualGame) {
+                            "The invitation's player game metadata does not match its patch."
+                        }
+                    }
+                }
+            } else {
+                require(
+                    root.optString("patch_entry").isBlank() &&
+                        root.optString("patch_sha256").isBlank() &&
+                        root.optString("patch_game").isBlank(),
+                ) { "The patchless invitation contains unexpected patch metadata." }
+                root.optString("game").trim().also {
+                    require(it.isNotBlank() && it.length <= 256) {
+                        "The patchless invitation does not declare a valid game."
+                    }
+                }
             }
             return RoomInvite(
                 roomId = roomId,
@@ -195,7 +266,7 @@ data class RoomInvite(
                 playerSlot = playerSlot,
                 playerName = playerName,
                 patchName = patchName,
-                patchBytes = patchBytes,
+                patchBytes = patch,
                 gameName = gameName,
             )
         }
@@ -211,6 +282,20 @@ data class RoomInvite(
 private fun ByteArray.sha256(): String = MessageDigest.getInstance("SHA-256")
     .digest(this)
     .joinToString("") { "%02x".format(it) }
+
+private fun InputStream.readAtMost(maxBytes: Int): ByteArray {
+    val output = ByteArrayOutputStream(minOf(maxBytes, DEFAULT_BUFFER_SIZE))
+    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+    var remaining = maxBytes
+    while (remaining > 0) {
+        val count = read(buffer, 0, minOf(buffer.size, remaining))
+        if (count < 0) break
+        if (count == 0) continue
+        output.write(buffer, 0, count)
+        remaining -= count
+    }
+    return output.toByteArray()
+}
 
 data class JoinedRoom(
     val roomId: String,
@@ -387,7 +472,7 @@ private fun patchGame(patch: ByteArray): String {
             }
             when (entry.name) {
                 "archipelago.json" -> {
-                    val manifestBytes = zip.readNBytes(MAX_PATCH_MANIFEST_BYTES + 1)
+                    val manifestBytes = zip.readAtMost(MAX_PATCH_MANIFEST_BYTES + 1)
                     require(manifestBytes.size <= MAX_PATCH_MANIFEST_BYTES) { "The patch manifest is too large." }
                     val game = JSONObject(manifestBytes.toString(Charsets.UTF_8)).optString("game").trim()
                     require(game.isNotBlank()) { "The Archipelago patch does not declare a game." }

@@ -43,6 +43,13 @@ private data class GeneratorStartupState(
     val draft: GeneratorDraft?,
 )
 
+private data class HostedInviteChoice(
+    val slot: Int,
+    val playerName: String,
+    val game: String,
+    val patch: File?,
+)
+
 /** Creates player YAMLs, generates seeds, and patches a user-supplied ROM entirely offline. */
 class GeneratorActivity : Activity() {
     private lateinit var yamlEditor: EditText
@@ -1362,9 +1369,8 @@ class GeneratorActivity : Activity() {
             val linkedEntry = HostedRoomHistoryLinks.historyId(this, room.roomId)?.let { linkedId ->
                 SeedHistoryStore.list(this).firstOrNull { it.id == linkedId }
             }
-            val linkedSeedHasInvitePatch = linkedEntry?.let { entry ->
-                entry.patches.isNotEmpty() && entry.patches.all { File(it.path).isFile }
-            }
+            val patchlessRoomChoices = patchlessInviteChoices(room)
+            val linkedSeedCanShareInvite = linkedEntry?.let(::inviteChoices)?.isNotEmpty()
             val sohPlayers = SohLauncher.players(room.players)
             hostedRoomsContainer.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -1396,12 +1402,12 @@ class GeneratorActivity : Activity() {
                     }, matchWrapParams())
                 }
                 addView(Button(this@GeneratorActivity).apply {
-                    text = if (linkedSeedHasInvitePatch == false) {
-                        "Player invite unavailable (no patch)"
+                    text = if (linkedSeedCanShareInvite == false && patchlessRoomChoices.isEmpty()) {
+                        "Player invite unavailable"
                     } else {
                         "Share multiplayer invite"
                     }
-                    isEnabled = linkedSeedHasInvitePatch != false
+                    isEnabled = linkedSeedCanShareInvite != false || patchlessRoomChoices.isNotEmpty()
                     setOnClickListener { shareHostedRoom(room) }
                 }, matchWrapParams())
                 addView(Button(this@GeneratorActivity).apply {
@@ -1482,11 +1488,14 @@ class GeneratorActivity : Activity() {
     }
 
     private fun shareHostedRoom(room: HostedRoom) {
-        val entries = SeedHistoryStore.list(this).filter { entry ->
-            entry.patches.isNotEmpty() && entry.patches.all { File(it.path).isFile }
-        }
+        val entries = SeedHistoryStore.list(this).filter { inviteChoices(it).isNotEmpty() }
         if (entries.isEmpty()) {
-            status.text = "No locally stored player patches are available for this room."
+            val patchlessChoices = patchlessInviteChoices(room)
+            if (patchlessChoices.isNotEmpty()) {
+                chooseInvitePlayer(room, patchlessChoices)
+            } else {
+                status.text = "No locally stored seed with shareable players is available for this room."
+            }
             return
         }
 
@@ -1500,10 +1509,14 @@ class GeneratorActivity : Activity() {
 
         val hostedNames = room.players.map { hostedPlayerName(it) }
         val matchingEntries = entries.filter { it.players == hostedNames }
+        val patchlessChoices = patchlessInviteChoices(room)
         when {
             matchingEntries.size == 1 -> {
                 HostedRoomHistoryLinks.save(this, room.roomId, matchingEntries.single().id)
                 chooseInvitePlayer(room, matchingEntries.single())
+            }
+            matchingEntries.isEmpty() && patchlessChoices.isNotEmpty() -> {
+                chooseInvitePlayer(room, patchlessChoices)
             }
             else -> chooseInviteSeed(room, matchingEntries.ifEmpty { entries })
         }
@@ -1517,7 +1530,9 @@ class GeneratorActivity : Activity() {
         }.toTypedArray()
         AlertDialog.Builder(this)
             .setTitle("Choose the local seed for this room")
-            .setMessage("The selected seed supplies the player-specific patch embedded in the invitation.")
+            .setMessage(
+                "The selected seed supplies the player's game and, when required, the patch embedded in the invitation.",
+            )
             .setNegativeButton("Cancel", null)
             .setItems(labels) { _, index ->
                 val entry = entries[index]
@@ -1528,39 +1543,105 @@ class GeneratorActivity : Activity() {
     }
 
     private fun chooseInvitePlayer(room: HostedRoom, entry: SeedHistoryEntry) {
-        val choices = entry.patches.mapIndexedNotNull { index, patch ->
-            val file = File(patch.path).takeIf { it.isFile } ?: return@mapIndexedNotNull null
-            val slot = playerSlotFromPatchName(patch.name, index)
-            val playerName = entry.players.getOrNull(slot - 1) ?: "Player $slot"
-            Triple(slot, playerName, file)
-        }.sortedBy { it.first }
+        chooseInvitePlayer(room, inviteChoices(entry))
+    }
+
+    private fun chooseInvitePlayer(room: HostedRoom, choices: List<HostedInviteChoice>) {
         if (choices.isEmpty()) {
-            status.text = "The selected seed no longer has any stored player patches."
+            status.text = "The selected seed has no shareable player invites."
             return
         }
         AlertDialog.Builder(this)
             .setTitle("Share invite for which player?")
-            .setItems(choices.map { "Player ${it.first} · ${it.second}" }.toTypedArray()) { _, index ->
-                val (slot, playerName, patch) = choices[index]
-                status.text = "Preparing $playerName's multiplayer invitation…"
-                thread(name = "player-invite-package") {
-                    runCatching { patch.readBytes() }
-                        .onSuccess { patchBytes -> runOnUiThread {
-                            runCatching {
-                                RoomInvite.share(this, room, slot, playerName, patch.name, patchBytes)
-                            }.onSuccess {
-                                status.text = "Player-specific invitation ready for $playerName."
-                            }.onFailure { showError("Could not share player invitation", it) }
-                        } }
-                        .onFailure { showError("Could not read ${patch.name}", it) }
+            .setItems(choices.map { choice ->
+                buildString {
+                    append("Player ${choice.slot} · ${choice.playerName} · ${choice.game}")
+                    if (choice.patch == null) append(" · no patch needed")
+                }
+            }.toTypedArray()) { _, index ->
+                val choice = choices[index]
+                status.text = "Preparing ${choice.playerName}'s multiplayer invitation…"
+                val patch = choice.patch
+                if (patch == null) {
+                    runCatching {
+                        RoomInvite.sharePatchless(
+                            this,
+                            room,
+                            choice.slot,
+                            choice.playerName,
+                            choice.game,
+                        )
+                    }.onSuccess {
+                        status.text = "Patchless player invitation ready for ${choice.playerName}."
+                    }.onFailure { showError("Could not share player invitation", it) }
+                } else {
+                    thread(name = "player-invite-package") {
+                        runCatching { patch.readBytes() }
+                            .onSuccess { patchBytes -> runOnUiThread {
+                                runCatching {
+                                    RoomInvite.share(
+                                        this,
+                                        room,
+                                        choice.slot,
+                                        choice.playerName,
+                                        patch.name,
+                                        patchBytes,
+                                    )
+                                }.onSuccess {
+                                    status.text = "Player-specific invitation ready for ${choice.playerName}."
+                                }.onFailure { showError("Could not share player invitation", it) }
+                            } }
+                            .onFailure { showError("Could not read ${patch.name}", it) }
+                    }
                 }
             }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
+    private fun inviteChoices(entry: SeedHistoryEntry): List<HostedInviteChoice> {
+        val playerGames = playerGamesFromYaml(entry.yaml)
+        val patchesBySlot = entry.patches.mapIndexedNotNull { index, patch ->
+            File(patch.path).takeIf { it.isFile }?.let { file ->
+                playerSlotFromPatchName(patch.name, index) to file
+            }
+        }.toMap()
+        val catalog = OfflineGenerator.cachedCatalog().associateBy { it.game }
+        return entry.players.mapIndexedNotNull { index, playerName ->
+            val slot = index + 1
+            val patch = patchesBySlot[slot]
+            val game = playerGames.getOrNull(index)
+                ?: patch?.let(::gameFromPatchFile)
+                ?: return@mapIndexedNotNull null
+            val patchlessSupported = SohLauncher.isGame(game) || catalog[game]?.romPatch == false
+            if (patch == null && !patchlessSupported) return@mapIndexedNotNull null
+            HostedInviteChoice(slot, playerName, game, patch)
+        }
+    }
+
+    private fun patchlessInviteChoices(room: HostedRoom): List<HostedInviteChoice> {
+        val catalog = OfflineGenerator.cachedCatalog().associateBy { it.game }
+        return room.players.mapIndexedNotNull { index, displayName ->
+            val game = hostedPlayerGame(displayName) ?: return@mapIndexedNotNull null
+            if (!SohLauncher.isGame(game) && catalog[game]?.romPatch != false) return@mapIndexedNotNull null
+            HostedInviteChoice(
+                slot = index + 1,
+                playerName = hostedPlayerName(displayName),
+                game = game,
+                patch = null,
+            )
+        }
+    }
+
     private fun hostedPlayerName(displayName: String): String =
         displayName.replace(Regex(" \\([^()]+\\)$"), "")
+
+    private fun hostedPlayerGame(displayName: String): String? =
+        Regex(" \\(([^()]*)\\)$").find(displayName.trim())
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
 
     private fun confirmWebsiteSessionSync() {
         AlertDialog.Builder(this)
