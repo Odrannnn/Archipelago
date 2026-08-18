@@ -183,8 +183,9 @@ an in-app website view which receives that private session cookie, so owner-only
 controls work without placing the secret session identifier in a URL. External
 links leave the in-app view without receiving its cookie. **Sync website
 session** remains the explicit way to grant the normal phone browser the same
-access. Trackers and online server addresses are available from the
-hosted-instances section. **Share multiplayer invite** first
+access. Trackers, online server addresses, and room-management actions are
+available from the dedicated **Hosted rooms** screen on the main page. Room
+creation itself remains in the seed generator. **Share multiplayer invite** first
 selects a player slot, then opens Android's share sheet with a player-specific
 `.apinvite` package. The package contains the public room identifiers and that
 player's locally stored APWorld patch, protected by an integrity hash; it

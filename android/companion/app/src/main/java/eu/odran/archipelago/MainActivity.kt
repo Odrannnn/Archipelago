@@ -173,6 +173,13 @@ class MainActivity : Activity() {
                 )
             }
         }
+        val hostedRooms = Button(this).apply {
+            text = "Hosted rooms"
+            CompanionUi.styleSecondary(this)
+            setOnClickListener {
+                startActivity(Intent(this@MainActivity, HostedRoomsActivity::class.java))
+            }
+        }
         inviteStatus = TextView(this).apply {
             CompanionUi.styleMuted(this)
             setPadding(0, CompanionUi.dp(this@MainActivity, 8), 0, 0)
@@ -222,6 +229,7 @@ class MainActivity : Activity() {
                     addView(manageRooms, CompanionUi.weightedButtonParams(this@MainActivity))
                 }
                 addView(secondaryActions, CompanionUi.insetTop(secondaryActions, this@MainActivity, 6))
+                addView(hostedRooms, CompanionUi.insetTop(hostedRooms, this@MainActivity, 6))
             }, CompanionUi.cardParams(this@MainActivity))
 
             val connectionFields = LinearLayout(this@MainActivity).apply {

@@ -50,6 +50,9 @@
             android:name=".GeneratorActivity"
             android:exported="false" />
         <activity
+            android:name=".HostedRoomsActivity"
+            android:exported="false" />
+        <activity
             android:name=".ApWorldManagerActivity"
             android:exported="false" />
         <activity

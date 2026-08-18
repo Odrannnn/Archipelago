@@ -2,8 +2,6 @@ package eu.odran.archipelago
 
 import android.app.Activity
 import android.app.AlertDialog
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Typeface
@@ -30,7 +28,6 @@ import org.json.JSONObject
 import org.json.JSONTokener
 import java.io.File
 import java.text.DateFormat
-import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.zip.ZipFile
@@ -41,13 +38,6 @@ private data class GeneratorStartupState(
     val schemas: Map<String, GameOptionSchema>,
     val catalog: List<WorldCapability>,
     val draft: GeneratorDraft?,
-)
-
-private data class HostedInviteChoice(
-    val slot: Int,
-    val playerName: String,
-    val game: String,
-    val patch: File?,
 )
 
 /** Creates player YAMLs, generates seeds, and patches a user-supplied ROM entirely offline. */
@@ -67,9 +57,6 @@ class GeneratorActivity : Activity() {
     private lateinit var patchesContainer: LinearLayout
     private lateinit var historyContainer: LinearLayout
     private lateinit var historyToggleButton: Button
-    private lateinit var hostedRoomsContainer: LinearLayout
-    private lateinit var refreshHostedRoomsButton: Button
-    private lateinit var restoreHostedRoomsButton: Button
     private lateinit var status: TextView
     private lateinit var webHostClient: ArchipelagoWebHostClient
 
@@ -154,9 +141,6 @@ class GeneratorActivity : Activity() {
                     updateHistoryToggleLabel()
                 }
             }
-        }
-        hostedRoomsContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
         }
 
         val addPlayerButton = Button(this).apply {
@@ -265,6 +249,13 @@ class GeneratorActivity : Activity() {
             isEnabled = false
             setOnClickListener { seedFile?.let { hostSeed(it, currentHistoryId) } }
         }
+        val viewHostedRoomsButton = Button(this).apply {
+            text = "View hosted rooms"
+            CompanionUi.styleQuiet(this)
+            setOnClickListener {
+                startActivity(Intent(this@GeneratorActivity, HostedRoomsActivity::class.java))
+            }
+        }
         patchButton = Button(this).apply {
             text = "Create patched ROM"
             CompanionUi.stylePrimary(this)
@@ -323,37 +314,6 @@ class GeneratorActivity : Activity() {
                 startActivity(Intent(this@GeneratorActivity, ApWorldManagerActivity::class.java))
             }
         }
-        val hostedTools = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            refreshHostedRoomsButton = Button(this@GeneratorActivity).apply {
-                text = "Refresh hosted instances"
-                CompanionUi.styleSecondary(this)
-                setOnClickListener { refreshHostedRooms() }
-            }
-            addView(refreshHostedRoomsButton, matchWrapParams())
-            restoreHostedRoomsButton = Button(this@GeneratorActivity).apply {
-                CompanionUi.styleQuiet(this)
-                setOnClickListener { confirmRestoreHostedRooms() }
-            }
-            addView(restoreHostedRoomsButton, CompanionUi.insetTop(this, this@GeneratorActivity, 4))
-            updateRestoreHostedRoomsButton()
-            addView(Button(this@GeneratorActivity).apply {
-                text = "Sync website session"
-                CompanionUi.styleQuiet(this)
-                setOnClickListener { confirmWebsiteSessionSync() }
-            }, CompanionUi.insetTop(this, this@GeneratorActivity, 4))
-            addView(Button(this@GeneratorActivity).apply {
-                text = "Open website instance list"
-                CompanionUi.styleQuiet(this)
-                setOnClickListener {
-                    openAuthenticatedWebUrl(
-                        "${ArchipelagoWebHostClient.BASE_URL}/user-content",
-                        "Hosted instances",
-                    )
-                }
-            }, CompanionUi.insetTop(this, this@GeneratorActivity, 4))
-            addView(hostedRoomsContainer, CompanionUi.insetTop(hostedRoomsContainer, this@GeneratorActivity, 8))
-        }
         val content = CompanionUi.screen(this).apply {
             addView(CompanionUi.pageTitle(
                 this@GeneratorActivity,
@@ -405,21 +365,10 @@ class GeneratorActivity : Activity() {
                 addView(generateButton, matchWrapParams())
                 addView(exportSeedButton, CompanionUi.insetTop(exportSeedButton, this@GeneratorActivity, 4))
                 addView(hostSeedButton, CompanionUi.insetTop(hostSeedButton, this@GeneratorActivity, 4))
+                addView(viewHostedRoomsButton, CompanionUi.insetTop(viewHostedRoomsButton, this@GeneratorActivity, 4))
                 addView(patchesContainer, CompanionUi.insetTop(patchesContainer, this@GeneratorActivity, 8))
                 addView(patchButton, CompanionUi.insetTop(patchButton, this@GeneratorActivity, 4))
                 addView(forgetBaseRomButton, CompanionUi.insetTop(forgetBaseRomButton, this@GeneratorActivity, 4))
-            }, CompanionUi.cardParams(this@GeneratorActivity))
-
-            addView(CompanionUi.card(
-                this@GeneratorActivity,
-                "Hosted instances",
-                "Rooms are tied to this app's private archipelago.gg website session. Remove hides them only on this device.",
-            ).apply {
-                addView(
-                    CompanionUi.toggleButton(this@GeneratorActivity, "hosted instances", hostedTools),
-                    matchWrapParams(),
-                )
-                addView(hostedTools, matchWrapParams())
             }, CompanionUi.cardParams(this@GeneratorActivity))
 
             addView(CompanionUi.card(
@@ -437,7 +386,6 @@ class GeneratorActivity : Activity() {
         }
         SystemBarInsets.apply(window, screenScrollView)
         setContentView(screenScrollView)
-        renderHostedRooms(webHostClient.cachedRooms())
         renderHistory()
 
         val savedDraft = GeneratorDraftStore.load(this)
@@ -1319,11 +1267,10 @@ class GeneratorActivity : Activity() {
                         hostingInProgress = false
                         hostSeedButton.isEnabled = seedFile?.isFile == true
                         renderHistory()
-                        renderHostedRooms(result.rooms)
                         status.text = if (result.room.lastPort > 0) {
-                            "Room created · connect to archipelago.gg:${result.room.lastPort}"
+                            "Room created · connect to archipelago.gg:${result.room.lastPort}. Open Hosted rooms to manage it."
                         } else {
-                            "Room created on archipelago.gg. It is starting; refresh hosted instances for its port."
+                            "Room created on archipelago.gg. Open Hosted rooms to refresh its port and manage it."
                         }
                     }
                 }
@@ -1336,406 +1283,6 @@ class GeneratorActivity : Activity() {
                     showError("Could not host seed", error)
                 }
         }
-    }
-
-    private fun refreshHostedRooms() {
-        refreshHostedRoomsButton.isEnabled = false
-        status.text = "Refreshing hosted instances from archipelago.gg…"
-        thread(name = "archipelago-web-host-refresh") {
-            runCatching { webHostClient.refreshRooms() }
-                .onSuccess { rooms ->
-                    runOnUiThread {
-                        refreshHostedRoomsButton.isEnabled = true
-                        renderHostedRooms(rooms)
-                        status.text = if (rooms.isEmpty()) {
-                            "No hosted instances belong to this app's website session yet."
-                        } else {
-                            "Found ${rooms.size} hosted instance${if (rooms.size == 1) "" else "s"}."
-                        }
-                    }
-                }
-                .onFailure { error ->
-                    runOnUiThread { refreshHostedRoomsButton.isEnabled = true }
-                    showError("Could not refresh hosted instances", error)
-                }
-        }
-    }
-
-    private fun renderHostedRooms(rooms: List<HostedRoom>) =
-        preserveScrollPosition { renderHostedRoomsContent(rooms) }
-
-    private fun renderHostedRoomsContent(rooms: List<HostedRoom>) {
-        hostedRoomsContainer.removeAllViews()
-        updateRestoreHostedRoomsButton()
-        if (rooms.isEmpty()) {
-            hostedRoomsContainer.addView(TextView(this).apply {
-                text = "No hosted instances are cached on this device."
-            })
-            return
-        }
-        rooms.forEach { room ->
-            val linkedEntry = HostedRoomHistoryLinks.historyId(this, room.roomId)?.let { linkedId ->
-                SeedHistoryStore.list(this).firstOrNull { it.id == linkedId }
-            }
-            val patchlessRoomChoices = patchlessInviteChoices(room)
-            val linkedSeedCanShareInvite = linkedEntry?.let(::inviteChoices)?.isNotEmpty()
-            val sohPlayers = SohLauncher.players(room.players)
-            hostedRoomsContainer.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(0, 12, 0, 20)
-                addView(TextView(this@GeneratorActivity).apply {
-                    val state = when {
-                        room.lastPort > 0 -> "Online · archipelago.gg:${room.lastPort}"
-                        room.lastPort < 0 -> "Server error"
-                        else -> "Starting or sleeping"
-                    }
-                    val players = room.players.takeIf { it.isNotEmpty() }?.joinToString().orEmpty()
-                    val created = formatWebsiteTime(room.creationTime)
-                    text = buildString {
-                        append(state)
-                        if (created.isNotBlank()) append("\nCreated $created")
-                        if (players.isNotBlank()) append("\n$players")
-                    }
-                    textSize = 16f
-                })
-                if (sohPlayers.isNotEmpty()) {
-                    addView(Button(this@GeneratorActivity).apply {
-                        text = if (room.lastPort > 0) {
-                            "Launch Ship of Harkinian"
-                        } else {
-                            "SoH unavailable until server starts"
-                        }
-                        isEnabled = room.lastPort > 0
-                        setOnClickListener { chooseSohPlayer(room, sohPlayers) }
-                    }, matchWrapParams())
-                }
-                addView(Button(this@GeneratorActivity).apply {
-                    text = if (linkedSeedCanShareInvite == false && patchlessRoomChoices.isEmpty()) {
-                        "Player invite unavailable"
-                    } else {
-                        "Share multiplayer invite"
-                    }
-                    isEnabled = linkedSeedCanShareInvite != false || patchlessRoomChoices.isNotEmpty()
-                    setOnClickListener { shareHostedRoom(room) }
-                }, matchWrapParams())
-                addView(Button(this@GeneratorActivity).apply {
-                    text = "Open room controls"
-                    setOnClickListener {
-                        openAuthenticatedWebUrl(
-                            "${ArchipelagoWebHostClient.BASE_URL}/room/${room.roomId}",
-                            "Room controls",
-                        )
-                    }
-                }, matchWrapParams())
-                if (room.trackerId.isNotBlank()) {
-                    addView(Button(this@GeneratorActivity).apply {
-                        text = "Open tracker"
-                        setOnClickListener {
-                            openWebUrl("${ArchipelagoWebHostClient.BASE_URL}/tracker/${room.trackerId}")
-                        }
-                    }, matchWrapParams())
-                }
-                if (room.lastPort > 0) {
-                    addView(Button(this@GeneratorActivity).apply {
-                        text = "Copy server address"
-                        setOnClickListener {
-                            val address = "archipelago.gg:${room.lastPort}"
-                            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("Archipelago server", address))
-                            status.text = "Copied $address"
-                        }
-                    }, matchWrapParams())
-                }
-                addView(Button(this@GeneratorActivity).apply {
-                    text = "Remove from this app"
-                    CompanionUi.styleDanger(this)
-                    setOnClickListener { confirmDismissHostedRoom(room) }
-                }, CompanionUi.insetTop(this, this@GeneratorActivity, 4))
-            }, matchWrapParams())
-        }
-    }
-
-    private fun confirmDismissHostedRoom(room: HostedRoom) {
-        val playerSummary = room.players.takeIf { it.isNotEmpty() }?.joinToString().orEmpty()
-        AlertDialog.Builder(this)
-            .setTitle("Remove hosted room from this app?")
-            .setMessage(
-                buildString {
-                    append("This removes the room from the companion's hosted list and clears its local saved-room and seed links.")
-                    if (playerSummary.isNotBlank()) append("\n\n$playerSummary")
-                    append(
-                        "\n\nIt does not stop or delete the room or seed on archipelago.gg. " +
-                            "The room will remain hidden after refresh until you restore removed rooms.",
-                    )
-                },
-            )
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Remove locally") { _, _ ->
-                val visibleRooms = webHostClient.dismissRoom(room.roomId)
-                HostedRoomHistoryLinks.remove(this, room.roomId)
-                JoinedRoomStore.delete(this, room.roomId)
-                renderHostedRooms(visibleRooms)
-                status.text = "Removed the hosted room from this app. The archipelago.gg room was not deleted."
-            }
-            .show()
-    }
-
-    private fun confirmRestoreHostedRooms() {
-        val count = webHostClient.dismissedRoomCount()
-        if (count == 0) return
-        AlertDialog.Builder(this)
-            .setTitle("Restore removed hosted rooms?")
-            .setMessage(
-                "The companion will show the $count locally removed room${if (count == 1) "" else "s"} " +
-                    "again if they are still present in this app's archipelago.gg website session.",
-            )
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Restore and refresh") { _, _ ->
-                webHostClient.restoreDismissedRooms()
-                updateRestoreHostedRoomsButton()
-                refreshHostedRooms()
-            }
-            .show()
-    }
-
-    private fun updateRestoreHostedRoomsButton() {
-        if (!::restoreHostedRoomsButton.isInitialized) return
-        val count = webHostClient.dismissedRoomCount()
-        restoreHostedRoomsButton.visibility = if (count > 0) View.VISIBLE else View.GONE
-        restoreHostedRoomsButton.text =
-            "Restore $count removed room${if (count == 1) "" else "s"}"
-    }
-
-    private fun chooseSohPlayer(room: HostedRoom, players: List<SohPlayer>) {
-        if (room.lastPort <= 0) {
-            status.text = "Refresh hosted instances after the room server has started."
-            return
-        }
-        fun launch(player: SohPlayer) {
-            val address = "archipelago.gg:${room.lastPort}"
-            SohLauncher.promptAndLaunch(
-                this,
-                address,
-                player.name,
-                onLaunched = {
-                    JoinedRoomStore.save(
-                        this,
-                        room,
-                        RoomInvite(
-                            roomId = room.roomId,
-                            seedId = room.seedId,
-                            playerSlot = player.slot,
-                            playerName = player.name,
-                            gameName = SohLauncher.GAME_NAME,
-                        ),
-                    )
-                    status.text = "Launching Ship of Harkinian as ${player.name} at $address…"
-                },
-                onFailure = {
-                    status.text =
-                        "Could not launch Ship of Harkinian. Make sure the Archipelago-enabled SoH Android app is installed."
-                },
-            )
-        }
-
-        if (players.size == 1) {
-            launch(players.single())
-            return
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Launch which SoH player?")
-            .setItems(players.map { "Slot ${it.slot} · ${it.name}" }.toTypedArray()) { _, index ->
-                launch(players[index])
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun shareHostedRoom(room: HostedRoom) {
-        val entries = SeedHistoryStore.list(this).filter { inviteChoices(it).isNotEmpty() }
-        if (entries.isEmpty()) {
-            val patchlessChoices = patchlessInviteChoices(room)
-            if (patchlessChoices.isNotEmpty()) {
-                chooseInvitePlayer(room, patchlessChoices)
-            } else {
-                status.text = "No locally stored seed with shareable players is available for this room."
-            }
-            return
-        }
-
-        val linkedEntry = HostedRoomHistoryLinks.historyId(this, room.roomId)?.let { linkedId ->
-            entries.firstOrNull { it.id == linkedId }
-        }
-        if (linkedEntry != null) {
-            chooseInvitePlayer(room, linkedEntry)
-            return
-        }
-
-        val hostedNames = room.players.map { hostedPlayerName(it) }
-        val matchingEntries = entries.filter { it.players == hostedNames }
-        val patchlessChoices = patchlessInviteChoices(room)
-        when {
-            matchingEntries.size == 1 -> {
-                HostedRoomHistoryLinks.save(this, room.roomId, matchingEntries.single().id)
-                chooseInvitePlayer(room, matchingEntries.single())
-            }
-            matchingEntries.isEmpty() && patchlessChoices.isNotEmpty() -> {
-                chooseInvitePlayer(room, patchlessChoices)
-            }
-            else -> chooseInviteSeed(room, matchingEntries.ifEmpty { entries })
-        }
-    }
-
-    private fun chooseInviteSeed(room: HostedRoom, entries: List<SeedHistoryEntry>) {
-        val labels = entries.map { entry ->
-            val date = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-                .format(Date(entry.createdAt))
-            "Seed ${entry.seed} · ${entry.players.joinToString()} · $date"
-        }.toTypedArray()
-        AlertDialog.Builder(this)
-            .setTitle("Choose the local seed for this room")
-            .setMessage(
-                "The selected seed supplies the player's game and, when required, the patch embedded in the invitation.",
-            )
-            .setNegativeButton("Cancel", null)
-            .setItems(labels) { _, index ->
-                val entry = entries[index]
-                HostedRoomHistoryLinks.save(this, room.roomId, entry.id)
-                chooseInvitePlayer(room, entry)
-            }
-            .show()
-    }
-
-    private fun chooseInvitePlayer(room: HostedRoom, entry: SeedHistoryEntry) {
-        chooseInvitePlayer(room, inviteChoices(entry))
-    }
-
-    private fun chooseInvitePlayer(room: HostedRoom, choices: List<HostedInviteChoice>) {
-        if (choices.isEmpty()) {
-            status.text = "The selected seed has no shareable player invites."
-            return
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Share invite for which player?")
-            .setItems(choices.map { choice ->
-                buildString {
-                    append("Player ${choice.slot} · ${choice.playerName} · ${choice.game}")
-                    if (choice.patch == null) append(" · no patch needed")
-                }
-            }.toTypedArray()) { _, index ->
-                val choice = choices[index]
-                status.text = "Preparing ${choice.playerName}'s multiplayer invitation…"
-                val patch = choice.patch
-                if (patch == null) {
-                    runCatching {
-                        RoomInvite.sharePatchless(
-                            this,
-                            room,
-                            choice.slot,
-                            choice.playerName,
-                            choice.game,
-                        )
-                    }.onSuccess {
-                        status.text = "Patchless player invitation ready for ${choice.playerName}."
-                    }.onFailure { showError("Could not share player invitation", it) }
-                } else {
-                    thread(name = "player-invite-package") {
-                        runCatching { patch.readBytes() }
-                            .onSuccess { patchBytes -> runOnUiThread {
-                                runCatching {
-                                    RoomInvite.share(
-                                        this,
-                                        room,
-                                        choice.slot,
-                                        choice.playerName,
-                                        patch.name,
-                                        patchBytes,
-                                    )
-                                }.onSuccess {
-                                    status.text = "Player-specific invitation ready for ${choice.playerName}."
-                                }.onFailure { showError("Could not share player invitation", it) }
-                            } }
-                            .onFailure { showError("Could not read ${patch.name}", it) }
-                    }
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun inviteChoices(entry: SeedHistoryEntry): List<HostedInviteChoice> {
-        val playerGames = playerGamesFromYaml(entry.yaml)
-        val patchesBySlot = entry.patches.mapIndexedNotNull { index, patch ->
-            File(patch.path).takeIf { it.isFile }?.let { file ->
-                playerSlotFromPatchName(patch.name, index) to file
-            }
-        }.toMap()
-        val catalog = OfflineGenerator.cachedCatalog().associateBy { it.game }
-        return entry.players.mapIndexedNotNull { index, playerName ->
-            val slot = index + 1
-            val patch = patchesBySlot[slot]
-            val game = playerGames.getOrNull(index)
-                ?: patch?.let(::gameFromPatchFile)
-                ?: return@mapIndexedNotNull null
-            val patchlessSupported = SohLauncher.isGame(game) || catalog[game]?.romPatch == false
-            if (patch == null && !patchlessSupported) return@mapIndexedNotNull null
-            HostedInviteChoice(slot, playerName, game, patch)
-        }
-    }
-
-    private fun patchlessInviteChoices(room: HostedRoom): List<HostedInviteChoice> {
-        val catalog = OfflineGenerator.cachedCatalog().associateBy { it.game }
-        return room.players.mapIndexedNotNull { index, displayName ->
-            val game = hostedPlayerGame(displayName) ?: return@mapIndexedNotNull null
-            if (!SohLauncher.isGame(game) && catalog[game]?.romPatch != false) return@mapIndexedNotNull null
-            HostedInviteChoice(
-                slot = index + 1,
-                playerName = hostedPlayerName(displayName),
-                game = game,
-                patch = null,
-            )
-        }
-    }
-
-    private fun hostedPlayerName(displayName: String): String =
-        displayName.replace(Regex(" \\([^()]+\\)$"), "")
-
-    private fun hostedPlayerGame(displayName: String): String? =
-        Regex(" \\(([^()]*)\\)$").find(displayName.trim())
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
-
-    private fun confirmWebsiteSessionSync() {
-        AlertDialog.Builder(this)
-            .setTitle("Sync archipelago.gg website session?")
-            .setMessage(
-                "This opens the companion's secret session link in your browser. It makes this app's uploaded " +
-                    "seeds and rooms appear under User Content there. Anyone who obtains that link can manage " +
-                    "those instances, so do not share it.",
-            )
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Open secret link") { _, _ -> openWebUrl(webHostClient.sessionSyncUrl()) }
-            .show()
-    }
-
-    private fun openWebUrl(url: String) {
-        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-    }
-
-    private fun openAuthenticatedWebUrl(url: String, title: String) {
-        startActivity(AuthenticatedWebActivity.intent(this, url, title))
-    }
-
-    private fun formatWebsiteTime(value: String): String {
-        if (value.isBlank() || value == "null") return ""
-        val parsed = runCatching {
-            SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.US).parse(value)
-        }.getOrNull()
-        return parsed?.let {
-            DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(it)
-        } ?: value
     }
 
     private fun confirmDelete(entry: SeedHistoryEntry) {

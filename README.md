@@ -120,6 +120,9 @@ status, open authenticated room controls and the instance list inside the app,
 open trackers, and explicitly synchronize its website session with a normal
 browser when requested.
 
+Room creation remains in the seed generator, while ongoing room management is
+available from the dedicated **Hosted rooms** screen on the app's main page.
+
 Player-specific version 4 `.apinvite` files contain the public room identifiers,
 selected player, slot, and game. Games which require a player patch also include
 that patch and its SHA-256 integrity hash; patchless games such as Ship of
@@ -133,7 +136,7 @@ refresh their current server ports, retain a separate saved-ROM shortcut for
 each player, or remove a local room record without deleting the hosted room.
 Website-hosted rooms can likewise be removed from the companion's hosted list
 without stopping or deleting them on archipelago.gg. Removed entries stay hidden
-across refreshes and can be restored from the hosted-instance controls.
+across refreshes and can be restored from the **Hosted rooms** screen.
 
 ### Launch related Android apps
 
