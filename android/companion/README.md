@@ -158,6 +158,17 @@ provides a file-picker fallback when a receiving app
 does not open the attachment directly. **Sync website session** is separate and
 its secret link must not be shared.
 
+Hosted rooms containing players whose game is `Ship of Harkinian` also show
+**Launch Ship of Harkinian**. If the room has multiple SoH players, the companion
+first asks which ordered Archipelago slot to use, then asks for the optional room
+password. It starts `com.dishii.soh/.MainActivity` with the
+`com.dishii.soh.action.CONNECT_ARCHIPELAGO` action and the
+`archipelago_address`, `archipelago_slot`, and, when non-empty,
+`archipelago_password` extras. The password is never placed in a deep-link URL.
+The selected hosted room and player are remembered so the same launch action is
+available from the main screen. SoH connects to the Archipelago server directly,
+so its connection does not use the companion's emulator bridge.
+
 The app applies a selected supported player patch through its registered APWorld
 handler. It discovers all checksum-validated ROM settings declared by that world,
 including secondary inputs used by multi-ROM patches. Only after the complete

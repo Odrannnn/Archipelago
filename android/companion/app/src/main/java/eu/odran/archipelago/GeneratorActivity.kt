@@ -1289,6 +1289,7 @@ class GeneratorActivity : Activity() {
             val linkedSeedHasInvitePatch = linkedEntry?.let { entry ->
                 entry.patches.isNotEmpty() && entry.patches.all { File(it.path).isFile }
             }
+            val sohPlayers = SohLauncher.players(room.players)
             hostedRoomsContainer.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(0, 12, 0, 20)
@@ -1307,6 +1308,17 @@ class GeneratorActivity : Activity() {
                     }
                     textSize = 16f
                 })
+                if (sohPlayers.isNotEmpty()) {
+                    addView(Button(this@GeneratorActivity).apply {
+                        text = if (room.lastPort > 0) {
+                            "Launch Ship of Harkinian"
+                        } else {
+                            "SoH unavailable until server starts"
+                        }
+                        isEnabled = room.lastPort > 0
+                        setOnClickListener { chooseSohPlayer(room, sohPlayers) }
+                    }, matchWrapParams())
+                }
                 addView(Button(this@GeneratorActivity).apply {
                     text = if (linkedSeedHasInvitePatch == false) {
                         "Player invite unavailable (no patch)"
@@ -1346,6 +1358,51 @@ class GeneratorActivity : Activity() {
                 }
             }, matchWrapParams())
         }
+    }
+
+    private fun chooseSohPlayer(room: HostedRoom, players: List<SohPlayer>) {
+        if (room.lastPort <= 0) {
+            status.text = "Refresh hosted instances after the room server has started."
+            return
+        }
+        fun launch(player: SohPlayer) {
+            val address = "archipelago.gg:${room.lastPort}"
+            SohLauncher.promptAndLaunch(
+                this,
+                address,
+                player.name,
+                onLaunched = {
+                    JoinedRoomStore.save(
+                        this,
+                        room,
+                        RoomInvite(
+                            roomId = room.roomId,
+                            seedId = room.seedId,
+                            playerSlot = player.slot,
+                            playerName = player.name,
+                            gameName = SohLauncher.GAME_NAME,
+                        ),
+                    )
+                    status.text = "Launching Ship of Harkinian as ${player.name} at $address…"
+                },
+                onFailure = {
+                    status.text =
+                        "Could not launch Ship of Harkinian. Make sure the Archipelago-enabled SoH Android app is installed."
+                },
+            )
+        }
+
+        if (players.size == 1) {
+            launch(players.single())
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Launch which SoH player?")
+            .setItems(players.map { "Slot ${it.slot} · ${it.name}" }.toTypedArray()) { _, index ->
+                launch(players[index])
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun shareHostedRoom(room: HostedRoom) {

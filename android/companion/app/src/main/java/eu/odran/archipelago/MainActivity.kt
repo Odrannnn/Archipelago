@@ -157,7 +157,7 @@ class MainActivity : Activity() {
                 CompanionUi.pageTitle(
                     this@MainActivity,
                     "Archipelago Companion",
-                    "Play, generate, and manage mGBA multiworlds from your phone.",
+                    "Play, generate, host, and launch supported multiworlds from your phone.",
                 ),
                 CompanionUi.fullWidth(),
             )
@@ -768,6 +768,34 @@ class MainActivity : Activity() {
                         "Could not open PopTracker. Make sure the PopTracker Android app is installed and up to date."
                 }
             }
+        }
+
+        if (SohLauncher.isGame(room.gameName) && !room.playerName.isNullOrBlank()) {
+            joinedRoomContainer.addView(Button(this).apply {
+                text = if (room.port > 0) {
+                    "Launch Ship of Harkinian"
+                } else {
+                    "SoH unavailable until refresh"
+                }
+                isEnabled = room.port > 0
+                CompanionUi.stylePrimary(this)
+                setOnClickListener {
+                    val host = room.serverAddress() ?: return@setOnClickListener
+                    val selectedPlayer = room.playerName ?: return@setOnClickListener
+                    SohLauncher.promptAndLaunch(
+                        this@MainActivity,
+                        host,
+                        selectedPlayer,
+                        onLaunched = {
+                            inviteStatus.text = "Launching Ship of Harkinian as $selectedPlayer at $host…"
+                        },
+                        onFailure = {
+                            inviteStatus.text =
+                                "Could not launch Ship of Harkinian. Make sure the Archipelago-enabled SoH Android app is installed."
+                        },
+                    )
+                }
+            }, matchWrapParams())
         }
 
         if (!room.patchedRomUri.isNullOrBlank()) {

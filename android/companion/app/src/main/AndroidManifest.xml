@@ -1,5 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <queries>
+        <package android:name="com.dishii.soh" />
         <package android:name="com.retroarch.aarch64" />
         <package android:name="io.github.poptracker.android" />
     </queries>

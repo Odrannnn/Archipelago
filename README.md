@@ -78,6 +78,9 @@ standard procedure patches which produce `.gba`, `.gbc`, or `.gb` files can be a
 their registered APWorld handler without app-specific patch code. Self-connecting
 games which produce no player patch can still generate, save, and host their seed
 ZIP; ROM creation and player-specific companion invitations are simply unavailable.
+Hosted `Ship of Harkinian` players are the exception to the generic launch limitation:
+the companion can select their slot and launch the Archipelago-enabled SoH Android
+port directly because that game owns its server connection and needs no emulator bridge.
 APWorlds are
 executable Python and are not sandboxed, so only packages from trusted authors
 should be installed. Imported worlds with a standard GBA, GB, or GBC `BizHawkClient` can
@@ -117,6 +120,9 @@ each player, or remove a local room record without deleting the hosted room.
   mappings, overrides, and remaps.
 - Opens the PopTracker Android app with the imported room's game identifier,
   active server address, selected player name, and room password.
+- Launches the Archipelago-enabled Ship of Harkinian Android port for a selected
+  hosted SoH player, passing the server, slot name, and optional password through
+  explicit intent extras. SoH connects to the room directly; the mGBA bridge is not used.
 
 ## How it is structured
 
