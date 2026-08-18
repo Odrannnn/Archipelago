@@ -1739,7 +1739,9 @@ class GeneratorActivity : Activity() {
                     status.text = "Saved ${export.first}"
                     if (export.first.endsWith(".gba", ignoreCase = true) ||
                         export.first.endsWith(".gbc", ignoreCase = true) ||
-                        export.first.endsWith(".gb", ignoreCase = true)
+                        export.first.endsWith(".gb", ignoreCase = true) ||
+                        export.first.endsWith(".sfc", ignoreCase = true) ||
+                        export.first.endsWith(".smc", ignoreCase = true)
                     ) {
                         offerRetroArchLaunch(export.first, destination)
                     }
@@ -1750,9 +1752,15 @@ class GeneratorActivity : Activity() {
     }
 
     private fun offerRetroArchLaunch(name: String, uri: Uri) {
+        val snes = name.endsWith(".sfc", ignoreCase = true) || name.endsWith(".smc", ignoreCase = true)
+        val coreDescription = if (snes) {
+            "the custom SNES9x Archipelago core."
+        } else {
+            "the custom mGBA Archipelago core."
+        }
         AlertDialog.Builder(this)
             .setTitle("ROM ready")
-            .setMessage("Saved $name. Launch it now in RetroArch with the custom mGBA Archipelago core?")
+            .setMessage("Saved $name. Launch it now in RetroArch with $coreDescription")
             .setNegativeButton("Done", null)
             .setPositiveButton("Launch RetroArch") { _, _ ->
                 runCatching { RetroArchLauncher.launch(this, uri) }

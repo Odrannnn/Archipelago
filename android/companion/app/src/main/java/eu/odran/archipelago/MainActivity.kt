@@ -68,7 +68,7 @@ class MainActivity : Activity() {
             setOnLongClickListener {
                 val details = BridgeService.statusDetails ?: return@setOnLongClickListener false
                 AlertDialog.Builder(this@MainActivity)
-                    .setTitle("mGBA connection error")
+                    .setTitle("Emulator connection error")
                     .setMessage(details)
                     .setPositiveButton("Close", null)
                     .show()
@@ -279,7 +279,7 @@ class MainActivity : Activity() {
             }
         }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('/') ?: "Patched game ROM"
         if (!isSupportedRomName(name)) {
-            inviteStatus.text = "Select a patched .gba or .gbc file."
+            inviteStatus.text = "Select a supported patched .gb, .gbc, .gba, .sfc, or .smc file."
             return
         }
         val room = JoinedRoomStore.load(this)
@@ -345,7 +345,9 @@ class MainActivity : Activity() {
     private fun isSupportedRomName(name: String): Boolean =
         name.endsWith(".gba", ignoreCase = true) ||
             name.endsWith(".gbc", ignoreCase = true) ||
-            name.endsWith(".gb", ignoreCase = true)
+            name.endsWith(".gb", ignoreCase = true) ||
+            name.endsWith(".sfc", ignoreCase = true) ||
+            name.endsWith(".smc", ignoreCase = true)
 
     private fun ByteArray.sha256Hex(): String = MessageDigest.getInstance("SHA-256")
         .digest(this)
@@ -364,9 +366,14 @@ class MainActivity : Activity() {
     }
 
     private fun offerRetroArchLaunch(name: String, uri: Uri) {
+        val coreDescription = if (RetroArchLauncher.isSnesRom(this, uri)) {
+            "the custom SNES9x Archipelago core."
+        } else {
+            "the custom mGBA Archipelago core."
+        }
         AlertDialog.Builder(this)
             .setTitle("ROM ready")
-            .setMessage("Saved $name. Launch it now in RetroArch with the custom mGBA Archipelago core?")
+            .setMessage("Saved $name. Launch it now in RetroArch with $coreDescription")
             .setNegativeButton("Done", null)
             .setPositiveButton("Launch RetroArch") { _, _ ->
                 val room = JoinedRoomStore.load(this)

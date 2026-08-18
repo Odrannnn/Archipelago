@@ -1,6 +1,5 @@
 package eu.odran.archipelago
 
-import android.content.Context
 import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -15,16 +14,14 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit
 import java.util.zip.InflaterInputStream
 
-/** Archipelago transport for a supported client running over the mGBA bridge. */
+/** Archipelago transport for a supported Python game client. */
 class PythonArchipelagoSession(
-    context: Context,
     private val settings: ServerSettings,
-    private val runtime: PythonGbaRuntime,
-    private val romInfo: ImportedGbaRomInfo,
+    private val runtime: PythonGameRuntime,
+    private val romInfo: DetectedGameInfo,
     private val onStatus: (String) -> Unit,
     private val onConnectionState: (RoomConnectionState, String?) -> Unit,
 ) : WebSocketListener(), RoomSession {
-    private val snapshotStore = ArchipelagoServerSnapshotStore(context)
     private val client = OkHttpClient.Builder()
         .pingInterval(30, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
@@ -38,7 +35,6 @@ class PythonArchipelagoSession(
     private var triedSecureFallback = false
     private var lastRuntimeError = ""
     private var lastRuntimeDiagnostic = ""
-    private var restoredSnapshot: JSONObject? = null
     @Volatile private var handshakeDeadline = Long.MAX_VALUE
 
     override val connectedSlot: Int?
@@ -48,18 +44,6 @@ class PythonArchipelagoSession(
         isClosed = false
         triedSecureFallback = settings.address.startsWith("wss://", ignoreCase = true)
         runtime.resetConnection()
-        restoredSnapshot = snapshotStore.load(romInfo)?.takeIf { snapshot ->
-            runtime.restoreServerSnapshot(snapshot)
-        }
-        restoredSnapshot?.let { snapshot ->
-            Log.i(
-                DIAGNOSTIC_TAG,
-                "Restored cached Archipelago state " +
-                    "slot=${snapshot.optInt("slot")} " +
-                    "checks=${snapshot.optJSONArray("checked_locations")?.length() ?: 0} " +
-                    "items=${snapshot.optJSONArray("items_received")?.length() ?: 0}",
-            )
-        }
         open(settings.address)
     }
 
@@ -97,12 +81,20 @@ class PythonArchipelagoSession(
         }
         while (true) {
             val packet = packets.poll() ?: break
-            discardSnapshotForDifferentSeed(packet)
             runtime.processPacket(packet)
-            if (packet.optString("cmd") in SNAPSHOT_PACKETS) persistServerSnapshot()
         }
         val result = runtime.tick(emulatorAvailable)
-        result.messages.forEach(::sendPacket)
+        result.messages.forEach { packet ->
+            val command = packet.optString("cmd")
+            val sent = sendPacket(packet)
+            if (command in DIAGNOSTIC_COMMANDS) {
+                Log.i(DIAGNOSTIC_TAG, "Archipelago outgoing $command sent=$sent")
+            }
+            if (!sent) {
+                Log.w(DIAGNOSTIC_TAG, "Archipelago outgoing $command could not be queued; reconnecting")
+                socket?.cancel()
+            }
+        }
         if (result.error.isNotBlank() && result.error != lastRuntimeError) {
             lastRuntimeError = result.error
             onStatus("${romInfo.game} client warning · ${result.error}")
@@ -160,6 +152,14 @@ class PythonArchipelagoSession(
     }
 
     private fun receivePacket(webSocket: WebSocket, packet: JSONObject) {
+        if (packet.optString("cmd") == "ReceivedItems") {
+            Log.i(
+                DIAGNOSTIC_TAG,
+                "Archipelago incoming ReceivedItems " +
+                    "index=${packet.optInt("index", -1)} " +
+                    "count=${packet.optJSONArray("items")?.length() ?: 0}",
+            )
+        }
         when (packet.optString("cmd")) {
             "RoomInfo" -> {
                 webSocket.send(JSONArray().put(dataPackagePacket()).put(connectPacket()).toString())
@@ -189,36 +189,6 @@ class PythonArchipelagoSession(
     private fun sendPacket(packet: JSONObject): Boolean =
         socket?.send(JSONArray().put(packet).toString()) == true
 
-    private fun discardSnapshotForDifferentSeed(packet: JSONObject) {
-        if (packet.optString("cmd") != "RoomInfo") return
-        val cached = restoredSnapshot ?: return
-        val cachedSeed = cached.optString("server_seed_name")
-        val serverSeed = packet.optString("seed_name")
-        if (cachedSeed.isBlank() || serverSeed.isBlank() || cachedSeed == serverSeed) return
-
-        runtime.resetConnection()
-        snapshotStore.remove(romInfo)
-        restoredSnapshot = null
-        Log.w(
-            DIAGNOSTIC_TAG,
-            "Discarded cached Archipelago state for a different seed " +
-                "cached=$cachedSeed server=$serverSeed",
-        )
-    }
-
-    private fun persistServerSnapshot() {
-        val snapshot = runtime.serverSnapshot() ?: return
-        snapshotStore.save(romInfo, snapshot)
-        restoredSnapshot = snapshot
-        Log.d(
-            DIAGNOSTIC_TAG,
-            "Saved authoritative Archipelago state " +
-                "slot=${snapshot.optInt("slot")} " +
-                "checks=${snapshot.optJSONArray("checked_locations")?.length() ?: 0} " +
-                "items=${snapshot.optJSONArray("items_received")?.length() ?: 0}",
-        )
-    }
-
     private fun dataPackagePacket(): JSONObject = JSONObject()
         .put("cmd", "GetDataPackage")
         .put("games", JSONArray().put(romInfo.game))
@@ -228,7 +198,10 @@ class PythonArchipelagoSession(
         .put("password", settings.password.ifBlank { JSONObject.NULL })
         .put("name", romInfo.auth)
         .put("version", JSONObject().put("major", 0).put("minor", 6).put("build", 8).put("class", "Version"))
-        .put("tags", JSONArray().put("AP"))
+        .put("tags", JSONArray().apply {
+            put("AP")
+            romInfo.tags.filterNot { it == "AP" }.forEach(::put)
+        })
         .put("items_handling", romInfo.itemsHandling)
         .put("uuid", settings.clientId)
         .put("game", romInfo.game)
@@ -257,6 +230,6 @@ class PythonArchipelagoSession(
     companion object {
         private const val DIAGNOSTIC_TAG = "ItemRecovery"
         private val HANDSHAKE_TIMEOUT_MS = TimeUnit.SECONDS.toMillis(15)
-        private val SNAPSHOT_PACKETS = setOf("Connected", "RoomUpdate", "ReceivedItems", "LocationInfo")
+        private val DIAGNOSTIC_COMMANDS = setOf("Sync", "Connect", "LocationChecks", "StatusUpdate")
     }
 }

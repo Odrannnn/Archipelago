@@ -5,29 +5,12 @@ import com.chaquo.python.PyObject
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class ImportedGbaRomInfo(
-    val game: String,
-    val auth: String,
-    val itemsHandling: Int,
-    val wantSlotData: Boolean,
-    val seedName: String,
-    val client: String,
-)
-
-data class ImportedGbaTick(
-    val messages: List<JSONObject>,
-    val disconnect: Boolean,
-    val error: String,
-    val diagnostic: String,
-)
-
 /** Serialized Kotlin wrapper around one built-in or imported world's Python client. */
 class PythonGbaRuntime(
     context: Context,
     bridge: MGBABridgeClient,
     platform: Int,
-    recoverAfterBridgeReconnect: Boolean = false,
-) : AutoCloseable {
+) : PythonGameRuntime {
     private val backend = AndroidBizHawkBackend(bridge, platform)
     private val platform = platform
     private val runtime: PyObject = synchronized(OfflineGenerator.runtimeLock) {
@@ -36,14 +19,13 @@ class PythonGbaRuntime(
             .call(
                 OfflineGenerator.workDirectory(context).absolutePath,
                 backend,
-                recoverAfterBridgeReconnect,
             )
     }
 
-    fun probe(): ImportedGbaRomInfo? = synchronized(OfflineGenerator.runtimeLock) {
+    override fun probe(): DetectedGameInfo? = synchronized(OfflineGenerator.runtimeLock) {
         val result = JSONObject(runtime.callAttr("probe").toString())
         if (!result.optBoolean("matched")) return@synchronized null
-        ImportedGbaRomInfo(
+        DetectedGameInfo(
             game = result.getString("game"),
             auth = result.getString("auth"),
             itemsHandling = result.optInt("items_handling", 7),
@@ -53,29 +35,19 @@ class PythonGbaRuntime(
         )
     }
 
-    fun validateActive(info: ImportedGbaRomInfo): Boolean = synchronized(OfflineGenerator.runtimeLock) {
+    override fun validateActive(info: DetectedGameInfo): Boolean = synchronized(OfflineGenerator.runtimeLock) {
         runtime.callAttr("validate_active", info.game, info.auth).toBoolean()
     }
 
-    fun processPacket(packet: JSONObject) = synchronized(OfflineGenerator.runtimeLock) {
+    override fun processPacket(packet: JSONObject) = synchronized(OfflineGenerator.runtimeLock) {
         runtime.callAttr("process_packet", packet.toString())
         Unit
     }
 
-    fun restoreServerSnapshot(snapshot: JSONObject): Boolean =
-        synchronized(OfflineGenerator.runtimeLock) {
-            runtime.callAttr("restore_server_snapshot", snapshot.toString()).toBoolean()
-        }
-
-    fun serverSnapshot(): JSONObject? = synchronized(OfflineGenerator.runtimeLock) {
-        val snapshot = JSONObject(runtime.callAttr("server_snapshot").toString())
-        snapshot.takeIf { it.optBoolean("cacheable") }
-    }
-
-    fun tick(watchGame: Boolean = true): ImportedGbaTick = synchronized(OfflineGenerator.runtimeLock) {
-        val result = JSONObject(runtime.callAttr("tick", watchGame).toString())
+    override fun tick(emulatorAvailable: Boolean): GameRuntimeTick = synchronized(OfflineGenerator.runtimeLock) {
+        val result = JSONObject(runtime.callAttr("tick", emulatorAvailable).toString())
         val messages = result.optJSONArray("messages") ?: JSONArray()
-        ImportedGbaTick(
+        GameRuntimeTick(
             messages = List(messages.length()) { messages.getJSONObject(it) },
             disconnect = result.optBoolean("disconnect"),
             error = result.optString("error"),
@@ -83,7 +55,7 @@ class PythonGbaRuntime(
         )
     }
 
-    fun resetConnection() = synchronized(OfflineGenerator.runtimeLock) {
+    override fun resetConnection() = synchronized(OfflineGenerator.runtimeLock) {
         runtime.callAttr("reset_connection")
         Unit
     }
@@ -95,7 +67,7 @@ class PythonGbaRuntime(
 
     fun acceptsPlatform(newPlatform: Int): Boolean = platform == newPlatform
 
-    fun bridgeReconnected() = synchronized(OfflineGenerator.runtimeLock) {
+    override fun emulatorReattached() = synchronized(OfflineGenerator.runtimeLock) {
         runtime.callAttr("bridge_reconnected")
         Unit
     }

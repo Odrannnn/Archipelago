@@ -20,11 +20,20 @@ import java.util.concurrent.TimeUnit
  * threads while RetroArch is in the foreground.
  */
 class BridgeService : Service() {
+    private enum class EmulatorTransport { MGBA, SNI }
+
+    private data class ActiveEmulator(
+        val transport: EmulatorTransport,
+        val runtime: PythonGameRuntime,
+        val game: DetectedGameInfo,
+    )
+
     private val executor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     @Volatile private var running = false
     @Volatile private var stopping = false
     @Volatile private var activeBridge: MGBABridgeClient? = null
+    @Volatile private var activeSniClient: SniMemoryClient? = null
     @Volatile private var activeSession: RoomSession? = null
 
     override fun onCreate() {
@@ -41,6 +50,7 @@ class BridgeService : Service() {
             stopping = true
             running = false
             activeBridge?.close()
+            activeSniClient?.close()
             activeSession?.close()
             stopForeground(STOP_FOREGROUND_REMOVE)
             getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
@@ -50,6 +60,7 @@ class BridgeService : Service() {
         if (intent?.action == ACTION_RECONNECT) {
             activeSession?.close()
             activeBridge?.close()
+            activeSniClient?.close()
         }
         if (!running) {
             running = true
@@ -65,6 +76,8 @@ class BridgeService : Service() {
         running = false
         activeBridge?.close()
         activeBridge = null
+        activeSniClient?.close()
+        activeSniClient = null
         activeSession?.close()
         activeSession = null
         executor.shutdownNow()
@@ -80,130 +93,246 @@ class BridgeService : Service() {
     }
 
     private fun connectionLoop() {
-        var bridge: MGBABridgeClient? = null
-        var runtime: PythonGbaRuntime? = null
+        var mgbaBridge: MGBABridgeClient? = null
+        var gbaRuntime: PythonGbaRuntime? = null
+        var gbaGame: DetectedGameInfo? = null
+        var sniClient: SniMemoryClient? = null
+        var sniRuntime: PythonSniRuntime? = null
+        var sniGame: DetectedGameInfo? = null
+
+        var activeTransport: EmulatorTransport? = null
+        var activeRuntime: PythonGameRuntime? = null
+        var activeGame: DetectedGameInfo? = null
         var session: RoomSession? = null
         var sessionSettings: ServerSettings? = null
-        var activeGame: ImportedGbaRomInfo? = null
-        var activeIdentity: Pair<String, String>? = null
-        var nextBridgeAttempt = 0L
+        var nextMgbaAttempt = 0L
+        var nextSniAttempt = 0L
+        var nextSnesPromotionAttempt = 0L
+        var nextGbaProbe = 0L
+        var nextSniProbe = 0L
         var nextSessionAttempt = 0L
-        var nextRomProbeAt = 0L
-        var nextPingAt = 0L
+        var sniMemoryAttached = false
+        var sniResetGeneration: Long? = null
 
         try {
+            publish(
+                "Waiting for an Archipelago emulator bridge…",
+                "SNES games prefer the custom SNES9x bridge on TCP 127.0.0.1:${Snes9xBridgeClient.DEFAULT_PORT}; " +
+                    "RetroArch nightly Network Commands remain available as a fallback.",
+            )
             while (running && !Thread.currentThread().isInterrupted) {
                 val now = System.currentTimeMillis()
 
-                if (bridge == null && now >= nextBridgeAttempt) {
-                    val candidate = MGBABridgeClient()
-                    activeBridge = candidate
+                if (mgbaBridge == null && now >= nextMgbaAttempt) {
+                    var candidate: MGBABridgeClient? = null
                     try {
-                        publish("Waiting for the custom mGBA core on 127.0.0.1:${BridgeProtocol.PORT}…")
+                        candidate = MGBABridgeClient()
+                        activeBridge = candidate
                         candidate.connect()
                         val (version, platform) = candidate.hello()
-                        if (version < BridgeProtocol.MIN_SUPPORTED_PROTOCOL_VERSION) {
-                            throw IllegalStateException(
-                                "The installed custom mGBA core reports bridge protocol $version; " +
-                                    "supported live clients require protocol ${BridgeProtocol.MIN_SUPPORTED_PROTOCOL_VERSION}",
-                            )
+                        require(version >= BridgeProtocol.MIN_SUPPORTED_PROTOCOL_VERSION) {
+                            "The installed custom mGBA core reports bridge protocol $version; " +
+                                "version ${BridgeProtocol.MIN_SUPPORTED_PROTOCOL_VERSION} is required"
                         }
-
-                        val existingRuntime = runtime
-                        if (existingRuntime != null && existingRuntime.acceptsPlatform(platform)) {
-                            existingRuntime.attachBridge(candidate, platform)
-                            existingRuntime.bridgeReconnected()
+                        val existing = gbaRuntime
+                        if (existing != null && existing.acceptsPlatform(platform)) {
+                            existing.attachBridge(candidate, platform)
+                            existing.emulatorReattached()
                         } else {
-                            val oldSession = session
-                            oldSession?.close()
-                            if (activeSession === oldSession) activeSession = null
-                            session = null
-                            sessionSettings = null
-                            existingRuntime?.close()
-                            runtime = PythonGbaRuntime(this, candidate, platform)
-                            activeGame = null
-                            activeIdentity = null
+                            existing?.close()
+                            gbaRuntime = PythonGbaRuntime(this, candidate, platform)
+                            gbaGame = null
                         }
-
-                        bridge = candidate
+                        mgbaBridge = candidate
                         activeBridge = candidate
-                        nextRomProbeAt = 0L
-                        nextPingAt = now + TimeUnit.SECONDS.toMillis(1)
-                        publish(
-                            activeGame?.let { "mGBA reconnected · ${it.game} · room session preserved" }
-                                ?: "mGBA connected · protocol $version · platform $platform · waiting for $PATCHED_ROM_DESCRIPTION…",
-                        )
+                        nextGbaProbe = 0L
+                        publish("mGBA connected · protocol $version · inspecting patched ROM…")
                     } catch (error: Exception) {
-                        candidate.close()
+                        candidate?.close()
                         if (activeBridge === candidate) activeBridge = null
-                        nextBridgeAttempt = now + TimeUnit.SECONDS.toMillis(1)
-                        if (running) {
-                            Log.w(TAG, "mGBA unavailable; reconnecting local bridge", error)
-                            publish("⚠️ mGBA paused or unavailable · Archipelago session retained")
-                        }
+                        nextMgbaAttempt = now + TimeUnit.SECONDS.toMillis(1)
                     }
                 }
 
-                val connectedBridge = bridge
-                val activeRuntime = runtime
-                if (connectedBridge != null && activeRuntime != null) {
+                val connectedMgba = mgbaBridge
+                val currentGbaRuntime = gbaRuntime
+                if (connectedMgba != null && currentGbaRuntime != null && now >= nextGbaProbe) {
                     try {
-                        // Check the transport before probing the ROM. A paused
-                        // RetroArch core cannot answer until retro_run resumes.
-                        if (now >= nextPingAt) {
-                            connectedBridge.ping()
-                            nextPingAt = now + TimeUnit.SECONDS.toMillis(1)
+                        connectedMgba.ping()
+                        gbaGame = if (gbaGame?.let(currentGbaRuntime::validateActive) == true) {
+                            gbaGame
+                        } else {
+                            currentGbaRuntime.probe()
                         }
-
-                        if (now >= nextRomProbeAt) {
-                            val detected = if (activeGame?.let { activeRuntime.validateActive(it) } == true) {
-                                activeGame
-                            } else {
-                                activeRuntime.probe()
-                            }
-                            if (!connectedBridge.isConnected) {
-                                error("mGBA stopped responding while the ROM was being inspected")
-                            }
-                            val detectedIdentity = detected?.let { it.game to it.auth }
-                            if (detectedIdentity != activeIdentity) {
-                                val oldSession = session
-                                oldSession?.close()
-                                if (activeSession === oldSession) activeSession = null
-                                session = null
-                                sessionSettings = null
-                                activeGame = detected
-                                activeIdentity = detectedIdentity
-                                detected?.game?.let { detectedGameName ->
-                                    if (activeGameName != detectedGameName) {
-                                        activeGameName = detectedGameName
-                                        activePlayerSlot = null
-                                        activeServerAddress = null
-                                        rememberActiveRom()
-                                    }
-                                }
-                                nextSessionAttempt = 0L
-                                if (detectedIdentity == null) publishServerWaitingForRom()
-                                publish(
-                                    detected?.let { "mGBA connected · ${it.game} · live bridge client" }
-                                        ?: "mGBA connected · waiting for $PATCHED_ROM_DESCRIPTION…",
-                                )
-                            }
-                            nextRomProbeAt = now + TimeUnit.SECONDS.toMillis(1)
-                        }
+                        nextGbaProbe = now + TimeUnit.SECONDS.toMillis(1)
                     } catch (error: Exception) {
-                        activeRuntime.detachBridge(connectedBridge)
-                        connectedBridge.close()
-                        if (activeBridge === connectedBridge) activeBridge = null
-                        bridge = null
-                        nextBridgeAttempt = now + TimeUnit.SECONDS.toMillis(1)
-                        Log.w(TAG, "Local mGBA bridge paused; preserving room session", error)
-                        publish("⚠️ mGBA paused or unavailable · Archipelago session retained")
+                        currentGbaRuntime.detachBridge(connectedMgba)
+                        connectedMgba.close()
+                        if (activeBridge === connectedMgba) activeBridge = null
+                        mgbaBridge = null
+                        nextMgbaAttempt = now + TimeUnit.SECONDS.toMillis(1)
+                        Log.w(TAG, "Local mGBA bridge paused", error)
+                    }
+                }
+
+                if (sniClient == null && now >= nextSniAttempt) {
+                    var candidate: SniMemoryClient? = null
+                    try {
+                        val connected = connectPreferredSniClient()
+                        candidate = connected.first
+                        val status = connected.second
+                        activeSniClient = candidate
+                        val existing = sniRuntime
+                        if (existing == null) {
+                            sniRuntime = PythonSniRuntime(this, candidate)
+                        } else {
+                            existing.attach(candidate)
+                        }
+                        sniClient = candidate
+                        activeSniClient = candidate
+                        sniResetGeneration = status.resetGeneration
+                        nextSnesPromotionAttempt = now + TimeUnit.SECONDS.toMillis(2)
+                        nextSniProbe = 0L
+                        publish("${status.description} connected · inspecting SNI-compatible ROM…")
+                        Log.i(TAG, "Connected SNES transport: ${status.description}")
+                    } catch (error: Exception) {
+                        candidate?.close()
+                        if (activeSniClient === candidate) activeSniClient = null
+                        nextSniAttempt = now + TimeUnit.SECONDS.toMillis(1)
+                    }
+                }
+
+                if (
+                    sniClient is RetroArchNetworkClient &&
+                    now >= nextSnesPromotionAttempt
+                ) {
+                    var promoted: Snes9xBridgeClient? = null
+                    try {
+                        promoted = Snes9xBridgeClient().apply { connect() }
+                        val status = promoted.checkStatus()
+                        val fallback = sniClient
+                        val runtime = sniRuntime
+                        runtime?.emulatorDetached()
+                        runtime?.attach(promoted)
+                        sniClient = promoted
+                        activeSniClient = promoted
+                        sniResetGeneration = status.resetGeneration
+                        sniMemoryAttached = false
+                        nextSniProbe = 0L
+                        fallback?.close()
+                        publish("${status.description} connected · inspecting SNI-compatible ROM…")
+                        Log.i(TAG, "Promoted SNES transport from Network Commands to ${status.description}")
+                    } catch (_: Exception) {
+                        promoted?.close()
+                        nextSnesPromotionAttempt = now + TimeUnit.SECONDS.toMillis(2)
+                    }
+                }
+
+                val connectedSni = sniClient
+                val currentSniRuntime = sniRuntime
+                if (connectedSni != null && currentSniRuntime != null && now >= nextSniProbe) {
+                    try {
+                        val status = connectedSni.checkStatus()
+                        val generation = status.resetGeneration
+                        if (
+                            generation != null && sniResetGeneration != null &&
+                            generation != sniResetGeneration
+                        ) {
+                            currentSniRuntime.emulatorDetached()
+                            currentSniRuntime.emulatorReattached()
+                            sniMemoryAttached = true
+                            Log.i(
+                                TAG,
+                                "SNES reset generation changed from $sniResetGeneration to $generation; " +
+                                    "replayed SNI attach lifecycle",
+                            )
+                        }
+                        sniResetGeneration = generation
+                        sniGame = if (sniGame?.let(currentSniRuntime::validateActive) == true) {
+                            sniGame
+                        } else {
+                            currentSniRuntime.probe()
+                        }
+                        if (sniGame == null) {
+                            sniMemoryAttached = false
+                        } else if (!sniMemoryAttached) {
+                            currentSniRuntime.emulatorReattached()
+                            sniMemoryAttached = true
+                            Log.i(TAG, "SNES SNI memory validated and attached")
+                        }
+                        nextSniProbe = now + TimeUnit.SECONDS.toMillis(1)
+                    } catch (error: Exception) {
+                        currentSniRuntime.detach(connectedSni)
+                        sniMemoryAttached = false
+                        sniResetGeneration = null
+                        connectedSni.close()
+                        if (activeSniClient === connectedSni) activeSniClient = null
+                        sniClient = null
+                        nextSniAttempt = now + TimeUnit.SECONDS.toMillis(1)
+                        Log.w(TAG, "SNES memory bridge paused", error)
+                    }
+                }
+
+                val gbaCandidate = gbaGame?.takeIf { mgbaBridge != null }?.let {
+                    ActiveEmulator(EmulatorTransport.MGBA, checkNotNull(gbaRuntime), it)
+                }
+                val sniCandidate = sniGame?.takeIf { sniClient != null }?.let {
+                    ActiveEmulator(EmulatorTransport.SNI, checkNotNull(sniRuntime), it)
+                }
+                val currentCandidate = when (activeTransport) {
+                    EmulatorTransport.MGBA -> gbaCandidate
+                    EmulatorTransport.SNI -> sniCandidate
+                    null -> null
+                }
+                val alternateCandidate = when (activeTransport) {
+                    EmulatorTransport.MGBA -> sniCandidate
+                    EmulatorTransport.SNI -> gbaCandidate
+                    null -> sniCandidate ?: gbaCandidate
+                }
+                val activeTransportUnavailable = when (activeTransport) {
+                    EmulatorTransport.MGBA -> mgbaBridge == null
+                    EmulatorTransport.SNI -> sniClient == null
+                    null -> false
+                }
+                val desired = currentCandidate ?: alternateCandidate ?: if (
+                    activeTransportUnavailable && activeRuntime != null && activeGame != null
+                ) {
+                    ActiveEmulator(checkNotNull(activeTransport), activeRuntime, activeGame)
+                } else {
+                    null
+                }
+
+                val identityChanged = desired?.let { it.transport to (it.game.game to it.game.auth) } !=
+                    activeTransport?.let { transport ->
+                        activeGame?.let { game -> transport to (game.game to game.auth) }
+                    }
+                if (identityChanged) {
+                    val oldSession = session
+                    oldSession?.close()
+                    if (activeSession === oldSession) activeSession = null
+                    session = null
+                    sessionSettings = null
+                    activeTransport = desired?.transport
+                    activeRuntime = desired?.runtime
+                    activeGame = desired?.game
+                    nextSessionAttempt = 0L
+
+                    activeGameName = desired?.game?.game
+                    activePlayerSlot = null
+                    activeServerAddress = null
+                    rememberActiveRom()
+                    if (desired == null) {
+                        publishServerWaitingForRom()
+                        publish("Emulator bridge ready · waiting for a supported patched ROM…")
+                    } else {
+                        val emulator = if (desired.transport == EmulatorTransport.SNI) "SNES emulator" else "mGBA"
+                        publish("$emulator connected · ${desired.game.game} · live bridge client")
                     }
                 }
 
                 val detected = activeGame
-                val currentRuntime = runtime
-                if (detected != null && currentRuntime != null) {
+                val runtime = activeRuntime
+                if (detected != null && runtime != null) {
                     val settings = ServerSettings.load(this)
                     if (session != null && (session!!.isClosed || sessionSettings != settings)) {
                         val oldSession = session
@@ -214,9 +343,8 @@ class BridgeService : Service() {
                     }
                     if (settings.isConfigured && session == null && now >= nextSessionAttempt) {
                         session = PythonArchipelagoSession(
-                            this,
                             settings,
-                            currentRuntime,
+                            runtime,
                             detected,
                             ::publishServerDetails,
                             ::publishServerState,
@@ -227,16 +355,13 @@ class BridgeService : Service() {
                         nextSessionAttempt = now + TimeUnit.SECONDS.toMillis(5)
                     }
 
+                    val emulatorAvailable = when (activeTransport) {
+                        EmulatorTransport.MGBA -> mgbaBridge != null
+                        EmulatorTransport.SNI -> sniClient != null
+                        null -> false
+                    }
                     try {
-                        session?.tick(bridge != null)
-                        val currentBridge = bridge
-                        if (currentBridge != null && !currentBridge.isConnected) {
-                            currentRuntime.detachBridge(currentBridge)
-                            if (activeBridge === currentBridge) activeBridge = null
-                            bridge = null
-                            nextBridgeAttempt = now + TimeUnit.SECONDS.toMillis(1)
-                            publish("⚠️ mGBA paused or unavailable · Archipelago session retained")
-                        }
+                        session?.tick(emulatorAvailable)
                     } catch (error: Exception) {
                         Log.w(TAG, "Archipelago session tick failed; reconnecting room", error)
                         val oldSession = session
@@ -257,7 +382,7 @@ class BridgeService : Service() {
                     }
                 }
 
-                if (bridge != null || session != null) {
+                if (mgbaBridge != null || sniClient != null || session != null) {
                     TimeUnit.MILLISECONDS.sleep(125)
                 } else {
                     TimeUnit.MILLISECONDS.sleep(500)
@@ -265,14 +390,43 @@ class BridgeService : Service() {
             }
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
+        } catch (error: Exception) {
+            Log.e(TAG, "Bridge loop stopped after an internal error", error)
+            publish(
+                "Bridge paused after an internal error",
+                Log.getStackTraceString(error),
+            )
         } finally {
             val oldSession = session
-            oldSession?.close()
+            runCatching { oldSession?.close() }
             if (activeSession === oldSession) activeSession = null
-            runtime?.close()
-            bridge?.close()
-            if (activeBridge === bridge) activeBridge = null
+            runCatching { gbaRuntime?.close() }
+            runCatching { sniRuntime?.close() }
+            runCatching { mgbaBridge?.close() }
+            runCatching { sniClient?.close() }
+            if (activeBridge === mgbaBridge) activeBridge = null
+            if (activeSniClient === sniClient) activeSniClient = null
+            running = false
         }
+    }
+
+    private fun connectPreferredSniClient(): Pair<SniMemoryClient, SniTransportStatus> {
+        var lastError: Exception? = null
+        val factories: List<() -> SniMemoryClient> = listOf(
+            { Snes9xBridgeClient().apply { connect() } },
+            { RetroArchNetworkClient() },
+        )
+        factories.forEach { factory ->
+            var candidate: SniMemoryClient? = null
+            try {
+                candidate = factory()
+                return candidate to candidate.checkStatus()
+            } catch (error: Exception) {
+                candidate?.close()
+                lastError = error
+            }
+        }
+        throw IllegalStateException("No SNES memory transport is available", lastError)
     }
 
     private fun publish(message: String) = publish(message, null)
@@ -295,8 +449,8 @@ class BridgeService : Service() {
         lastServerState = null
         serverStatusText = "💤 Archipelago waiting for ROM"
         serverStatusDetails =
-            "Archipelago will connect after you load a $PATCHED_ROM_DESCRIPTION " +
-                "in RetroArch using the custom mGBA core."
+            "Archipelago will connect after you load a $PATCHED_ROM_DESCRIPTION in RetroArch. " +
+                "SNES games use the custom SNES9x Archipelago core when installed."
         updateNotification()
     }
 
@@ -385,7 +539,7 @@ class BridgeService : Service() {
         private const val ACTIVE_ROM_GAME = "game"
         private const val ACTIVE_ROM_SLOT = "slot"
         private const val ACTIVE_ROM_SERVER = "server"
-        private const val PATCHED_ROM_DESCRIPTION = "compatible patched GBA or GBC ROM"
+        private const val PATCHED_ROM_DESCRIPTION = "compatible patched Game Boy or Super Metroid ROM"
         const val ACTION_RECONNECT = "eu.odran.archipelago.RECONNECT_BRIDGE"
 
         @Volatile
@@ -417,8 +571,7 @@ class BridgeService : Service() {
 
         @Volatile
         var serverStatusDetails: String? =
-            "Archipelago will connect after you load a compatible patched GBA or GBC ROM " +
-                "in RetroArch using the custom mGBA core."
+            "Archipelago will connect after you load a compatible patched Game Boy or Super Metroid ROM in RetroArch."
             private set
 
     }

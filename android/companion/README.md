@@ -1,10 +1,12 @@
-# Android companion: mGBA Archipelago runtime
+# Android companion: emulator Archipelago runtime
 
 The Android application ID and Kotlin namespace are both `eu.odran.archipelago`.
 
-This is a small Android application which connects to the custom mGBA libretro
-core at `127.0.0.1:43056`. It verifies the protocol handshake and can read,
-guard, and write emulated GBA or Game Boy bus addresses through `MGBABridgeClient`.
+The application connects either to the custom mGBA libretro core at
+`127.0.0.1:43056` or the custom SNES9x core at `127.0.0.1:43057`. RetroArch
+nightly's UDP Network Commands at `127.0.0.1:55355` remain a fallback. Both SNES
+transports run registered upstream SNI client logic without a separate SNI
+executable.
 
 `BridgeService` owns this connection as a foreground service. It reconnects
 when RetroArch or the core restarts and sends a one-second keepalive while the
@@ -34,14 +36,20 @@ Enter the game server as `archipelago.gg:PORT` (for example,
 `archipelago.gg:45657`), not as a room-page URL. A pasted numeric path such as
 `archipelago.gg/45657` is normalized to the equivalent port form.
 
-## Supported mGBA clients
+## Supported live clients
 
-There is one live path for built-in and imported games. At startup the Python
-runtime discovers conventional `client.py` and `Client.py` modules, registers
-their standard Archipelago `BizHawkClient` implementations, and asks each mGBA
-client to validate the loaded ROM. The selected client owns ROM detection,
+There is one shared Archipelago context and emulator lifecycle for built-in and
+imported games. At startup the Python runtime discovers conventional `client.py`
+and `Client.py` modules and registers their standard `BizHawkClient` and
+`SNIClient` implementations. The selected client owns ROM detection,
 authentication, slot-data handling, location checks, item application,
 DeathLink, completion, and any game-specific save reconciliation.
+
+Transport loss, failed memory access, emulator reattachment, and the SNES9x
+core's reset-generation changes feed the same generic lifecycle. Recovery
+queues one deduplicated Archipelago `Sync`. Stable connections do not emit
+periodic `Sync` packets. This layer contains no game-specific memory addresses
+and is shared by mGBA and SNI clients.
 
 Kotlin owns the WebSocket and forwards Archipelago packets to that client.
 The Android BizHawk compatibility layer translates its reads, guarded reads,
@@ -57,17 +65,34 @@ Link's Awakening DX is also bundled. Its custom client protocol is implemented
 as an Android adapter using the same version-6 bridge operations against
 the Game Boy system bus. It detects the patched `.gbc`, authenticates with the
 embedded multiworld key, reports locations and victory, and delivers queued
-items without RetroArch's Network Commands interface.
+items without RetroArch's Network Commands interface. Its state machine follows
+the desktop client: the live ROM flags and receive index are authoritative, and
+the Android layer does not reconstruct checks, rewind saves, or replay cached
+server snapshots.
 
-The five supported upstream worlds are bundled as Python source and resources
-inside the APK. Additional games remain unavailable until the user imports a
-trusted, compatible `.apworld`.
+Super Metroid is bundled with its standard `.apsm` procedure patch and is the
+first registered `SNIClient`. `AndroidSNIRuntime` discovers it through the same
+registry used for compatible imported clients and keeps the upstream location,
+item queue, goal, and DeathLink behavior. The Android `SNIContext` ports the
+desktop attach/disconnect state transitions, per-cycle ROM validation, handler
+selection, and buffered-write API. In particular, a transport loss clears the
+attached ROM/device state but preserves the server's received-item list so a
+reset game-side cursor can consume those items again after reattachment.
+`Snes9xBridgeClient` is the preferred replacement for SNI's desktop memory
+transport. The core exposes mapper-independent FX Pak Pro ROM, SRAM, and WRAM
+domains directly and processes requests in `retro_run()`. Its TCP listener
+survives `retro_reset()` and PING returns the new reset generation. The older
+`RetroArchNetworkClient` LoROM adapter remains as a Network Commands fallback.
+
+The supported upstream worlds are bundled as Python source and resources inside
+the APK. Additional games require a trusted `.apworld` whose conventional client
+uses one of the Android bridge families and a compatible cartridge mapping.
 
 APWorlds contain executable code and retain their own licenses. Review an
 APWorld's license and publish corresponding source when redistribution requires
 it.
 
-The main screen exposes independent mGBA and Archipelago connection indicators.
+The main screen exposes independent emulator and Archipelago connection indicators.
 The server indicator distinguishes connecting, authenticated, and disconnected
 states instead of replacing the emulator bridge status. Long-press either line
 to view its latest detailed diagnostic.
@@ -114,7 +139,7 @@ app's filesystem but cannot sandbox or audit that code, so imports must come
 from trusted authors. Worlds may also depend on Python or native modules absent
 from the APK; these fail to load with a compatibility diagnostic. Generated
 patches are discovered through `AutoPatchRegister`. For registered
-`APProcedurePatch` handlers whose result is `.gba`, `.gbc`, or `.gb`, the companion discovers
+`APProcedurePatch` handlers whose result is `.gba`, `.gbc`, `.gb`, `.sfc`, or `.smc`, the companion discovers
 the world's checksum-validated `UserFilePath` inputs, stages the selected files,
 and invokes the world's normal registered patch method. Other ROM formats remain export-only.
 
@@ -152,7 +177,7 @@ never contains a website-session credential or base ROM. On a second device,
 opening the invite verifies and wakes the public room, loads its current port,
 remembers the selected player, and reuses cached legally supplied clean ROM
 inputs or asks for each missing file. The embedded generator applies the patch
-locally and prompts the recipient to save the ready-to-run `.gba`, `.gbc`, or `.gb`.
+locally and prompts the recipient to save the ready-to-run `.gba`, `.gbc`, `.gb`, `.sfc`, or `.smc`.
 Only player-specific version 3 invites are accepted. **Open multiplayer invite**
 provides a file-picker fallback when a receiving app
 does not open the attachment directly. **Sync website session** is separate and
@@ -176,9 +201,10 @@ patch succeeds does it store the exact selected files in a per-game, per-input
 private no-backup cache. **Forget cached base ROM**, clearing app data, or
 uninstalling removes those copies. The app never bundles a ROM.
 
-After a patched `.gba`, `.gbc`, or `.gb` is saved, the companion offers to launch it directly in
-the installed 64-bit RetroArch package. The launch intent selects the custom
-`mgba_apbridge_v9_libretro_android.so` core and passes RetroArch's own standard
+After a supported patched ROM is saved, the companion offers to launch it directly in
+the installed 64-bit RetroArch package. The launch intent selects either the custom
+`mgba_apbridge_v9_libretro_android.so` core or
+`snes9x_apbridge_v1_libretro_android.so` and passes RetroArch's own standard
 `retroarch.cfg` path without creating or modifying the file, preserving controller
 mappings, overrides, and remaps. Each launch starts a fresh RetroArch task so a
 suspended video surface cannot leave the game running with audio but no picture.
@@ -203,7 +229,7 @@ companion also remembers the saved ROM document and retains its Android document
 permission, so the active-room section can launch that player's existing ROM in
 RetroArch without applying the player patch again. Selecting a different
 player slot does not carry the previous player's ROM shortcut across. **Choose
-existing patched ROM** can register a `.gba` or `.gbc` created before this shortcut was
+existing patched ROM** can register a `.gb`, `.gbc`, `.gba`, `.sfc`, or `.smc` created before this shortcut was
 available, or replace a reference after its file was moved.
 
 The pinned Python source is under `app/src/main/python`. Refresh it after

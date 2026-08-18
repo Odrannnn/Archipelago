@@ -20,6 +20,8 @@ from world_compatibility import apply_world_compatibility
 os.environ["SKIP_REQUIREMENTS_UPDATE"] = "1"
 
 MGBA_ROM_EXTENSIONS = frozenset({".gb", ".gbc", ".gba"})
+SNES_ROM_EXTENSIONS = frozenset({".sfc", ".smc"})
+ANDROID_ROM_EXTENSIONS = MGBA_ROM_EXTENSIONS | SNES_ROM_EXTENSIONS
 
 
 def _world_load_failure(package_name: str, game: str, error: Exception) -> str:
@@ -134,8 +136,8 @@ def _load_worlds(work_directory: str):
     return worlds, AutoWorldRegister
 
 
-def _load_standard_mgba_clients(work_directory: str):
-    """Register conventional GBA, GB, and GBC BizHawk clients from every loaded world."""
+def _load_emulator_clients(work_directory: str):
+    """Import conventional client modules from every installed world."""
     worlds, registry = _load_worlds(work_directory)
     for module in pkgutil.iter_modules(worlds.__path__, "worlds."):
         if module.name.rsplit(".", 1)[-1].startswith("_"):
@@ -150,6 +152,16 @@ def _load_standard_mgba_clients(work_directory: str):
                 # desktop client needs modules which Android does not bundle.
                 continue
     return worlds, registry
+
+
+def _load_standard_mgba_clients(work_directory: str):
+    """Register conventional GBA, GB, and GBC BizHawk clients."""
+    return _load_emulator_clients(work_directory)
+
+
+def _load_standard_sni_clients(work_directory: str):
+    """Register conventional SNI clients without naming individual games."""
+    return _load_emulator_clients(work_directory)
 
 
 def _yaml_scalar(value) -> str:
@@ -410,7 +422,9 @@ def yaml_from_player_forms(players_json: str) -> str:
 def world_catalog(work_directory: str) -> str:
     """Describe loaded world capabilities without promising a live adapter."""
     worlds, registry = _load_standard_mgba_clients(work_directory)
+    _load_standard_sni_clients(work_directory)
     from worlds.Files import AutoPatchRegister
+    from worlds.AutoSNIClient import AutoSNIClientRegister
     from worlds._bizhawk.client import AutoBizHawkClientRegister
 
     standard_mgba_clients = {
@@ -420,7 +434,11 @@ def world_catalog(work_directory: str) -> str:
         for game in handlers
     }
     from android_bizhawk_runtime import custom_client_games
-    bridge_games = standard_mgba_clients | custom_client_games()
+    bridge_games = (
+        standard_mgba_clients
+        | custom_client_games()
+        | set(AutoSNIClientRegister.game_handlers)
+    )
 
     installed_root = Path(work_directory).resolve() / "worlds"
     installed_modules = {f"worlds.{path.name}" for path in installed_root.iterdir() if path.is_dir()}
@@ -439,7 +457,7 @@ def world_catalog(work_directory: str) -> str:
             "result_extension": result_extension,
             "generation": True,
             "template": True,
-            "rom_patch": bool(patch_type and result_extension.lower() in MGBA_ROM_EXTENSIONS),
+            "rom_patch": bool(patch_type and result_extension.lower() in ANDROID_ROM_EXTENSIONS),
             "live_bridge": game in bridge_games,
         })
     return json.dumps({"worlds": result, "failures": worlds.failed_world_loads})
@@ -537,7 +555,7 @@ def patch_result_extension(patch_bytes, work_directory: str = "") -> str:
     if handler is None:
         raise ValueError(f"The installed {game} world does not register a ROM patch handler")
     extension = str(getattr(handler, "result_file_ending", "")).lower()
-    if extension not in MGBA_ROM_EXTENSIONS:
+    if extension not in ANDROID_ROM_EXTENSIONS:
         raise ValueError(f"{game} produces {extension or 'an unsupported ROM format'}")
     return extension
 
@@ -649,7 +667,7 @@ def _apply_procedure_patch(
     if world is None:
         raise ValueError(f"No installed world handles game {game}")
     result_extension = getattr(handler, "result_file_ending", "").lower()
-    if result_extension not in MGBA_ROM_EXTENSIONS:
+    if result_extension not in ANDROID_ROM_EXTENSIONS:
         raise ValueError(
             f"{game} produces {getattr(handler, 'result_file_ending', 'an unsupported ROM format')}"
         )

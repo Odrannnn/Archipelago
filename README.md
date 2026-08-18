@@ -1,4 +1,4 @@
-# Archipelago Android Companion for mGBA
+# Archipelago Android Companion
 
 <p align="center">
   ☕ <a href="https://ko-fi.com/odrannnn">Support this little Android adventure on Ko-fi</a> 💙
@@ -17,14 +17,14 @@ third-party components and source incorporated from Archipelago, mGBA,
 RetroArch, ArchipelagoMine, or imported APWorlds. Those projects retain
 their original authorship, history, and licenses.
 
-This fork adds a self-contained Android workflow for playing GBA and GBC multiworlds
+This fork adds a self-contained Android workflow for playing GBA, GBC, and Super Metroid multiworlds
 with [Archipelago](https://archipelago.gg). It combines an Android companion app
 with a custom mGBA libretro core so RetroArch can exchange game state with an
 Archipelago room without a PC.
 
-The app bundles five compatible worlds from the pinned Archipelago core:
+The app bundles six compatible worlds from the pinned Archipelago core:
 Castlevania: Circle of the Moon, Link's Awakening DX, Mario & Luigi: Superstar
-Saga, Pokémon Emerald, and Yu-Gi-Oh! 2006. They can generate, patch, and play
+Saga, Pokémon Emerald, Super Metroid, and Yu-Gi-Oh! 2006. They can generate, patch, and play
 without a manual APWorld import. Other compatible GBA and GB/GBC worlds can still be added as
 trusted `.apworld` files. Those worlds use their standard `BizHawkClient`
 through the reusable Python-to-mGBA path; Link's Awakening DX uses a dedicated
@@ -37,10 +37,18 @@ The rest of this repository remains based on the upstream
 
 ## What it does
 
-### Play supported mGBA multiworlds on Android
+### Play supported emulator multiworlds on Android
 
 - Connects RetroArch's emulated GBA or GBC memory to the companion through a
   loopback-only bridge at `127.0.0.1:43056`.
+- Connects Super Metroid through a custom SNES9x core's frame-boundary SNI
+  memory bridge at TCP `127.0.0.1:43057`. The bridge exposes generic flat ROM,
+  SRAM, and WRAM domains and reports soft resets without running an SNI process.
+- Retains RetroArch nightly's UDP Network Commands interface at
+  `127.0.0.1:55355` as a compatibility fallback.
+- Uses one shared emulator lifecycle for mGBA and registered SNI clients, with
+  deduplicated server resynchronization after memory loss, transport reattach,
+  and explicit reset-generation changes reported by the SNES9x core.
 - Detects compatible ROMs using built-in or imported bridge clients, then reads
   the authentication data defined by each game.
 - Connects to Archipelago rooms over WebSockets, including TLS fallback.
@@ -67,14 +75,14 @@ With a built-in or imported compatible game world, on the phone it can:
 - ask for every clean ROM input declared by the selected APWorld and let that
   APWorld validate each file;
 - cache successfully used ROM inputs privately for later patches; and
-- save a ready-to-run `.gba`, `.gbc`, or `.gb` for each player.
+- save a ready-to-run `.gba`, `.gbc`, `.gb`, or `.sfc` for each player.
 
 The on-device game-world manager lists the built-ins and can also import trusted
 `.apworld` packages into app-private storage. It validates archive paths, extraction limits, manifest
 structure, and compatibility with the embedded Archipelago 0.6.8 core, then
 loads the world's full option model for YAML editing and mixed-game generation.
 Generated player patches are discovered through Archipelago's patch registry;
-standard procedure patches which produce `.gba`, `.gbc`, or `.gb` files can be applied through
+standard procedure patches which produce `.gba`, `.gbc`, `.gb`, `.sfc`, or `.smc` files can be applied through
 their registered APWorld handler without app-specific patch code. Self-connecting
 games which produce no player patch can still generate, save, and host their seed
 ZIP; ROM creation and player-specific companion invitations are simply unavailable.
@@ -115,9 +123,9 @@ each player, or remove a local room record without deleting the hosted room.
 
 ### Launch related Android apps
 
-- Launches a saved patched ROM in 64-bit RetroArch with the custom mGBA bridge
-  core while allowing RetroArch to retain its normal configuration, controller
-  mappings, overrides, and remaps.
+- Launches saved patched ROMs in 64-bit RetroArch with either the custom mGBA
+  bridge core or custom SNES9x bridge core while retaining RetroArch's normal
+  configuration, controller mappings, overrides, and remaps.
 - Opens the PopTracker Android app with the imported room's game identifier,
   active server address, selected player name, and room password.
 - Launches the Archipelago-enabled Ship of Harkinian Android port for a selected
@@ -130,10 +138,8 @@ each player, or remove a local room record without deleting the hosted room.
 Archipelago room
         ↕ WebSocket
 Android companion app
-        ↕ 127.0.0.1:43056 only
-Custom mGBA libretro core
-        ↕ emulated GBA/GBC memory
-Supported game in RetroArch
+        ├─ TCP 127.0.0.1:43056 ↔ custom mGBA core ↔ GBA/GBC memory
+        └─ TCP 127.0.0.1:43057 ↔ custom SNES9x core ↔ SNI ROM/SRAM/WRAM
 ```
 
 The custom core performs memory access only on mGBA's emulation thread. It
@@ -148,6 +154,8 @@ exposed to the LAN.
 - Android companion package `eu.odran.archipelago`
 - 64-bit RetroArch (`com.retroarch.aarch64`)
 - The custom mGBA Archipelago bridge core installed in RetroArch
+- For SNES games, `snes9x_apbridge_v1_libretro_android.so` installed through
+  RetroArch's **Install or Restore a Core** action
 - A legally obtained clean ROM accepted by the selected game world
 - For games not built in, a trusted and compatible `.apworld`
 - An Archipelago room when playing online
@@ -161,6 +169,8 @@ Hosting, invitations, and live multiworld play do.
   embedded offline generator, hosting client, invitations, and room library
 - [`android/mgba-core-patch/`](android/mgba-core-patch/) — loopback bridge source
   and patches for the mGBA libretro core
+- [`android/snes9x-core-patch/`](android/snes9x-core-patch/) — reset-stable SNI
+  bridge source and patch for the SNES9x libretro core
 - [`android/README.md`](android/README.md) — Android architecture and core
   installation overview
 - [`android/companion/README.md`](android/companion/README.md) — detailed
@@ -197,7 +207,7 @@ RetroArch's **Load Core > Install or Restore a Core** command.
 - Public room identifiers and player patches are shared only when the user
   explicitly creates an invitation.
 
-Metroid Fusion, The Minish Cap, and Link's Awakening DX are Nintendo properties. Archipelago, mGBA,
+Super Metroid, Metroid Fusion, The Minish Cap, and Link's Awakening DX are Nintendo properties. Archipelago, mGBA,
 RetroArch, and the APWorlds retain their respective licenses and ownership. Review
 the included license files before redistributing binaries or modified source.
 

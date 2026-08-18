@@ -3,5 +3,6 @@
   {"game": "Links Awakening DX", "package": "ladx"},
   {"game": "Mario & Luigi Superstar Saga", "package": "mlss"},
   {"game": "Pokemon Emerald", "package": "pokemon_emerald"},
+  {"game": "Super Metroid", "package": "sm"},
   {"game": "Yu-Gi-Oh! 2006", "package": "yugioh06"}
 ]

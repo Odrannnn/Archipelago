@@ -26,7 +26,7 @@ class ApWorldManagerActivity : Activity() {
             addView(CompanionUi.pageTitle(
                 this@ApWorldManagerActivity,
                 "Game worlds",
-                "Use built-in mGBA games or add trusted community APWorlds.",
+                "Use built-in Android games or add trusted community APWorlds.",
             ), CompanionUi.fullWidth())
             addView(CompanionUi.card(
                 this@ApWorldManagerActivity,
@@ -216,7 +216,7 @@ class ApWorldManagerActivity : Activity() {
         val features = buildList {
             if (capability.generation) add("generation")
             if (capability.romPatch) add("ROM patching")
-            if (capability.liveBridge) add("live mGBA sync")
+            if (capability.liveBridge) add("live emulator sync")
         }
         return if (features.isEmpty()) "Loaded" else features.joinToString(" + ").replaceFirstChar(Char::uppercase)
     }

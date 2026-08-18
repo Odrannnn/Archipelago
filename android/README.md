@@ -1,9 +1,9 @@
-# Android mGBA / RetroArch companion
+# Android emulator / RetroArch companion
 
 This experiment separates responsibilities deliberately:
 
 ```text
-Archipelago room <-> Android companion <-> 127.0.0.1:43056 <-> custom mGBA libretro core
+Archipelago room <-> Android companion <-> custom mGBA or SNES9x bridge core
 ```
 
 The mGBA core owns emulator memory and touches it only in `retro_run()`. The
@@ -13,10 +13,13 @@ game-specific Archipelago logic. No memory port is exposed to the LAN.
 ## Current state
 
 - `mgba-core-patch/` is a source patch for mGBA's libretro core.
-- `companion/` connects to that bridge and validates a loaded GBA or GBC ROM.
+- `snes9x-core-patch/` is a reset-stable SNI-domain bridge for SNES9x.
+- `companion/` connects to those bridges for GBA/GBC and SNES. RetroArch
+  nightly UDP port 55355 remains a fallback for SNES cores without the bridge.
 - `companion/` bundles the compatible upstream Castlevania: Circle of the Moon,
   Link's Awakening DX, Mario & Luigi: Superstar Saga, Pokémon Emerald, and
-  Yu-Gi-Oh! 2006 worlds for generation, ROM patching, and live-client execution.
+  Super Metroid, and Yu-Gi-Oh! 2006 worlds for generation, ROM patching, and
+  live-client execution.
 - Link's Awakening DX uses an Android adapter for its custom client protocol,
   carried over the same loopback bridge without RetroArch Network Commands.
 - `companion/` now has a Metroid Fusion profile for ArchipelagoMine APWorld
@@ -47,6 +50,17 @@ game-specific Archipelago logic. No memory port is exposed to the LAN.
 
 The supported client runtime is documented in `companion/README.md`.
 
+## SNES games through the custom SNES9x core
+
+Install `snes9x_apbridge_v1_libretro_android.so` through RetroArch's **Install
+or Restore a Core** action. The companion launches `.sfc` content with that
+core and talks to its loopback TCP bridge on port 43057. The bridge handles
+flat SNI ROM, SRAM, and WRAM addresses at emulated-frame boundaries and exposes
+a reset-generation counter which remains available across `retro_reset()`.
+Registered SNI clients keep the desktop client's device lifecycle, ROM
+validation, handler registry, item state, and write-buffer behavior. No SNI
+process or separate network bridge app is required.
+
 ## Installing the custom RetroArch core on Android
 
 Do not configure RetroArch's Core directory to shared storage and run the
@@ -55,7 +69,8 @@ native code in shared writable storage. Copy the uncompressed `.so` to
 Downloads, then use RetroArch's **Load Core > Install or Restore a Core**
 command to copy it into RetroArch's private core directory. Keep a distinct
 filename such as
-`mgba_apbridge_v9_libretro_android.so` so the stock mGBA core is not overwritten.
+`mgba_apbridge_v9_libretro_android.so` or
+`snes9x_apbridge_v1_libretro_android.so` so a stock core is not overwritten.
 
 For NDK r27 and older, configure CMake with:
 

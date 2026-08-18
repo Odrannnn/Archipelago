@@ -1,0 +1,67 @@
+diff --git a/libretro/Makefile.common b/libretro/Makefile.common
+index 664c6f7..140573c 100644
+--- a/libretro/Makefile.common
++++ b/libretro/Makefile.common
+@@ -46,6 +46,7 @@ SOURCES_CXX := $(CORE_DIR)/apu/apu.cpp \
+ 	       $(CORE_DIR)/sha256.cpp \
+ 	       $(CORE_DIR)/bml.cpp \
+ 	       $(CORE_DIR)/fscompat.cpp \
++	       $(CORE_DIR)/libretro/archipelago_bridge.cpp \
+ 	       $(CORE_DIR)/libretro/libretro.cpp
+ 
+ # libretro VFS support. On statically linked platforms the frontend
+diff --git a/libretro/jni/Android.mk b/libretro/jni/Android.mk
+index 6e32c08..3a635fc 100644
+--- a/libretro/jni/Android.mk
++++ b/libretro/jni/Android.mk
+@@ -16,5 +16,5 @@ LOCAL_MODULE    := retro
+ LOCAL_SRC_FILES := $(SOURCES_C) $(SOURCES_CXX)
+ LOCAL_CXXFLAGS  := $(COREFLAGS)
+ LOCAL_CFLAGS    := $(COREFLAGS)
+-LOCAL_LDFLAGS   := -Wl,-version-script=$(CORE_DIR)/libretro/link.T
++LOCAL_LDFLAGS   := -Wl,-version-script=$(CORE_DIR)/libretro/link.T -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384
+ include $(BUILD_SHARED_LIBRARY)
+diff --git a/libretro/libretro.cpp b/libretro/libretro.cpp
+index b7aaace..76d932e 100644
+--- a/libretro/libretro.cpp
++++ b/libretro/libretro.cpp
+@@ -3,6 +3,7 @@
+ #include <vfs/vfs_hybrid.h>
+ #include <file/file_path.h>
+ #include "libretro_core_options.h"
++#include "archipelago_bridge.h"
+ 
+ #include "snes9x.h"
+ extern "C" { extern uint8 TileMode7Hires; extern uint8 TileMode7HiresBilinear; }
+@@ -1164,6 +1165,7 @@ unsigned retro_api_version()
+ 
+ void retro_reset()
+ {
++    APBridgeNotifyReset();
+     reset_button_cache();
+     S9xSoftReset();
+ }
+@@ -1700,6 +1702,7 @@ static void check_system_specs(void)
+ 
+ void retro_init(void)
+ {
++    APBridgeInit();
+     struct retro_log_callback log;
+ 
+     if (environ_cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &log))
+@@ -2248,6 +2251,7 @@ static void report_buttons()
+ 
+ void retro_run()
+ {
++    APBridgePoll(rom_loaded);
+     static uint16 height = PPU.ScreenHeight;
+     bool updated = false;
+     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
+@@ -2301,6 +2305,7 @@ void retro_run()
+ 
+ void retro_deinit()
+ {
++    APBridgeDeinit();
+     S9xDeinitAPU();
+     Memory.Deinit();
+     S9xGraphicsDeinit();

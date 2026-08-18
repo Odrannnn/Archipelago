@@ -12,11 +12,12 @@ import android.provider.OpenableColumns
 import android.provider.Settings
 import java.io.File
 
-/** Launches a patched ROM directly with the custom mGBA Archipelago core. */
+/** Launches a patched ROM directly with its supported Android libretro core. */
 object RetroArchLauncher {
     private const val PACKAGE_NAME = "com.retroarch.aarch64"
     private const val ACTIVITY_NAME = "com.retroarch.browser.retroactivity.RetroActivityFuture"
-    private const val CORE_FILE_NAME = "mgba_apbridge_v9_libretro_android.so"
+    private const val MGBA_CORE_FILE_NAME = "mgba_apbridge_v9_libretro_android.so"
+    const val SNES_CORE_FILE_NAME = "snes9x_apbridge_v1_libretro_android.so"
     private const val EXTERNAL_STORAGE_AUTHORITY = "com.android.externalstorage.documents"
     private const val DOWNLOADS_AUTHORITY = "com.android.providers.downloads.documents"
 
@@ -40,7 +41,8 @@ object RetroArchLauncher {
         val externalFiles = File(storage, "Android/data/$PACKAGE_NAME/files")
         val configPath = File(externalFiles, "retroarch.cfg").absolutePath
         val romReference = localPath(context, savedRom) ?: savedRom.toString()
-        val corePath = File(app.dataDir, "cores/$CORE_FILE_NAME").absolutePath
+        val coreFileName = if (isSnesRom(context, savedRom)) SNES_CORE_FILE_NAME else MGBA_CORE_FILE_NAME
+        val corePath = File(app.dataDir, "cores/$coreFileName").absolutePath
         val resumeExisting = isRunningRom(gameName, playerSlot, serverAddress)
 
         val intent = Intent().apply {
@@ -149,6 +151,11 @@ object RetroArchLauncher {
             if (column >= 0 && cursor.moveToFirst()) cursor.getString(column) else null
         }
     }.getOrNull()
+
+    fun isSnesRom(context: Context, uri: Uri): Boolean {
+        val name = queryDisplayName(context, uri) ?: uri.lastPathSegment.orEmpty()
+        return name.endsWith(".sfc", ignoreCase = true) || name.endsWith(".smc", ignoreCase = true)
+    }
 
     private fun validatedExternalPath(path: String): String? {
         val root = runCatching { Environment.getExternalStorageDirectory().canonicalFile }.getOrNull() ?: return null
