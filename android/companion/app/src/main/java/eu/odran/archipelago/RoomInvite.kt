@@ -499,6 +499,11 @@ object HostedRoomHistoryLinks {
 
     fun historyId(context: Context, roomId: String): String? =
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString(roomId, null)
+
+    fun remove(context: Context, roomId: String) {
+        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            .edit().remove(roomId).apply()
+    }
 }
 
 /** Restricts outgoing invitation URIs to the configured cache subdirectory. */

@@ -42,6 +42,9 @@ game-specific Archipelago logic. No memory port is exposed to the LAN.
 - Player-specific `.apinvite` files can omit the patch for self-connecting games.
   Ship of Harkinian invites retain the selected slot, player name, and game so
   the recipient can resolve the room and use the direct SoH launch action.
+- Website-hosted rooms can be removed from the companion without deleting the
+  remote room. Local removals persist across refreshes and can be restored from
+  the hosted-instance controls.
 - `companion/` now authenticates to the room, resolves item and location IDs
   from the server data package, delivers queued items using the ROM's receipt
   counter, reports checked locations, and reports goal completion at credits.

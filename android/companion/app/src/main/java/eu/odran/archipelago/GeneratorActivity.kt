@@ -69,6 +69,7 @@ class GeneratorActivity : Activity() {
     private lateinit var historyToggleButton: Button
     private lateinit var hostedRoomsContainer: LinearLayout
     private lateinit var refreshHostedRoomsButton: Button
+    private lateinit var restoreHostedRoomsButton: Button
     private lateinit var status: TextView
     private lateinit var webHostClient: ArchipelagoWebHostClient
 
@@ -330,6 +331,12 @@ class GeneratorActivity : Activity() {
                 setOnClickListener { refreshHostedRooms() }
             }
             addView(refreshHostedRoomsButton, matchWrapParams())
+            restoreHostedRoomsButton = Button(this@GeneratorActivity).apply {
+                CompanionUi.styleQuiet(this)
+                setOnClickListener { confirmRestoreHostedRooms() }
+            }
+            addView(restoreHostedRoomsButton, CompanionUi.insetTop(this, this@GeneratorActivity, 4))
+            updateRestoreHostedRoomsButton()
             addView(Button(this@GeneratorActivity).apply {
                 text = "Sync website session"
                 CompanionUi.styleQuiet(this)
@@ -406,7 +413,7 @@ class GeneratorActivity : Activity() {
             addView(CompanionUi.card(
                 this@GeneratorActivity,
                 "Hosted instances",
-                "Rooms are tied to this app's private archipelago.gg website session.",
+                "Rooms are tied to this app's private archipelago.gg website session. Remove hides them only on this device.",
             ).apply {
                 addView(
                     CompanionUi.toggleButton(this@GeneratorActivity, "hosted instances", hostedTools),
@@ -1359,6 +1366,7 @@ class GeneratorActivity : Activity() {
 
     private fun renderHostedRoomsContent(rooms: List<HostedRoom>) {
         hostedRoomsContainer.removeAllViews()
+        updateRestoreHostedRoomsButton()
         if (rooms.isEmpty()) {
             hostedRoomsContainer.addView(TextView(this).apply {
                 text = "No hosted instances are cached on this device."
@@ -1438,8 +1446,64 @@ class GeneratorActivity : Activity() {
                         }
                     }, matchWrapParams())
                 }
+                addView(Button(this@GeneratorActivity).apply {
+                    text = "Remove from this app"
+                    CompanionUi.styleDanger(this)
+                    setOnClickListener { confirmDismissHostedRoom(room) }
+                }, CompanionUi.insetTop(this, this@GeneratorActivity, 4))
             }, matchWrapParams())
         }
+    }
+
+    private fun confirmDismissHostedRoom(room: HostedRoom) {
+        val playerSummary = room.players.takeIf { it.isNotEmpty() }?.joinToString().orEmpty()
+        AlertDialog.Builder(this)
+            .setTitle("Remove hosted room from this app?")
+            .setMessage(
+                buildString {
+                    append("This removes the room from the companion's hosted list and clears its local saved-room and seed links.")
+                    if (playerSummary.isNotBlank()) append("\n\n$playerSummary")
+                    append(
+                        "\n\nIt does not stop or delete the room or seed on archipelago.gg. " +
+                            "The room will remain hidden after refresh until you restore removed rooms.",
+                    )
+                },
+            )
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Remove locally") { _, _ ->
+                val visibleRooms = webHostClient.dismissRoom(room.roomId)
+                HostedRoomHistoryLinks.remove(this, room.roomId)
+                JoinedRoomStore.delete(this, room.roomId)
+                renderHostedRooms(visibleRooms)
+                status.text = "Removed the hosted room from this app. The archipelago.gg room was not deleted."
+            }
+            .show()
+    }
+
+    private fun confirmRestoreHostedRooms() {
+        val count = webHostClient.dismissedRoomCount()
+        if (count == 0) return
+        AlertDialog.Builder(this)
+            .setTitle("Restore removed hosted rooms?")
+            .setMessage(
+                "The companion will show the $count locally removed room${if (count == 1) "" else "s"} " +
+                    "again if they are still present in this app's archipelago.gg website session.",
+            )
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Restore and refresh") { _, _ ->
+                webHostClient.restoreDismissedRooms()
+                updateRestoreHostedRoomsButton()
+                refreshHostedRooms()
+            }
+            .show()
+    }
+
+    private fun updateRestoreHostedRoomsButton() {
+        if (!::restoreHostedRoomsButton.isInitialized) return
+        val count = webHostClient.dismissedRoomCount()
+        restoreHostedRoomsButton.visibility = if (count > 0) View.VISIBLE else View.GONE
+        restoreHostedRoomsButton.text =
+            "Restore $count removed room${if (count == 1) "" else "s"}"
     }
 
     private fun chooseSohPlayer(room: HostedRoom, players: List<SohPlayer>) {

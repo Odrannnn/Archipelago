@@ -28,6 +28,9 @@ data class HostSeedResult(
     val rooms: List<HostedRoom>,
 )
 
+internal fun visibleHostedRooms(rooms: List<HostedRoom>, hiddenRoomIds: Set<String>): List<HostedRoom> =
+    rooms.filterNot { it.roomId in hiddenRoomIds }
+
 /** Uploads locally generated seed packages using one persistent archipelago.gg website session. */
 class ArchipelagoWebHostClient(context: Context) {
     private val preferences = context.applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
@@ -118,13 +121,29 @@ class ArchipelagoWebHostClient(context: Context) {
                 players = playersBySeed[seedId].orEmpty(),
             )
         }
-        saveCachedRooms(rooms)
-        return rooms
+        val visibleRooms = visibleHostedRooms(rooms, hiddenRoomIds())
+        saveCachedRooms(visibleRooms)
+        return visibleRooms
     }
 
     fun cachedRooms(): List<HostedRoom> = runCatching {
         parseRooms(JSONArray(preferences.getString(ROOM_CACHE, "[]")))
     }.getOrDefault(emptyList())
+
+    /** Hides a website-hosted room locally without deleting or stopping it on archipelago.gg. */
+    fun dismissRoom(roomId: String): List<HostedRoom> {
+        require(ROOM_ID_PATTERN.matches(roomId)) { "Invalid room identifier." }
+        preferences.edit()
+            .putStringSet(HIDDEN_ROOMS, hiddenRoomIds() + roomId)
+            .apply()
+        return visibleHostedRooms(cachedRooms(), setOf(roomId)).also(::saveCachedRooms)
+    }
+
+    fun dismissedRoomCount(): Int = hiddenRoomIds().size
+
+    fun restoreDismissedRooms() {
+        preferences.edit().remove(HIDDEN_ROOMS).apply()
+    }
 
     /** Resolves a public room invite and wakes a sleeping website-hosted server. */
     fun resolvePublicRoom(roomId: String): HostedRoom {
@@ -200,8 +219,9 @@ class ArchipelagoWebHostClient(context: Context) {
     }
 
     private fun saveCachedRooms(rooms: List<HostedRoom>) {
+        val hiddenRooms = hiddenRoomIds()
         val data = JSONArray().apply {
-            rooms.forEach { room ->
+            visibleHostedRooms(rooms, hiddenRooms).forEach { room ->
                 put(JSONObject().apply {
                     put("roomId", room.roomId)
                     put("seedId", room.seedId)
@@ -216,6 +236,9 @@ class ArchipelagoWebHostClient(context: Context) {
         }
         preferences.edit().putString(ROOM_CACHE, data.toString()).apply()
     }
+
+    private fun hiddenRoomIds(): Set<String> =
+        preferences.getStringSet(HIDDEN_ROOMS, emptySet())?.toSet().orEmpty()
 
     private fun parseRooms(data: JSONArray) = List(data.length()) { index ->
         val room = data.getJSONObject(index)
@@ -273,6 +296,7 @@ class ArchipelagoWebHostClient(context: Context) {
         private const val SESSION_ID = "website_session_id"
         private const val SESSION_COOKIE = "website_session_cookie"
         private const val ROOM_CACHE = "hosted_room_cache"
+        private const val HIDDEN_ROOMS = "hidden_hosted_rooms"
         private val SESSION_COOKIE_PATTERN = Regex("(?:^|;\\s*)session=([^;]+)")
         val ROOM_ID_PATTERN = Regex("[A-Za-z0-9_-]{16,64}")
     }

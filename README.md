@@ -131,6 +131,9 @@ contain a base ROM, website-session credentials, or private hosting controls.
 Imported rooms are stored in a room library. The user can switch active rooms,
 refresh their current server ports, retain a separate saved-ROM shortcut for
 each player, or remove a local room record without deleting the hosted room.
+Website-hosted rooms can likewise be removed from the companion's hosted list
+without stopping or deleting them on archipelago.gg. Removed entries stay hidden
+across refreshes and can be restored from the hosted-instance controls.
 
 ### Launch related Android apps
 
