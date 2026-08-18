@@ -27,11 +27,14 @@ class OfflineGeneratorRuntimeTest(unittest.TestCase):
         utils.gui_enabled = True
         utils.user_path = lambda path="": path
         utils.home_path = lambda path="": path
+        settings = ModuleType("settings")
+        settings.no_gui = False
         with tempfile.TemporaryDirectory() as directory:
             try:
-                with patch.dict(sys.modules, {"Utils": utils}):
+                with patch.dict(sys.modules, {"Utils": utils, "settings": settings}):
                     OFFLINE_GENERATOR._prepare_runtime(directory)
                     self.assertFalse(utils.gui_enabled)
+                    self.assertTrue(settings.no_gui)
             finally:
                 os.chdir(previous_directory)
 

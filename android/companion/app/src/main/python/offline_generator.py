@@ -79,11 +79,14 @@ def _prepare_runtime(work_directory: str) -> tuple[Path, Path]:
     # artifact and may be cleared before the next generation.
     os.chdir(root)
 
+    import settings
     import Utils
 
     # The embedded Android runtime has no desktop window server. This is the
     # programmatic equivalent of Archipelago's upstream ``--nogui`` mode and
-    # keeps APWorld validation errors from falling through to tkinter.
+    # keeps both APWorld validation messages and optional file settings from
+    # falling through to tkinter.
+    settings.no_gui = True
     Utils.gui_enabled = False
     Utils.user_path.cached_path = str(root)
     Utils.home_path.cached_path = str(root)
