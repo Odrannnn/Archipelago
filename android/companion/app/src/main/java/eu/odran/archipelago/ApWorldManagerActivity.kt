@@ -42,6 +42,18 @@ class ApWorldManagerActivity : Activity() {
             }, CompanionUi.cardParams(this@ApWorldManagerActivity))
             addView(CompanionUi.card(
                 this@ApWorldManagerActivity,
+                "Built-in SNES live sync",
+                "Verified upstream SNI clients included with the companion. Use the custom SNES9x Archipelago core for mapper-independent memory access.",
+            ).apply {
+                addView(TextView(this@ApWorldManagerActivity).apply {
+                    text = OfflineGenerator.bundledWorlds(this@ApWorldManagerActivity)
+                        .filter { it.platform == "SNES" }
+                        .joinToString("\n") { "• ${it.game}" }
+                    CompanionUi.styleBody(this)
+                }, CompanionUi.fullWidth())
+            }, CompanionUi.cardParams(this@ApWorldManagerActivity))
+            addView(CompanionUi.card(
+                this@ApWorldManagerActivity,
                 "Available games",
                 "Built-in games ship with the app. Imported worlds can be removed independently.",
             ).apply {
@@ -140,7 +152,7 @@ class ApWorldManagerActivity : Activity() {
                 addView(TextView(this@ApWorldManagerActivity).apply {
                     text = buildString {
                         append(capabilitySummary(capability, failure))
-                        append("\nIncluded with the companion")
+                        append("\nIncluded with the companion · ${world.platform}")
                         capability?.version?.takeIf { it != "0.0.0" }?.let { append(" · world $it") }
                     }
                     CompanionUi.styleMuted(this)

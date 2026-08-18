@@ -81,6 +81,10 @@ def _prepare_runtime(work_directory: str) -> tuple[Path, Path]:
 
     import Utils
 
+    # The embedded Android runtime has no desktop window server. This is the
+    # programmatic equivalent of Archipelago's upstream ``--nogui`` mode and
+    # keeps APWorld validation errors from falling through to tkinter.
+    Utils.gui_enabled = False
     Utils.user_path.cached_path = str(root)
     Utils.home_path.cached_path = str(root)
     return players, output

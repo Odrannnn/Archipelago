@@ -9,6 +9,9 @@ from typing import Any
 
 from android_client_runtime import (
     AndroidClientContext,
+    capture_console_logs,
+    drain_console,
+    execute_console_command,
     plain as _plain,
     process_packet as process_common_packet,
     reset_connection as reset_common_connection,
@@ -350,6 +353,15 @@ class AndroidBizHawkRuntime:
             return
         process_common_packet(self.ctx, self.handler, packet_json)
 
+    def execute_command(self, raw: str) -> str:
+        if self.ctx is None or self.handler is None:
+            return json.dumps({
+                "console": [{"kind": "error", "text": "No mGBA game client is active."}],
+                "actions": [],
+            })
+        with capture_console_logs(self.ctx):
+            return json.dumps(_plain(self._run(execute_console_command(self.ctx, raw))))
+
     def tick(self, watch_game: bool = True) -> str:
         if self.ctx is None or self.handler is None:
             return json.dumps({"messages": [], "disconnect": False, "error": "No mGBA client is active"})
@@ -357,18 +369,22 @@ class AndroidBizHawkRuntime:
         self.ctx.emulator_lifecycle.begin_tick(watch_game)
         if watch_game:
             try:
-                self._run(self.handler.game_watcher(self.ctx))
+                with capture_console_logs(self.ctx):
+                    self._run(self.handler.game_watcher(self.ctx))
             except Exception as exc:
                 self.ctx.emulator_lifecycle.note_io_failure()
                 error = f"{type(exc).__name__}: {exc}"
                 self.last_error = error
+                self.ctx.console_message("error", error)
         self.ctx.emulator_lifecycle.end_tick()
         messages = self.ctx.outgoing
         self.ctx.outgoing = []
         disconnect = self.ctx.disconnect_requested
         self.ctx.disconnect_requested = False
+        console = drain_console(self.ctx)["console"]
         return json.dumps({
             "messages": _plain(messages),
+            "console": _plain(console),
             "disconnect": disconnect,
             "error": error,
             "diagnostic": self.ctx.diagnostic,

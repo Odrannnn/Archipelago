@@ -52,6 +52,16 @@ periodic `Sync` packets. This layer contains no game-specific memory addresses
 and is shared by mGBA and SNI clients.
 
 Kotlin owns the WebSocket and forwards Archipelago packets to that client.
+The client console uses the upstream `CommandMeta`/`CommandProcessor` parser
+and an Android `ClientCommandProcessor` context. It supports `/help`,
+`/received`, `/missing`, `/items`, `/locations`, item/location groups,
+`/ready`, room chat, SNI `/slow_mode`, and commands registered by world clients
+at runtime, including Kirby's Dream Land 3 `/gift`. `/connect`, `/disconnect`,
+`/snes`, `/snes_close`, and `/exit` retain their client meaning while routing
+through the Android foreground service. Server `PrintJSON`, client logging,
+connection information, and command output share one bounded, color-coded
+transcript.
+
 The Android BizHawk compatibility layer translates its reads, guarded reads,
 writes, guarded writes, hashes, ROM-domain reads, and on-screen messages into version-6 atomic
 transactions handled by the custom mGBA core. The built-in Castlevania: Circle
@@ -70,19 +80,24 @@ the desktop client: the live ROM flags and receive index are authoritative, and
 the Android layer does not reconstruct checks, rewind saves, or replay cached
 server snapshots.
 
-Super Metroid is bundled with its standard `.apsm` procedure patch and is the
-first registered `SNIClient`. `AndroidSNIRuntime` discovers it through the same
-registry used for compatible imported clients and keeps the upstream location,
-item queue, goal, and DeathLink behavior. The Android `SNIContext` ports the
-desktop attach/disconnect state transitions, per-cycle ROM validation, handler
-selection, and buffered-write API. In particular, a transport loss clears the
+Nine upstream SNI worlds are bundled: A Link to the Past, EarthBound, Final
+Fantasy Mystic Quest, Kirby's Dream Land 3, Lufia II Ancient Cave, SMZ3, Super
+Mario World, Super Metroid, and Yoshi's Island. `AndroidSNIRuntime` discovers
+their unmodified client handlers through the same registry used for compatible
+imported clients and preserves each handler's location, item queue, goal,
+DeathLink, and slot-data behavior. The Android `SNIContext` ports the desktop
+attach/disconnect state transitions, per-cycle ROM validation, handler
+selection, command registration, data-storage notifications, player/game name
+lookups, error reporting, and buffered-write API. A transport loss clears the
 attached ROM/device state but preserves the server's received-item list so a
 reset game-side cursor can consume those items again after reattachment.
 `Snes9xBridgeClient` is the preferred replacement for SNI's desktop memory
 transport. The core exposes mapper-independent FX Pak Pro ROM, SRAM, and WRAM
 domains directly and processes requests in `retro_run()`. Its TCP listener
 survives `retro_reset()` and PING returns the new reset generation. The older
-`RetroArchNetworkClient` LoROM adapter remains as a Network Commands fallback.
+`RetroArchNetworkClient` LoROM adapter remains as a Network Commands fallback;
+the custom core is required for the verified mapper-independent compatibility
+shown in the app.
 
 The supported upstream worlds are bundled as Python source and resources inside
 the APK. Additional games require a trusted `.apworld` whose conventional client

@@ -42,11 +42,18 @@ class PythonSniRuntime(
         Unit
     }
 
+    override fun executeCommand(command: String): GameRuntimeCommandResult =
+        synchronized(OfflineGenerator.runtimeLock) {
+            val result = JSONObject(runtime.callAttr("execute_command", command).toString())
+            GameRuntimeCommandResult(result.consoleMessages(), result.runtimeActions())
+        }
+
     override fun tick(emulatorAvailable: Boolean): GameRuntimeTick = synchronized(OfflineGenerator.runtimeLock) {
         val result = JSONObject(runtime.callAttr("tick", emulatorAvailable).toString())
         val messages = result.optJSONArray("messages") ?: JSONArray()
         GameRuntimeTick(
             messages = List(messages.length()) { messages.getJSONObject(it) },
+            console = result.consoleMessages(),
             disconnect = result.optBoolean("disconnect"),
             error = result.optString("error"),
             diagnostic = result.optString("diagnostic"),

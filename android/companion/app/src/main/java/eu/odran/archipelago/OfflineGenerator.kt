@@ -9,7 +9,7 @@ import java.io.File
 
 data class GeneratedArtifact(val name: String, val path: String, val kind: String)
 
-data class BundledWorld(val game: String, val packageName: String)
+data class BundledWorld(val game: String, val packageName: String, val platform: String)
 
 data class RomInputRequirement(
     val key: String,
@@ -92,7 +92,11 @@ object OfflineGenerator {
             val entries = JSONArray(reader.readText())
             List(entries.length()) { index ->
                 val entry = entries.getJSONObject(index)
-                BundledWorld(entry.getString("game"), entry.getString("package"))
+                BundledWorld(
+                    entry.getString("game"),
+                    entry.getString("package"),
+                    entry.optString("platform", "Other"),
+                )
             }.also { bundledWorldCache = it }
         }
     }
@@ -151,8 +155,15 @@ object OfflineGenerator {
                 .callAttr("player_forms_from_yaml", workDirectory(context).absolutePath, yaml)
                 .toString(),
         )
+        decodePlayerForms(root)
+    }
+
+    fun decodePlayerForms(playersJson: String): List<PlayerFormData> =
+        decodePlayerForms(JSONObject(playersJson))
+
+    private fun decodePlayerForms(root: JSONObject): List<PlayerFormData> {
         val players = root.getJSONArray("players")
-        List(players.length()) { index ->
+        return List(players.length()) { index ->
             val player = players.getJSONObject(index)
             PlayerFormData(
                 name = player.getString("name"),

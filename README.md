@@ -17,18 +17,22 @@ third-party components and source incorporated from Archipelago, mGBA,
 RetroArch, ArchipelagoMine, or imported APWorlds. Those projects retain
 their original authorship, history, and licenses.
 
-This fork adds a self-contained Android workflow for playing GBA, GBC, and Super Metroid multiworlds
+This fork adds a self-contained Android workflow for playing GBA, GBC, and SNES multiworlds
 with [Archipelago](https://archipelago.gg). It combines an Android companion app
-with a custom mGBA libretro core so RetroArch can exchange game state with an
-Archipelago room without a PC.
+with custom mGBA and SNES9x libretro cores so RetroArch can exchange game state
+with an Archipelago room without a PC.
 
-The app bundles six compatible worlds from the pinned Archipelago core:
-Castlevania: Circle of the Moon, Link's Awakening DX, Mario & Luigi: Superstar
-Saga, Pokémon Emerald, Super Metroid, and Yu-Gi-Oh! 2006. They can generate, patch, and play
-without a manual APWorld import. Other compatible GBA and GB/GBC worlds can still be added as
-trusted `.apworld` files. Those worlds use their standard `BizHawkClient`
-through the reusable Python-to-mGBA path; Link's Awakening DX uses a dedicated
-Android adapter over the same bridge and does not require Network Commands.
+The app bundles fourteen compatible worlds from the pinned Archipelago core.
+The nine SNES worlds are A Link to the Past, EarthBound, Final Fantasy Mystic
+Quest, Kirby's Dream Land 3, Lufia II Ancient Cave, SMZ3, Super Mario World,
+Super Metroid, and Yoshi's Island. The GBA/GBC worlds are Castlevania: Circle
+of the Moon, Link's Awakening DX, Mario & Luigi: Superstar Saga, Pokémon
+Emerald, and Yu-Gi-Oh! 2006. They can generate, patch, and play without a manual
+APWorld import. Other compatible worlds can still be added as trusted
+`.apworld` files. Conventional SNES worlds use their upstream `SNIClient`
+through the reusable Python-to-SNES9x path; conventional GBA and GB/GBC worlds
+use their upstream `BizHawkClient` through the Python-to-mGBA path. Link's
+Awakening DX uses a dedicated Android adapter over the same mGBA bridge.
 The rest of this repository remains based on the upstream
 [Archipelago project](https://github.com/ArchipelagoMW/Archipelago).
 
@@ -41,7 +45,7 @@ The rest of this repository remains based on the upstream
 
 - Connects RetroArch's emulated GBA or GBC memory to the companion through a
   loopback-only bridge at `127.0.0.1:43056`.
-- Connects Super Metroid through a custom SNES9x core's frame-boundary SNI
+- Connects nine built-in SNES games through a custom SNES9x core's frame-boundary SNI
   memory bridge at TCP `127.0.0.1:43057`. The bridge exposes generic flat ROM,
   SRAM, and WRAM domains and reports soft resets without running an SNI process.
 - Retains RetroArch nightly's UDP Network Commands interface at
@@ -52,6 +56,10 @@ The rest of this repository remains based on the upstream
 - Detects compatible ROMs using built-in or imported bridge clients, then reads
   the authentication data defined by each game.
 - Connects to Archipelago rooms over WebSockets, including TLS fallback.
+- Provides a desktop-style client console for chat, structured server text,
+  upstream client commands, and APWorld-registered commands such as KDL3's
+  `/gift`. Android-owned connection and emulator commands are routed through
+  the foreground bridge service.
 - Reports checked locations and game completion.
 - Receives and applies items, upgrades, capacities, keycards, Metroid count,
   and persistent state.

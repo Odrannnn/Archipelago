@@ -14,7 +14,12 @@ sys.modules["NetUtils"] = SimpleNamespace(
     NetworkItem=namedtuple("NetworkItem", "item location player flags", defaults=(0,)),
 )
 
-from android_client_runtime import AndroidClientContext, process_packet, reset_connection
+from android_client_runtime import (
+    AndroidClientContext,
+    execute_console_command,
+    process_packet,
+    reset_connection,
+)
 
 
 class Handler:
@@ -116,6 +121,67 @@ class EmulatorLifecycleTest(unittest.TestCase):
             [{"cmd": "Sync"}, {"cmd": "LocationChecks", "locations": [42]}],
             ctx.outgoing,
         )
+
+
+class ClientConsoleTest(unittest.IsolatedAsyncioTestCase):
+    async def test_chat_and_ready_commands_use_the_active_context(self) -> None:
+        ctx = AndroidClientContext(object())
+        ctx.game = "Test Game"
+        ctx.server = object()
+
+        chat = await execute_console_command(ctx, "hello room")
+        ready = await execute_console_command(ctx, "/ready")
+
+        self.assertEqual({"cmd": "Say", "text": "hello room"}, ctx.outgoing[0])
+        self.assertEqual({"cmd": "StatusUpdate", "status": 10}, ctx.outgoing[1])
+        self.assertEqual("Readied up.", ready["console"][0]["text"])
+        self.assertEqual([], chat["actions"])
+
+    async def test_help_uses_upstream_parser_registry(self) -> None:
+        ctx = AndroidClientContext(object())
+
+        result = await execute_console_command(ctx, "/help")
+        text = "\n".join(message["text"] for message in result["console"])
+
+        self.assertIn("/received", text)
+        self.assertIn("/disconnect", text)
+        self.assertIn("/ready", text)
+
+    async def test_print_json_resolves_player_item_and_location_names(self) -> None:
+        ctx = AndroidClientContext(object())
+        handler = Handler()
+        ctx.slot = 1
+        ctx.player_names[1] = "Kirby"
+        ctx.item_names.by_game["Test Game"] = {100: "Heart Star"}
+        ctx.location_names.by_game["Test Game"] = {200: "Grass Land 1"}
+        ctx.slot_info[1] = SimpleNamespace(game="Test Game")
+
+        process_packet(ctx, handler, json.dumps({
+            "cmd": "PrintJSON",
+            "data": [
+                {"text": "1", "type": "player_id"},
+                {"text": " found "},
+                {"text": "100", "type": "item_id", "player": 1},
+                {"text": " at "},
+                {"text": "200", "type": "location_id", "player": 1},
+            ],
+        }))
+        result = await execute_console_command(ctx, "")
+
+        self.assertEqual("Kirby found Heart Star at Grass Land 1", result["console"][0]["text"])
+
+    async def test_raw_item_group_command_preserves_spaces(self) -> None:
+        ctx = AndroidClientContext(object())
+        ctx.game = "Test Game"
+        ctx.data_package[ctx.game] = {
+            "item_name_groups": {"Useful Things": ["Heart Star", "1-Up"]},
+        }
+
+        result = await execute_console_command(ctx, "/item_groups Useful Things")
+        text = [message["text"] for message in result["console"]]
+
+        self.assertEqual('Items for Item Group "Useful Things"', text[0])
+        self.assertEqual(["Heart Star", "1-Up"], text[1:])
 
 
 if __name__ == "__main__":

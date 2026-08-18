@@ -36,6 +36,13 @@ import java.util.Locale
 import java.util.zip.ZipFile
 import kotlin.concurrent.thread
 
+private data class GeneratorStartupState(
+    val forms: List<PlayerFormData>,
+    val schemas: Map<String, GameOptionSchema>,
+    val catalog: List<WorldCapability>,
+    val draft: GeneratorDraft?,
+)
+
 /** Creates player YAMLs, generates seeds, and patches a user-supplied ROM entirely offline. */
 class GeneratorActivity : Activity() {
     private lateinit var yamlEditor: EditText
@@ -73,6 +80,7 @@ class GeneratorActivity : Activity() {
     private var renderingPlayer = false
     private var renderingAdvancedYaml = false
     private var advancedYamlDirty = false
+    private var draftReady = false
     private var historyEntryCount = 0
     private var pendingRomRequirements: RomRequirements? = null
     private val pendingRomInputs = linkedMapOf<String, ByteArray>()
@@ -157,6 +165,22 @@ class GeneratorActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             addView(addPlayerButton, weightedButtonParams())
             addView(removePlayerButton, weightedButtonParams())
+        }
+        val resetDraftButton = Button(this).apply {
+            text = "Reset all generator settings"
+            CompanionUi.styleQuiet(this)
+            setOnClickListener {
+                AlertDialog.Builder(this@GeneratorActivity)
+                    .setTitle("Reset generator settings?")
+                    .setMessage("All player names, game options, seed, and advanced YAML edits will return to defaults.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Reset") { _, _ ->
+                        draftReady = false
+                        GeneratorDraftStore.clear(this@GeneratorActivity)
+                        recreate()
+                    }
+                    .show()
+            }
         }
         val saveYamlButton = Button(this).apply {
             text = "Save player YAML"
@@ -338,6 +362,7 @@ class GeneratorActivity : Activity() {
                 addView(playerCountView, CompanionUi.insetTop(playerCountView, this@GeneratorActivity, 8))
                 addView(playerButtons, CompanionUi.insetTop(playerButtons, this@GeneratorActivity, 4))
                 addView(seedEditor, CompanionUi.insetTop(seedEditor, this@GeneratorActivity, 8))
+                addView(resetDraftButton, CompanionUi.insetTop(resetDraftButton, this@GeneratorActivity, 4))
             }, CompanionUi.cardParams(this@GeneratorActivity))
 
             addView(CompanionUi.card(
@@ -401,29 +426,52 @@ class GeneratorActivity : Activity() {
         renderHostedRooms(webHostClient.cachedRooms())
         renderHistory()
 
+        val savedDraft = GeneratorDraftStore.load(this)
         thread(name = "offline-generator-startup") {
             runCatching {
                 val catalog = OfflineGenerator.refreshCatalog(this)
-                val firstGame = (
-                    catalog.firstOrNull { it.source == "imported" && it.template }
-                        ?: catalog.firstOrNull { it.source == "bundled" && it.template }
-                    )?.game
-                val template = firstGame?.let { OfflineGenerator.defaultYaml(this, it) }
-                val forms = template?.let { OfflineGenerator.playerFormsFromYaml(this, it) }.orEmpty()
+                val restoredForms = savedDraft?.let { draft ->
+                    runCatching {
+                        OfflineGenerator.decodePlayerForms(draft.playersJson).also { forms ->
+                            require(forms.isNotEmpty()) { "The saved generator draft has no players" }
+                            val availableGames = OfflineGenerator.availableGames(this).toSet()
+                            require(forms.all { it.game in availableGames }) {
+                                "A game used by the saved generator draft is no longer installed"
+                            }
+                        }
+                    }.getOrNull()
+                }
+                val forms = restoredForms ?: run {
+                    val firstGame = (
+                        catalog.firstOrNull { it.source == "imported" && it.template }
+                            ?: catalog.firstOrNull { it.source == "bundled" && it.template }
+                        )?.game
+                    val template = firstGame?.let { OfflineGenerator.defaultYaml(this, it) }
+                    template?.let { OfflineGenerator.playerFormsFromYaml(this, it) }.orEmpty()
+                }
                 val schemas = forms.map { it.game }.distinct().associateWith {
                     OfflineGenerator.optionSchema(this, it)
                 }
-                Triple(forms, schemas, catalog)
+                GeneratorStartupState(forms, schemas, catalog, savedDraft.takeIf { restoredForms != null })
             }
-                .onSuccess { (forms, schemas, catalog) ->
+                .onSuccess { startup ->
                     runOnUiThread {
-                        if (!historySettingsLoaded) applyPlayerForms(forms, schemas, 0)
-                        yamlEditor.isEnabled = forms.isNotEmpty()
-                        generateButton.isEnabled = forms.isNotEmpty()
-                        val imported = catalog.count { it.source == "imported" }
-                        val bundled = catalog.count { it.source == "bundled" }
-                        status.text = if (forms.isEmpty()) {
+                        if (!historySettingsLoaded) {
+                            applyPlayerForms(
+                                startup.forms,
+                                startup.schemas,
+                                startup.draft?.selectedPlayerIndex ?: 0,
+                            )
+                            startup.draft?.let(::restoreDraftFields)
+                        }
+                        yamlEditor.isEnabled = startup.forms.isNotEmpty()
+                        generateButton.isEnabled = startup.forms.isNotEmpty()
+                        val imported = startup.catalog.count { it.source == "imported" }
+                        val bundled = startup.catalog.count { it.source == "bundled" }
+                        status.text = if (startup.forms.isEmpty()) {
                             "No compatible game worlds loaded. Open Game worlds for details."
+                        } else if (startup.draft != null) {
+                            "Restored generator draft · $bundled built in · $imported imported"
                         } else {
                             "Ready · $bundled built in · $imported imported"
                         }
@@ -447,6 +495,33 @@ class GeneratorActivity : Activity() {
                 replacePlayerGame(selectedPlayerIndex, player.name, game)
             }
         }
+    }
+
+    override fun onPause() {
+        saveGeneratorDraft()
+        super.onPause()
+    }
+
+    private fun saveGeneratorDraft() {
+        if (!draftReady || playerForms.isEmpty()) return
+        GeneratorDraftStore.save(
+            this,
+            GeneratorDraft(
+                playersJson = OfflineGenerator.encodePlayerForms(playerForms),
+                selectedPlayerIndex = selectedPlayerIndex,
+                seed = seedEditor.text.toString(),
+                advancedYaml = yamlEditor.text.toString(),
+                advancedYamlDirty = advancedYamlDirty,
+            ),
+        )
+    }
+
+    private fun restoreDraftFields(draft: GeneratorDraft) {
+        seedEditor.setText(draft.seed)
+        renderingAdvancedYaml = true
+        yamlEditor.setText(draft.advancedYaml)
+        renderingAdvancedYaml = false
+        advancedYamlDirty = draft.advancedYamlDirty
     }
 
     private fun chooseGame(title: String, onSelected: (String) -> Unit) {
@@ -544,6 +619,7 @@ class GeneratorActivity : Activity() {
         generateButton.isEnabled = playerForms.isNotEmpty() && !templateLoadInProgress
         yamlEditor.isEnabled = playerForms.isNotEmpty()
         forgetBaseRomButton.isEnabled = BaseRomCache.isPresent(this, currentTemplateGame)
+        draftReady = playerForms.isNotEmpty()
     }
 
     private fun addPlayer() {

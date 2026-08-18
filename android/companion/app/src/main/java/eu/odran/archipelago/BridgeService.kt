@@ -35,6 +35,8 @@ class BridgeService : Service() {
     @Volatile private var activeBridge: MGBABridgeClient? = null
     @Volatile private var activeSniClient: SniMemoryClient? = null
     @Volatile private var activeSession: RoomSession? = null
+    @Volatile private var reconnectRequested = false
+    private var lastConsoleServerDetails = ""
 
     override fun onCreate() {
         super.onCreate()
@@ -58,6 +60,7 @@ class BridgeService : Service() {
             return START_NOT_STICKY
         }
         if (intent?.action == ACTION_RECONNECT) {
+            reconnectRequested = true
             activeSession?.close()
             activeBridge?.close()
             activeSniClient?.close()
@@ -113,6 +116,8 @@ class BridgeService : Service() {
         var nextSessionAttempt = 0L
         var sniMemoryAttached = false
         var sniResetGeneration: Long? = null
+        var serverPaused = false
+        var snesPaused = false
 
         try {
             publish(
@@ -122,6 +127,93 @@ class BridgeService : Service() {
             )
             while (running && !Thread.currentThread().isInterrupted) {
                 val now = System.currentTimeMillis()
+
+                if (reconnectRequested) {
+                    reconnectRequested = false
+                    serverPaused = false
+                    val oldSession = session
+                    oldSession?.close()
+                    if (activeSession === oldSession) activeSession = null
+                    session = null
+                    sessionSettings = null
+                    nextSessionAttempt = 0L
+                }
+
+                while (true) {
+                    val rawCommand = ClientConsoleStore.pollCommand() ?: break
+                    val commandRuntime = activeRuntime
+                    if (commandRuntime == null) {
+                        ClientConsoleStore.append("error", "No active game client. Load a supported patched ROM first.")
+                        continue
+                    }
+                    try {
+                        val result = commandRuntime.executeCommand(rawCommand)
+                        ClientConsoleStore.append(result.console)
+                        result.actions.forEach { action ->
+                            when (action.optString("action")) {
+                                "connect" -> {
+                                    val address = action.optString("address")
+                                    if (address.isNotBlank()) {
+                                        val existing = ServerSettings.load(this)
+                                        ServerSettings.save(this, address, existing.password)
+                                    }
+                                    serverPaused = false
+                                    val oldSession = session
+                                    oldSession?.close()
+                                    if (activeSession === oldSession) activeSession = null
+                                    session = null
+                                    sessionSettings = null
+                                    nextSessionAttempt = 0L
+                                }
+                                "disconnect" -> {
+                                    serverPaused = true
+                                    val oldSession = session
+                                    oldSession?.close()
+                                    if (activeSession === oldSession) activeSession = null
+                                    session = null
+                                    sessionSettings = null
+                                    publishServerState(
+                                        RoomConnectionState.DISCONNECTED,
+                                        "Disconnected from the client console. Use /connect to reconnect.",
+                                    )
+                                }
+                                "emulator_disconnect" -> {
+                                    snesPaused = true
+                                    val oldSni = sniClient
+                                    if (oldSni != null) sniRuntime?.detach(oldSni)
+                                    oldSni?.close()
+                                    if (activeSniClient === oldSni) activeSniClient = null
+                                    sniClient = null
+                                    sniMemoryAttached = false
+                                    sniResetGeneration = null
+                                    publish("SNES emulator bridge paused from the client console")
+                                }
+                                "emulator_connect" -> {
+                                    snesPaused = false
+                                    val oldSni = sniClient
+                                    if (oldSni != null) sniRuntime?.detach(oldSni)
+                                    oldSni?.close()
+                                    if (activeSniClient === oldSni) activeSniClient = null
+                                    sniClient = null
+                                    sniMemoryAttached = false
+                                    sniResetGeneration = null
+                                    nextSniAttempt = 0L
+                                }
+                                "stop" -> {
+                                    stopping = true
+                                    running = false
+                                    mainHandler.post { stopSelf() }
+                                }
+                            }
+                        }
+                    } catch (error: Exception) {
+                        ClientConsoleStore.append(
+                            "error",
+                            "Command failed: ${error.message ?: error.javaClass.simpleName}",
+                        )
+                        Log.w(TAG, "Client console command failed", error)
+                    }
+                }
 
                 if (mgbaBridge == null && now >= nextMgbaAttempt) {
                     var candidate: MGBABridgeClient? = null
@@ -175,7 +267,7 @@ class BridgeService : Service() {
                     }
                 }
 
-                if (sniClient == null && now >= nextSniAttempt) {
+                if (!snesPaused && sniClient == null && now >= nextSniAttempt) {
                     var candidate: SniMemoryClient? = null
                     try {
                         val connected = connectPreferredSniClient()
@@ -316,6 +408,7 @@ class BridgeService : Service() {
                     activeRuntime = desired?.runtime
                     activeGame = desired?.game
                     nextSessionAttempt = 0L
+                    serverPaused = false
 
                     activeGameName = desired?.game?.game
                     activePlayerSlot = null
@@ -341,7 +434,7 @@ class BridgeService : Service() {
                         session = null
                         sessionSettings = null
                     }
-                    if (settings.isConfigured && session == null && now >= nextSessionAttempt) {
+                    if (!serverPaused && settings.isConfigured && session == null && now >= nextSessionAttempt) {
                         session = PythonArchipelagoSession(
                             settings,
                             runtime,
@@ -441,6 +534,10 @@ class BridgeService : Service() {
     private fun publishServerDetails(message: String) {
         if (stopping) return
         serverStatusDetails = message
+        if (message != lastConsoleServerDetails) {
+            lastConsoleServerDetails = message
+            ClientConsoleStore.append("status", message)
+        }
         updateNotification()
     }
 
@@ -539,7 +636,7 @@ class BridgeService : Service() {
         private const val ACTIVE_ROM_GAME = "game"
         private const val ACTIVE_ROM_SLOT = "slot"
         private const val ACTIVE_ROM_SERVER = "server"
-        private const val PATCHED_ROM_DESCRIPTION = "compatible patched Game Boy or Super Metroid ROM"
+        private const val PATCHED_ROM_DESCRIPTION = "compatible patched Game Boy or SNES ROM"
         const val ACTION_RECONNECT = "eu.odran.archipelago.RECONNECT_BRIDGE"
 
         @Volatile
@@ -571,7 +668,7 @@ class BridgeService : Service() {
 
         @Volatile
         var serverStatusDetails: String? =
-            "Archipelago will connect after you load a compatible patched Game Boy or Super Metroid ROM in RetroArch."
+            "Archipelago will connect after you load a compatible patched Game Boy or SNES ROM in RetroArch."
             private set
 
     }

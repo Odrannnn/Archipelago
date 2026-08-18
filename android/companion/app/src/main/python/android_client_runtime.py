@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
+import logging
+import re
 import time
 from types import SimpleNamespace
 from typing import Any
 
+from MultiServer import CommandProcessor, mark_raw
 from NetUtils import NetworkItem
+
+
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def plain(value: Any) -> Any:
@@ -30,7 +37,8 @@ def network_item(item: dict) -> NetworkItem:
 
 
 class NameLookup:
-    def __init__(self) -> None:
+    def __init__(self, ctx: "AndroidClientContext") -> None:
+        self.ctx = ctx
         self.by_game: dict[str, dict[int, str]] = {}
 
     def replace(self, games: dict, key: str) -> None:
@@ -48,7 +56,8 @@ class NameLookup:
         return str(identifier)
 
     def lookup_in_slot(self, identifier: int, player: int) -> str:
-        return self.lookup_in_game(identifier)
+        slot = self.ctx.slot_info.get(int(player))
+        return self.lookup_in_game(identifier, getattr(slot, "game", None))
 
 
 class EmulatorLifecycle:
@@ -94,11 +103,125 @@ class EmulatorLifecycle:
     def received_full_item_state(self) -> None:
         self.ctx.received_items_synced = True
 
+
+class AndroidClientCommandProcessor(CommandProcessor):
+    """Desktop-style client commands backed by the Android context."""
+
+    def __init__(self, ctx: "AndroidClientContext") -> None:
+        self.ctx = ctx
+
+    def output(self, text: str) -> None:
+        self.ctx.console_message("output", str(text))
+
+    def _cmd_connect(self, address: str = "") -> bool:
+        """Connect to the configured MultiWorld server, or optionally use a new address."""
+        self.ctx.request_android_action("connect", address=address)
+        self.output(f"Connecting to {address}…" if address else "Reconnecting to the configured server…")
+        return True
+
+    def _cmd_disconnect(self) -> bool:
+        """Disconnect from the MultiWorld server."""
+        self.ctx.request_android_action("disconnect")
+        self.output("Disconnecting from the Archipelago server…")
+        return True
+
+    def _cmd_exit(self) -> bool:
+        """Stop the Android bridge service."""
+        self.ctx.request_android_action("stop")
+        self.output("Stopping the Archipelago bridge service…")
+        return True
+
+    def _cmd_received(self) -> bool:
+        """List all received items, sorted by time."""
+        self.output(f"{len(self.ctx.items_received)} received items, sorted by time:")
+        for index, item in enumerate(self.ctx.items_received, 1):
+            item_name = self.ctx.item_names.lookup_in_slot(item.item, self.ctx.slot or item.player)
+            location_name = self.ctx.location_names.lookup_in_slot(item.location, item.player)
+            player_name = self.ctx.player_names.get(item.player, str(item.player))
+            self.output(f"{index}. {item_name} from {location_name} by {player_name}")
+        return True
+
+    def _cmd_missing(self, filter_text: str = "") -> bool:
+        """List missing location checks, optionally filtered by text."""
+        if not self.ctx.game:
+            self.output("No game set, cannot determine missing checks.")
+            return False
+        names = []
+        for location in sorted(self.ctx.missing_locations):
+            name = self.ctx.location_names.lookup_in_game(location, self.ctx.game)
+            if not filter_text or filter_text.casefold() in name.casefold():
+                names.append(name)
+        for name in names:
+            self.output("Missing: " + name)
+        self.output(f"Found {len(names)} missing location checks." if names else "No missing location checks found.")
+        return True
+
+    def _cmd_items(self) -> bool:
+        """List all item names for the currently running game."""
+        return self._output_names(self.ctx.item_names, "Item Names")
+
+    def _cmd_locations(self) -> bool:
+        """List all location names for the currently running game."""
+        return self._output_names(self.ctx.location_names, "Location Names")
+
+    @mark_raw
+    def _cmd_item_groups(self, key: str = "") -> bool:
+        """List item group names, or the items in one named group."""
+        return self._output_group("item_name_groups", key, "Item")
+
+    @mark_raw
+    def _cmd_location_groups(self, key: str = "") -> bool:
+        """List location group names, or the locations in one named group."""
+        return self._output_group("location_name_groups", key, "Location")
+
+    def _output_group(self, group_key: str, filter_key: str, name: str) -> bool:
+        if not self.ctx.game:
+            self.output(f"No game set, cannot determine existing {name} Groups.")
+            return False
+        groups = self.ctx.data_package.get(self.ctx.game, {}).get(group_key, {})
+        if filter_key:
+            if filter_key not in groups:
+                self.output(f"Unknown {name} Group {filter_key}")
+                return False
+            self.output(f'{name}s for {name} Group "{filter_key}"')
+            for entry in groups[filter_key]:
+                self.output(str(entry))
+        else:
+            self.output(f"{name} Groups for {self.ctx.game}")
+            for group in groups:
+                self.output(str(group))
+        return True
+
+    def _output_names(self, lookup: NameLookup, title: str) -> bool:
+        if not self.ctx.game:
+            self.output(f"No game set, cannot determine {title}.")
+            return False
+        self.output(f"{title} for {self.ctx.game}")
+        for name in sorted(lookup.by_game.get(self.ctx.game, {}).values(), key=str.casefold):
+            self.output(name)
+        return True
+
+    def _cmd_ready(self) -> bool:
+        """Toggle ready status on the server."""
+        self.ctx.ready = not self.ctx.ready
+        self.ctx.outgoing.append({"cmd": "StatusUpdate", "status": 10 if self.ctx.ready else 5})
+        self.output("Readied up." if self.ctx.ready else "Unreadied.")
+        return True
+
+    def default(self, raw: str) -> None:
+        if self.ctx.server is None:
+            self.output("Not connected to an Archipelago server.")
+            return
+        self.ctx.outgoing.append({"cmd": "Say", "text": raw})
+
+
 class AndroidClientContext:
-    def __init__(self, backend: Any):
+    def __init__(self, backend: Any, command_processor_type=AndroidClientCommandProcessor):
         self.backend = backend
         self.bizhawk_ctx = SimpleNamespace(backend=backend)
-        self.command_processor = SimpleNamespace(commands={})
+        self.console_messages: list[dict[str, str]] = []
+        self.android_actions: list[dict[str, str]] = []
+        self.command_processor = command_processor_type(self)
         self.client_handler = None
         self.game = None
         self.auth = None
@@ -116,14 +239,20 @@ class AndroidClientContext:
         self.received_items_synced = False
         self.locations_info: dict[int, NetworkItem] = {}
         self.location_scouts_requested: set[int] = set()
-        self.item_names = NameLookup()
-        self.location_names = NameLookup()
+        self.slot_info: dict[int, Any] = {
+            0: SimpleNamespace(name="Archipelago", game="Archipelago", type=0, group_members=()),
+        }
+        self.item_names = NameLookup(self)
+        self.location_names = NameLookup(self)
         self.player_names: dict[int, str] = {0: "Archipelago"}
         self.slot_data: dict = {}
+        self.data_package: dict[str, dict] = {}
         self.stored_data: dict[str, Any] = {}
+        self.stored_data_notification_keys: set[str] = set()
         self.slot = None
         self.team = None
         self.finished_game = False
+        self.ready = False
         self.tags: set[str] = set()
         self.outgoing: list[dict] = []
         self.disconnect_requested = False
@@ -136,11 +265,39 @@ class AndroidClientContext:
         self.emulator_write_bytes = 0
         self.emulator_lifecycle = EmulatorLifecycle(self)
 
+    def console_message(self, kind: str, text: str) -> None:
+        for line in str(text).splitlines() or [""]:
+            self.console_messages.append({"kind": str(kind), "text": line})
+
+    def request_android_action(self, action: str, **values: Any) -> None:
+        self.android_actions.append({
+            "action": str(action),
+            **{str(key): str(value) for key, value in values.items() if value is not None},
+        })
+
     async def send_msgs(self, messages: list[dict]) -> None:
         for message in messages:
             if message.get("cmd") == "StatusUpdate" and message.get("status") == 30:
                 self.finished_game = True
             self.outgoing.append(plain(message))
+
+    @property
+    def player(self) -> int | None:
+        return self.slot
+
+    def set_notify(self, *keys: str) -> None:
+        new_keys = set(map(str, keys)) - self.stored_data_notification_keys
+        if not new_keys:
+            return
+        self.stored_data_notification_keys.update(new_keys)
+        ordered = sorted(new_keys)
+        self.outgoing.extend([
+            {"cmd": "Get", "keys": ordered},
+            {"cmd": "SetNotify", "keys": ordered},
+        ])
+
+    def gui_error(self, title: str, text: Any) -> None:
+        self.diagnostic = f"{title or 'Error'}: {text}"
 
     async def update_death_link(self, enabled: bool) -> None:
         if enabled == ("DeathLink" in self.tags):
@@ -197,8 +354,10 @@ def process_packet(
     if cmd == "RoomInfo":
         ctx.seed_name = args.get("seed_name")
         ctx.server_seed_name = args.get("seed_name")
+        ctx.console_message("status", f"Room information received · seed {ctx.seed_name or 'unknown'}")
     elif cmd == "DataPackage":
         games = args.get("data", {}).get("games", {})
+        ctx.data_package.update(games)
         ctx.item_names.replace(games, "item_name_to_id")
         ctx.location_names.replace(games, "location_name_to_id")
     elif cmd == "Connected":
@@ -212,13 +371,42 @@ def process_packet(
         ctx.missing_locations.update(missing)
         ctx.server_locations = checked | missing
         ctx.slot_data = args.get("slot_data", {})
+        ctx.slot_info.clear()
+        ctx.slot_info[0] = SimpleNamespace(
+            name="Archipelago", game="Archipelago", type=0, group_members=(),
+        )
+        for player, data in args.get("slot_info", {}).items():
+            if isinstance(data, dict):
+                ctx.slot_info[int(player)] = SimpleNamespace(
+                    name=str(data.get("name", player)),
+                    game=str(data.get("game", "")),
+                    type=int(data.get("type", 0)),
+                    group_members=tuple(map(int, data.get("group_members", ()))),
+                )
+            elif isinstance(data, (list, tuple)) and len(data) >= 3:
+                ctx.slot_info[int(player)] = SimpleNamespace(
+                    name=str(data[0]),
+                    game=str(data[1]),
+                    type=int(data[2]),
+                    group_members=tuple(map(int, data[3] if len(data) > 3 else ())),
+                )
         ctx.server = SimpleNamespace(socket=SimpleNamespace(open=True, closed=False))
         update_players(ctx, args.get("players", []))
+        ctx.console_message(
+            "status",
+            f"Connected as {ctx.player_names.get(ctx.slot, ctx.slot)} · {len(ctx.missing_locations)} locations remaining",
+        )
         if ctx.locations_checked:
             ctx.outgoing.append({
                 "cmd": "LocationChecks",
                 "locations": sorted(ctx.locations_checked),
             })
+        if ctx.stored_data_notification_keys:
+            keys = sorted(ctx.stored_data_notification_keys)
+            ctx.outgoing.extend([
+                {"cmd": "Get", "keys": keys},
+                {"cmd": "SetNotify", "keys": keys},
+            ])
     elif cmd == "RoomUpdate":
         newly_checked = {int(item) for item in args.get("checked_locations", [])}
         ctx.checked_locations.update(newly_checked)
@@ -256,6 +444,8 @@ def process_packet(
         ctx.stored_data.update(args.get("keys", {}))
         if "key" in args:
             ctx.stored_data[str(args["key"])] = args.get("value")
+    elif cmd == "PrintJSON":
+        ctx.console_message("server", format_print_json(ctx, args.get("data", [])))
 
     if cmd == "Bounced" and "DeathLink" in args.get("tags", []):
         data = args.get("data", {})
@@ -264,6 +454,69 @@ def process_packet(
 
     handler.on_package(ctx, cmd, args)
     return cmd, args
+
+
+def format_print_json(ctx: AndroidClientContext, parts: list[dict]) -> str:
+    """Resolve Archipelago structured text with the same player/game lookups as desktop."""
+    result: list[str] = []
+    for part in parts:
+        value = part.get("text", "")
+        node_type = part.get("type", "text")
+        try:
+            if node_type == "player_id":
+                value = ctx.player_names.get(int(value), str(value))
+            elif node_type == "item_id":
+                value = ctx.item_names.lookup_in_slot(int(value), int(part.get("player", ctx.slot or 0)))
+            elif node_type == "location_id":
+                value = ctx.location_names.lookup_in_slot(int(value), int(part.get("player", ctx.slot or 0)))
+        except (TypeError, ValueError):
+            pass
+        result.append(str(value))
+    return "".join(result)
+
+
+async def execute_console_command(ctx: AndroidClientContext, raw: str) -> dict:
+    """Run one line while the runtime event loop is active for async APWorld commands."""
+    ctx.command_processor(str(raw).strip())
+    await __import__("asyncio").sleep(0)
+    return drain_console(ctx)
+
+
+def drain_console(ctx: AndroidClientContext) -> dict:
+    messages = ctx.console_messages
+    actions = ctx.android_actions
+    ctx.console_messages = []
+    ctx.android_actions = []
+    return {"console": messages, "actions": actions}
+
+
+class _ConsoleLogHandler(logging.Handler):
+    def __init__(self, ctx: AndroidClientContext) -> None:
+        super().__init__(logging.INFO)
+        self.ctx = ctx
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            kind = "error" if record.levelno >= logging.ERROR else "output"
+            self.ctx.console_message(kind, _ANSI_ESCAPE.sub("", self.format(record)))
+        except Exception:
+            self.handleError(record)
+
+
+@contextmanager
+def capture_console_logs(ctx: AndroidClientContext):
+    """Capture client logs produced during one command/watcher invocation."""
+    root = logging.getLogger()
+    previous_level = root.level
+    handler = _ConsoleLogHandler(ctx)
+    root.addHandler(handler)
+    if previous_level > logging.INFO:
+        root.setLevel(logging.INFO)
+    try:
+        yield
+    finally:
+        root.removeHandler(handler)
+        root.setLevel(previous_level)
 
 
 def reset_connection(ctx: AndroidClientContext) -> None:
@@ -276,7 +529,12 @@ def reset_connection(ctx: AndroidClientContext) -> None:
     ctx.location_scouts_requested.clear()
     ctx.player_names.clear()
     ctx.player_names[0] = "Archipelago"
+    ctx.slot_info.clear()
+    ctx.slot_info[0] = SimpleNamespace(
+        name="Archipelago", game="Archipelago", type=0, group_members=(),
+    )
     ctx.slot_data = {}
+    ctx.data_package.clear()
     ctx.stored_data.clear()
     ctx.slot = None
     ctx.team = None
@@ -284,5 +542,7 @@ def reset_connection(ctx: AndroidClientContext) -> None:
     ctx.server_seed_name = None
     ctx.server = None
     ctx.finished_game = False
+    ctx.ready = False
     ctx.outgoing.clear()
+    ctx.android_actions.clear()
     ctx.disconnect_requested = False

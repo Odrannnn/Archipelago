@@ -47,6 +47,9 @@
             android:name=".ApWorldManagerActivity"
             android:exported="false" />
         <activity
+            android:name=".ClientConsoleActivity"
+            android:exported="false" />
+        <activity
             android:name=".AuthenticatedWebActivity"
             android:exported="false" />
         <activity

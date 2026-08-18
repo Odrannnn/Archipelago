@@ -170,6 +170,13 @@ class MainActivity : Activity() {
                     CompanionUi.styleMuted(this)
                     setPadding(0, CompanionUi.dp(this@MainActivity, 8), 0, 0)
                 }, CompanionUi.fullWidth())
+                addView(Button(this@MainActivity).apply {
+                    text = "Open client console"
+                    CompanionUi.styleSecondary(this)
+                    setOnClickListener {
+                        startActivity(Intent(this@MainActivity, ClientConsoleActivity::class.java))
+                    }
+                }, CompanionUi.insetTop(status, this@MainActivity, 10))
             }, CompanionUi.cardParams(this@MainActivity))
 
             addView(CompanionUi.card(this@MainActivity, "Active room").apply {

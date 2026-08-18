@@ -7,13 +7,48 @@ import base64
 import json
 from typing import Any
 
+from MultiServer import mark_raw
 from SNIClient import DeathState, SNESState, snes_attached, snes_disconnected
-from android_client_runtime import AndroidClientContext, plain, process_packet, reset_connection
+from android_client_runtime import (
+    AndroidClientCommandProcessor,
+    AndroidClientContext,
+    capture_console_logs,
+    drain_console,
+    execute_console_command,
+    plain,
+    process_packet,
+    reset_connection,
+)
+
+
+class AndroidSNICommandProcessor(AndroidClientCommandProcessor):
+    """SNI console commands adapted to Android's managed emulator bridge."""
+
+    def _cmd_slow_mode(self, toggle: str = "") -> None:
+        """Toggle slow mode, which limits how fast you send or receive items."""
+        if toggle:
+            self.ctx.slow_mode = toggle.lower() in {"1", "true", "on"}
+        else:
+            self.ctx.slow_mode = not self.ctx.slow_mode
+        self.output(f"Setting slow mode to {self.ctx.slow_mode}")
+
+    @mark_raw
+    def _cmd_snes(self, _options: str = "") -> bool:
+        """Reconnect the Android-managed SNES emulator bridge."""
+        self.ctx.request_android_action("emulator_connect")
+        self.output("Reconnecting the Android SNES emulator bridge…")
+        return True
+
+    def _cmd_snes_close(self) -> bool:
+        """Pause the Android-managed SNES emulator bridge."""
+        self.ctx.request_android_action("emulator_disconnect")
+        self.output("Pausing the Android SNES emulator bridge…")
+        return True
 
 
 class AndroidSNIContext(AndroidClientContext):
     def __init__(self, backend: Any):
-        super().__init__(backend)
+        super().__init__(backend, AndroidSNICommandProcessor)
         self.rom = None
         self.snes_write_buffer: list[tuple[int, bytes]] = []
         self.snes_state = SNESState.SNES_DISCONNECTED
@@ -145,6 +180,15 @@ class AndroidSNIRuntime:
             return
         process_packet(self.ctx, self.handler, packet_json)
 
+    def execute_command(self, raw: str) -> str:
+        if self.ctx is None or self.handler is None:
+            return json.dumps({
+                "console": [{"kind": "error", "text": "No SNI game client is active."}],
+                "actions": [],
+            })
+        with capture_console_logs(self.ctx):
+            return json.dumps(plain(self._run(execute_console_command(self.ctx, raw))))
+
     def tick(self, watch_game: bool = True) -> str:
         if self.ctx is None or self.handler is None:
             return json.dumps({"messages": [], "disconnect": False, "error": "No SNI client is active"})
@@ -168,18 +212,22 @@ class AndroidSNIRuntime:
                     self.ctx.death_state = DeathState.killing_player
                 if self.ctx.death_state == DeathState.killing_player:
                     self._run(self.handler.deathlink_kill_player(self.ctx))
-                self._run(self.handler.game_watcher(self.ctx))
+                with capture_console_logs(self.ctx):
+                    self._run(self.handler.game_watcher(self.ctx))
             except Exception as exc:
                 self.ctx.emulator_lifecycle.note_io_failure()
                 error = f"{type(exc).__name__}: {exc}"
                 self.last_error = error
+                self.ctx.console_message("error", error)
         self.ctx.emulator_lifecycle.end_tick()
         messages = self.ctx.outgoing
         self.ctx.outgoing = []
         disconnect = self.ctx.disconnect_requested
         self.ctx.disconnect_requested = False
+        console = drain_console(self.ctx)["console"]
         return json.dumps({
             "messages": plain(messages),
+            "console": plain(console),
             "disconnect": disconnect,
             "error": error,
             "diagnostic": self.ctx.diagnostic,

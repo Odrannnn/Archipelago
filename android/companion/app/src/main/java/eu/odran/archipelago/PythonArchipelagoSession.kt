@@ -84,6 +84,7 @@ class PythonArchipelagoSession(
             runtime.processPacket(packet)
         }
         val result = runtime.tick(emulatorAvailable)
+        ClientConsoleStore.append(result.console)
         result.messages.forEach { packet ->
             val command = packet.optString("cmd")
             val sent = sendPacket(packet)
