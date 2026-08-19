@@ -122,6 +122,8 @@ browser when requested.
 
 Room creation remains in the seed generator, while ongoing room management is
 available from the dedicated **Hosted rooms** screen on the app's main page.
+Hosted rooms are shown newest first, with room ID providing deterministic order
+when creation times match or are unavailable.
 
 Player-specific version 4 `.apinvite` files contain the public room identifiers,
 selected player, slot, and game. Games which require a player patch also include

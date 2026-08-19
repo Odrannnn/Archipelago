@@ -9,6 +9,8 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
@@ -28,8 +30,17 @@ data class HostSeedResult(
     val rooms: List<HostedRoom>,
 )
 
+internal fun orderedHostedRooms(rooms: List<HostedRoom>): List<HostedRoom> =
+    rooms.sortedWith(
+        compareByDescending<HostedRoom> { room ->
+            runCatching {
+                ZonedDateTime.parse(room.creationTime, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant()
+            }.getOrNull()
+        }.thenBy { it.roomId },
+    )
+
 internal fun visibleHostedRooms(rooms: List<HostedRoom>, hiddenRoomIds: Set<String>): List<HostedRoom> =
-    rooms.filterNot { it.roomId in hiddenRoomIds }
+    orderedHostedRooms(rooms.filterNot { it.roomId in hiddenRoomIds })
 
 /** Uploads locally generated seed packages using one persistent archipelago.gg website session. */
 class ArchipelagoWebHostClient(context: Context) {
@@ -127,7 +138,7 @@ class ArchipelagoWebHostClient(context: Context) {
     }
 
     fun cachedRooms(): List<HostedRoom> = runCatching {
-        parseRooms(JSONArray(preferences.getString(ROOM_CACHE, "[]")))
+        orderedHostedRooms(parseRooms(JSONArray(preferences.getString(ROOM_CACHE, "[]"))))
     }.getOrDefault(emptyList())
 
     /** Hides a website-hosted room locally without deleting or stopping it on archipelago.gg. */

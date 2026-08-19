@@ -22,10 +22,34 @@ class ArchipelagoWebHostClientTest {
         assertEquals(rooms, visibleHostedRooms(rooms, emptySet()))
     }
 
-    private fun room(id: String) = HostedRoom(
+    @Test
+    fun hostedRoomsAreNewestFirstWithRoomIdAsTieBreaker() {
+        val older = room("older-room-123456", "Tue, 18 Aug 2026 14:00:00 GMT")
+        val newestB = room("newest-b-room-1234", "Wed, 19 Aug 2026 14:00:00 GMT")
+        val newestA = room("newest-a-room-1234", "Wed, 19 Aug 2026 14:00:00 GMT")
+
+        assertEquals(
+            listOf(newestA, newestB, older),
+            orderedHostedRooms(listOf(older, newestB, newestA)),
+        )
+    }
+
+    @Test
+    fun roomsWithoutAValidCreationTimeFollowDatedRoomsInRoomIdOrder() {
+        val dated = room("dated-room-123456", "Wed, 19 Aug 2026 14:00:00 GMT")
+        val unknownB = room("unknown-b-room-123", "null")
+        val unknownA = room("unknown-a-room-123", "")
+
+        assertEquals(
+            listOf(dated, unknownA, unknownB),
+            orderedHostedRooms(listOf(unknownB, dated, unknownA)),
+        )
+    }
+
+    private fun room(id: String, creationTime: String = "") = HostedRoom(
         roomId = id,
         seedId = "seed-$id",
-        creationTime = "",
+        creationTime = creationTime,
         lastActivity = "",
         lastPort = 0,
         timeoutSeconds = 0,
