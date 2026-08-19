@@ -50,6 +50,7 @@ class MainActivity : Activity() {
     private lateinit var inviteStatus: TextView
     private lateinit var address: EditText
     private lateinit var password: EditText
+    private lateinit var dolphinGdbPort: EditText
     private lateinit var joinedRoomContainer: LinearLayout
     private var retroArchButton: Button? = null
     private var renderedRoom: JoinedRoom? = null
@@ -92,6 +93,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val savedSettings = ServerSettings.load(this)
+        val savedDolphinSettings = DolphinSettings.load(this)
         status = TextView(this).apply {
             text = "Starting background bridge…"
             CompanionUi.styleBody(this)
@@ -134,6 +136,13 @@ class MainActivity : Activity() {
             setSingleLine(true)
             setText(savedSettings.password)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            textSize = 15f
+        }
+        dolphinGdbPort = EditText(this).apply {
+            hint = "Dolphin GDB port"
+            setSingleLine(true)
+            setText(savedDolphinSettings.gdbPort.toString())
+            inputType = InputType.TYPE_CLASS_NUMBER
             textSize = 15f
         }
         val save = Button(this).apply {
@@ -264,6 +273,31 @@ class MainActivity : Activity() {
                 )
                 addView(connectionFields, CompanionUi.fullWidth())
             }, CompanionUi.cardParams(this@MainActivity))
+
+            val dolphinFields = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(dolphinGdbPort, CompanionUi.fullWidth())
+                addView(Button(this@MainActivity).apply {
+                    text = "Save Dolphin GDB port"
+                    CompanionUi.styleSecondary(this)
+                    setOnClickListener { saveDolphinSettings() }
+                }, CompanionUi.insetTop(dolphinGdbPort, this@MainActivity, 6))
+                addView(TextView(this@MainActivity).apply {
+                    text = "In Dolphin.ini, add GDBPort = ${DolphinGdbClient.DEFAULT_PORT} under [General], " +
+                        "then launch the companion before starting the game. Dolphin pauses at boot until the " +
+                        "bridge connects. Stock Dolphin exposes this unauthenticated port to the local network, " +
+                        "so use it only on a trusted network. Restart the game after changing the port."
+                    CompanionUi.styleMuted(this)
+                    setPadding(0, CompanionUi.dp(this@MainActivity, 8), 0, 0)
+                }, CompanionUi.fullWidth())
+            }
+            addView(CompanionUi.card(this@MainActivity, "Dolphin GameCube backend").apply {
+                addView(
+                    CompanionUi.toggleButton(this@MainActivity, "Dolphin GDB settings", dolphinFields),
+                    CompanionUi.fullWidth(),
+                )
+                addView(dolphinFields, CompanionUi.fullWidth())
+            }, CompanionUi.cardParams(this@MainActivity))
         }
         val scrollView = ScrollView(this).apply { addView(content) }
         SystemBarInsets.apply(window, scrollView)
@@ -348,6 +382,17 @@ class MainActivity : Activity() {
         )
         status.text = "Settings saved · reconnecting…"
         serverStatus.text = "⏳ Archipelago connecting"
+    }
+
+    private fun saveDolphinSettings() {
+        val port = dolphinGdbPort.text.toString().trim().toIntOrNull()
+        if (port == null || port !in 1..65535) {
+            dolphinGdbPort.error = "Enter a port between 1 and 65535"
+            return
+        }
+        DolphinSettings.save(this, port)
+        startForegroundService(Intent(this, BridgeService::class.java))
+        status.text = "Dolphin GDB port saved · waiting on 127.0.0.1:$port…"
     }
 
     private fun rememberExistingPatchedRom(uri: Uri, flags: Int) {

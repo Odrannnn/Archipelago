@@ -34,6 +34,7 @@ class BridgeService : Service() {
     @Volatile private var stopping = false
     @Volatile private var activeBridge: MGBABridgeClient? = null
     @Volatile private var activeSniClient: SniMemoryClient? = null
+    @Volatile private var activeDolphinClient: DolphinGdbClient? = null
     @Volatile private var activeSession: RoomSession? = null
     @Volatile private var reconnectRequested = false
     private var lastConsoleServerDetails = ""
@@ -53,6 +54,7 @@ class BridgeService : Service() {
             running = false
             activeBridge?.close()
             activeSniClient?.close()
+            activeDolphinClient?.close()
             activeSession?.close()
             stopForeground(STOP_FOREGROUND_REMOVE)
             getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
@@ -81,6 +83,8 @@ class BridgeService : Service() {
         activeBridge = null
         activeSniClient?.close()
         activeSniClient = null
+        activeDolphinClient?.close()
+        activeDolphinClient = null
         activeSession?.close()
         activeSession = null
         executor.shutdownNow()
@@ -102,6 +106,9 @@ class BridgeService : Service() {
         var sniClient: SniMemoryClient? = null
         var sniRuntime: PythonSniRuntime? = null
         var sniGame: DetectedGameInfo? = null
+        var dolphinClient: DolphinGdbClient? = null
+        var dolphinPort: Int? = null
+        var dolphinGameId: String? = null
 
         var activeTransport: EmulatorTransport? = null
         var activeRuntime: PythonGameRuntime? = null
@@ -114,6 +121,8 @@ class BridgeService : Service() {
         var nextGbaProbe = 0L
         var nextSniProbe = 0L
         var nextSessionAttempt = 0L
+        var nextDolphinAttempt = 0L
+        var nextDolphinProbe = 0L
         var sniMemoryAttached = false
         var sniResetGeneration: Long? = null
         var serverPaused = false
@@ -123,7 +132,8 @@ class BridgeService : Service() {
             publish(
                 "Waiting for an Archipelago emulator bridge…",
                 "SNES games prefer the custom SNES9x bridge on TCP 127.0.0.1:${Snes9xBridgeClient.DEFAULT_PORT}; " +
-                    "RetroArch nightly Network Commands remain available as a fallback.",
+                    "RetroArch nightly Network Commands remain available as a fallback. Dolphin's generic GDB " +
+                    "backend connects to Dolphin on the configured localhost port.",
             )
             while (running && !Thread.currentThread().isInterrupted) {
                 val now = System.currentTimeMillis()
@@ -212,6 +222,60 @@ class BridgeService : Service() {
                             "Command failed: ${error.message ?: error.javaClass.simpleName}",
                         )
                         Log.w(TAG, "Client console command failed", error)
+                    }
+                }
+
+                val configuredDolphinPort = DolphinSettings.load(this).gdbPort
+                if (dolphinClient != null && dolphinPort != configuredDolphinPort) {
+                    dolphinClient.close()
+                    if (activeDolphinClient === dolphinClient) activeDolphinClient = null
+                    dolphinClient = null
+                    dolphinPort = null
+                    dolphinGameId = null
+                    nextDolphinAttempt = 0L
+                }
+                if (dolphinClient == null && now >= nextDolphinAttempt) {
+                    var candidate: DolphinGdbClient? = null
+                    try {
+                        candidate = DolphinGdbClient(port = configuredDolphinPort)
+                        candidate.connect()
+                        DolphinMemoryEngineBridge.attach(this, candidate)
+                        val gameId = candidate.gameId()
+                        dolphinClient = candidate
+                        dolphinPort = configuredDolphinPort
+                        dolphinGameId = gameId
+                        activeDolphinClient = candidate
+                        nextDolphinProbe = now + TimeUnit.SECONDS.toMillis(1)
+                        if (activeRuntime == null) {
+                            publishDolphinReady(gameId, configuredDolphinPort)
+                        }
+                        Log.i(TAG, "Dolphin GDB transport connected on port $configuredDolphinPort for $gameId")
+                    } catch (_: Exception) {
+                        candidate?.close()
+                        if (activeDolphinClient === candidate) activeDolphinClient = null
+                        nextDolphinAttempt = now + TimeUnit.SECONDS.toMillis(1)
+                    }
+                }
+
+                val connectedDolphin = dolphinClient
+                if (connectedDolphin != null && now >= nextDolphinProbe) {
+                    try {
+                        val gameId = connectedDolphin.gameId()
+                        if (gameId != dolphinGameId) {
+                            dolphinGameId = gameId
+                            if (activeRuntime == null) {
+                                publishDolphinReady(gameId, checkNotNull(dolphinPort))
+                            }
+                        }
+                        nextDolphinProbe = now + TimeUnit.SECONDS.toMillis(1)
+                    } catch (error: Exception) {
+                        connectedDolphin.close()
+                        if (activeDolphinClient === connectedDolphin) activeDolphinClient = null
+                        dolphinClient = null
+                        dolphinPort = null
+                        dolphinGameId = null
+                        nextDolphinAttempt = now + TimeUnit.SECONDS.toMillis(1)
+                        Log.w(TAG, "Dolphin GDB transport disconnected", error)
                     }
                 }
 
@@ -497,10 +561,21 @@ class BridgeService : Service() {
             runCatching { sniRuntime?.close() }
             runCatching { mgbaBridge?.close() }
             runCatching { sniClient?.close() }
+            runCatching { dolphinClient?.close() }
             if (activeBridge === mgbaBridge) activeBridge = null
             if (activeSniClient === sniClient) activeSniClient = null
+            if (activeDolphinClient === dolphinClient) activeDolphinClient = null
             running = false
         }
+    }
+
+    private fun publishDolphinReady(gameId: String, port: Int) {
+        val title = gameId.ifBlank { "game not identified" }
+        publish(
+            "Dolphin connected · $title · generic memory backend ready",
+            "Connected to Dolphin's GDB server on 127.0.0.1:$port. Waiting for a compatible GameCube " +
+                "Archipelago client. Dolphin's stock GDB server is unauthenticated and binds to every network interface.",
+        )
     }
 
     private fun connectPreferredSniClient(): Pair<SniMemoryClient, SniTransportStatus> {

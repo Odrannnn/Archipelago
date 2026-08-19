@@ -2,6 +2,31 @@
 
 The Android application ID and Kotlin namespace are both `eu.odran.archipelago`.
 
+## Dolphin GameCube backend
+
+The companion includes an experimental generic Dolphin backend. It connects to
+stock Dolphin's built-in GDB Remote Serial Protocol server, keeps sole ownership
+of that debugger socket for the emulation session, and exposes its memory reads
+and writes to embedded APWorld clients under the upstream
+`dolphin_memory_engine` Python module name. The compatibility module implements
+the desktop package's hook/status, raw and typed big-endian memory access,
+pointer-following, and `MemWatch` surface without game-specific addresses in the
+transport.
+
+Set the companion's **Dolphin GDB port** to the same value as `GDBPort` under
+`[General]` in Dolphin's `Config/Dolphin.ini` (the default is `55020`). Start the
+companion before booting the game: Dolphin starts paused when GDB is enabled and
+the companion resumes it after completing the debugger handshake. If the
+debugger disconnects, stock Dolphin does not accept a replacement connection
+until emulation is restarted. RetroAchievements Hardcore mode disables the GDB
+server.
+
+Dolphin's TCP GDB server has no authentication and binds to every network
+interface even though the companion itself connects through `127.0.0.1`. Enable
+it only on a trusted network. This transport is the shared foundation for
+GameCube clients; a world still needs its normal upstream client bundled or an
+Android runtime adapter before the companion can join a room for that game.
+
 The application connects either to the custom mGBA libretro core at
 `127.0.0.1:43056` or the custom SNES9x core at `127.0.0.1:43057`. RetroArch
 nightly's UDP Network Commands at `127.0.0.1:55355` remain a fallback. Both SNES
