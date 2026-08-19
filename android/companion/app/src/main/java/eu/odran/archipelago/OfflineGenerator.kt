@@ -253,7 +253,9 @@ object OfflineGenerator {
         inputKey: String,
         uri: Uri,
     ) = synchronized(runtimeLock) {
-        context.contentResolver.openFileDescriptor(uri, "r")?.use { descriptor ->
+        val descriptor = context.contentResolver.openFileDescriptor(uri, "r")
+            ?: error("Could not open the selected ROM document")
+        descriptor.use {
             python(context).getModule("offline_generator").callAttr(
                 "validate_rom_input_fd",
                 patch,
@@ -261,7 +263,7 @@ object OfflineGenerator {
                 descriptor.fd,
                 workDirectory(context).absolutePath,
             )
-        } ?: error("Could not open the selected ROM document")
+        }
         Unit
     }
 
