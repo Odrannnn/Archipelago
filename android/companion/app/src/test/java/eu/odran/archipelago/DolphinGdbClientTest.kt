@@ -31,6 +31,33 @@ class DolphinGdbClientTest {
                 client.writeBytes(0x8030_0000, payload)
                 assertArrayEquals(payload, client.readBytes(0x8030_0000, payload.size))
                 assertTrue(client.isHooked())
+
+                val telemetry = client.takeTelemetrySnapshot()
+                assertEquals(4L, telemetry.intervalReadRequests)
+                assertEquals(3L, telemetry.intervalWriteRequests)
+                assertEquals(2L, telemetry.intervalProbeRequests)
+                assertEquals(2_056L, telemetry.intervalBytesRead)
+                assertEquals(2_050L, telemetry.intervalBytesWritten)
+                assertEquals(9L, telemetry.intervalRequests)
+                assertEquals(0L, telemetry.intervalFailures)
+                assertTrue(telemetry.intervalWaitNanos > 0L)
+                assertTrue(telemetry.intervalMaxWaitNanos > 0L)
+
+                val display = DolphinTelemetryFormatter.display(
+                    telemetry,
+                    "GZLE99",
+                    server.port,
+                    peakRequestsPerSecond = 12.5,
+                    peakKibibytesPerSecond = 3.25,
+                )
+                assertTrue(display.contains("Live"))
+                assertTrue(display.contains("peak 12.5 req/s / 3.25 KiB/s"))
+
+                val clearedInterval = client.takeTelemetrySnapshot()
+                assertEquals(0L, clearedInterval.intervalRequests)
+                assertEquals(9L, clearedInterval.sessionRequests)
+                assertEquals(2_056L, clearedInterval.sessionBytesRead)
+                assertEquals(2_050L, clearedInterval.sessionBytesWritten)
             }
 
             assertEquals(1, server.connectionCount.get())
@@ -73,6 +100,9 @@ class DolphinGdbClientTest {
 
                 assertTrue(client.isSocketConnected())
                 assertEquals("GZLE99", client.gameId())
+                val telemetry = client.takeTelemetrySnapshot()
+                assertEquals(1L, telemetry.intervalFailures)
+                assertEquals(1L, telemetry.sessionFailures)
             }
             server.assertHealthy()
         }

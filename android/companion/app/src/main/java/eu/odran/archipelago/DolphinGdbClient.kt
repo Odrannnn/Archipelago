@@ -12,6 +12,34 @@ import java.nio.charset.StandardCharsets
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
+data class DolphinGdbTelemetry(
+    val connected: Boolean,
+    val logicallyHooked: Boolean,
+    val intervalNanos: Long,
+    val intervalReadRequests: Long,
+    val intervalWriteRequests: Long,
+    val intervalProbeRequests: Long,
+    val intervalBytesRead: Long,
+    val intervalBytesWritten: Long,
+    val intervalWaitNanos: Long,
+    val intervalMaxWaitNanos: Long,
+    val intervalFailures: Long,
+    val sessionNanos: Long,
+    val sessionReadRequests: Long,
+    val sessionWriteRequests: Long,
+    val sessionProbeRequests: Long,
+    val sessionBytesRead: Long,
+    val sessionBytesWritten: Long,
+    val sessionWaitNanos: Long,
+    val sessionMaxWaitNanos: Long,
+    val sessionFailures: Long,
+) {
+    val intervalRequests: Long
+        get() = intervalReadRequests + intervalWriteRequests + intervalProbeRequests
+    val sessionRequests: Long
+        get() = sessionReadRequests + sessionWriteRequests + sessionProbeRequests
+}
+
 /**
  * Blocking client for Dolphin's built-in GDB Remote Serial Protocol server.
  *
@@ -31,6 +59,24 @@ class DolphinGdbClient(
     private var input: BufferedInputStream? = null
     private var output: BufferedOutputStream? = null
     private var logicallyHooked = false
+    private val sessionStartedNanos = System.nanoTime()
+    private var intervalStartedNanos = sessionStartedNanos
+    private var intervalReadRequests = 0L
+    private var intervalWriteRequests = 0L
+    private var intervalProbeRequests = 0L
+    private var intervalBytesRead = 0L
+    private var intervalBytesWritten = 0L
+    private var intervalWaitNanos = 0L
+    private var intervalMaxWaitNanos = 0L
+    private var intervalFailures = 0L
+    private var sessionReadRequests = 0L
+    private var sessionWriteRequests = 0L
+    private var sessionProbeRequests = 0L
+    private var sessionBytesRead = 0L
+    private var sessionBytesWritten = 0L
+    private var sessionWaitNanos = 0L
+    private var sessionMaxWaitNanos = 0L
+    private var sessionFailures = 0L
 
     init {
         require(port in 1..65535) { "Invalid Dolphin GDB port: $port" }
@@ -113,7 +159,11 @@ class DolphinGdbClient(
                 val length = minOf(MAX_TRANSFER_BYTES, data.size - offset)
                 val address = consoleAddress + offset
                 val encoded = encodeHex(data, offset, length)
-                val response = transactLocked("M${address.toString(16)},${length.toString(16)}:$encoded")
+                val response = trackedTransactionLocked(
+                    RequestKind.WRITE,
+                    length,
+                    "M${address.toString(16)},${length.toString(16)}:$encoded",
+                )
                 check(response == "OK") { "Dolphin GDB memory write failed: $response" }
                 offset += length
             }
@@ -141,6 +191,43 @@ class DolphinGdbClient(
 
     fun isSocketConnected(): Boolean = lock.withLock { isSocketOpen() }
 
+    /** Returns one measurement interval and resets only its counters. */
+    fun takeTelemetrySnapshot(): DolphinGdbTelemetry = lock.withLock {
+        val now = System.nanoTime()
+        DolphinGdbTelemetry(
+            connected = isSocketOpen(),
+            logicallyHooked = logicallyHooked,
+            intervalNanos = (now - intervalStartedNanos).coerceAtLeast(1L),
+            intervalReadRequests = intervalReadRequests,
+            intervalWriteRequests = intervalWriteRequests,
+            intervalProbeRequests = intervalProbeRequests,
+            intervalBytesRead = intervalBytesRead,
+            intervalBytesWritten = intervalBytesWritten,
+            intervalWaitNanos = intervalWaitNanos,
+            intervalMaxWaitNanos = intervalMaxWaitNanos,
+            intervalFailures = intervalFailures,
+            sessionNanos = (now - sessionStartedNanos).coerceAtLeast(1L),
+            sessionReadRequests = sessionReadRequests,
+            sessionWriteRequests = sessionWriteRequests,
+            sessionProbeRequests = sessionProbeRequests,
+            sessionBytesRead = sessionBytesRead,
+            sessionBytesWritten = sessionBytesWritten,
+            sessionWaitNanos = sessionWaitNanos,
+            sessionMaxWaitNanos = sessionMaxWaitNanos,
+            sessionFailures = sessionFailures,
+        ).also {
+            intervalStartedNanos = now
+            intervalReadRequests = 0L
+            intervalWriteRequests = 0L
+            intervalProbeRequests = 0L
+            intervalBytesRead = 0L
+            intervalBytesWritten = 0L
+            intervalWaitNanos = 0L
+            intervalMaxWaitNanos = 0L
+            intervalFailures = 0L
+        }
+    }
+
     override fun close() = lock.withLock { closeLocked() }
 
     private fun readBytesLocked(consoleAddress: Long, size: Int): ByteArray {
@@ -152,7 +239,11 @@ class DolphinGdbClient(
             while (offset < size) {
                 val length = minOf(MAX_TRANSFER_BYTES, size - offset)
                 val address = consoleAddress + offset
-                val response = transactLocked("m${address.toString(16)},${length.toString(16)}")
+                val response = trackedTransactionLocked(
+                    RequestKind.READ,
+                    length,
+                    "m${address.toString(16)},${length.toString(16)}",
+                )
                 check(!response.startsWith("E")) { "Dolphin GDB memory read failed: $response" }
                 val decoded = decodeHex(response)
                 check(decoded.size == length) {
@@ -169,7 +260,11 @@ class DolphinGdbClient(
     }
 
     private fun probeLocked() {
-        val response = transactLocked("m${GAME_ID_ADDRESS.toString(16)},1")
+        val response = trackedTransactionLocked(
+            RequestKind.PROBE,
+            0,
+            "m${GAME_ID_ADDRESS.toString(16)},1",
+        )
         check(response.length == 2 && !response.startsWith("E")) {
             "Dolphin has no readable emulated memory"
         }
@@ -183,6 +278,55 @@ class DolphinGdbClient(
         sendFramedLocked(payload)
         expectAckLocked(payload)
         return readReplyLocked()
+    }
+
+    private fun trackedTransactionLocked(
+        kind: RequestKind,
+        byteCount: Int,
+        payload: String,
+    ): String {
+        val started = System.nanoTime()
+        var successful = false
+        try {
+            return transactLocked(payload).also { response ->
+                successful = when (kind) {
+                    RequestKind.WRITE -> response == "OK"
+                    RequestKind.READ -> !response.startsWith("E")
+                    RequestKind.PROBE -> response.length == 2 && !response.startsWith("E")
+                }
+            }
+        } finally {
+            recordTelemetryLocked(kind, byteCount, System.nanoTime() - started, !successful)
+        }
+    }
+
+    private fun recordTelemetryLocked(kind: RequestKind, byteCount: Int, waitNanos: Long, failed: Boolean) {
+        when (kind) {
+            RequestKind.READ -> {
+                intervalReadRequests++
+                sessionReadRequests++
+                intervalBytesRead += byteCount
+                sessionBytesRead += byteCount
+            }
+            RequestKind.WRITE -> {
+                intervalWriteRequests++
+                sessionWriteRequests++
+                intervalBytesWritten += byteCount
+                sessionBytesWritten += byteCount
+            }
+            RequestKind.PROBE -> {
+                intervalProbeRequests++
+                sessionProbeRequests++
+            }
+        }
+        intervalWaitNanos += waitNanos
+        sessionWaitNanos += waitNanos
+        intervalMaxWaitNanos = maxOf(intervalMaxWaitNanos, waitNanos)
+        sessionMaxWaitNanos = maxOf(sessionMaxWaitNanos, waitNanos)
+        if (failed) {
+            intervalFailures++
+            sessionFailures++
+        }
     }
 
     private fun sendWithoutReplyLocked(payload: String) {
@@ -295,4 +439,6 @@ class DolphinGdbClient(
             }
         }
     }
+
+    private enum class RequestKind { READ, WRITE, PROBE }
 }

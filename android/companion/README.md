@@ -27,6 +27,15 @@ it only on a trusted network. This transport is the shared foundation for
 GameCube clients; a world still needs its normal upstream client bundled or an
 Android runtime adapter before the companion can join a room for that game.
 
+The Dolphin settings card reports two-second transport samples: request rate,
+read/write throughput, average and maximum round-trip time, probe traffic, and
+failures. It also retains session-wide latency, failures, and peak sampled rate
+so a busy interval remains visible after returning from Dolphin. A compact
+sample is written to logcat under `ArchipelagoBridge` every ten seconds. These
+measurements cover the complete companion-to-Dolphin GDB round trip, including
+the time Dolphin takes to service the command on its emulation thread; no memory
+addresses or values are logged.
+
 The application connects either to the custom mGBA libretro core at
 `127.0.0.1:43056` or the custom SNES9x core at `127.0.0.1:43057`. RetroArch
 nightly's UDP Network Commands at `127.0.0.1:55355` remain a fallback. Both SNES

@@ -51,6 +51,7 @@ class MainActivity : Activity() {
     private lateinit var address: EditText
     private lateinit var password: EditText
     private lateinit var dolphinGdbPort: EditText
+    private lateinit var dolphinTelemetry: TextView
     private lateinit var joinedRoomContainer: LinearLayout
     private var retroArchButton: Button? = null
     private var renderedRoom: JoinedRoom? = null
@@ -74,6 +75,7 @@ class MainActivity : Activity() {
                 status.text = BridgeService.statusText
                 serverStatus.text = BridgeService.serverStatusText
             }
+            dolphinTelemetry.text = BridgeService.dolphinTelemetryText
             renderedRoom?.let { room ->
                 retroArchButton?.text = if (RetroArchLauncher.isRunningRom(
                         room.gameName,
@@ -144,6 +146,10 @@ class MainActivity : Activity() {
             setText(savedDolphinSettings.gdbPort.toString())
             inputType = InputType.TYPE_CLASS_NUMBER
             textSize = 15f
+        }
+        dolphinTelemetry = TextView(this).apply {
+            text = BridgeService.dolphinTelemetryText
+            CompanionUi.styleMuted(this)
         }
         val save = Button(this).apply {
             text = "Save and connect"
@@ -276,6 +282,7 @@ class MainActivity : Activity() {
 
             val dolphinFields = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
+                addView(dolphinTelemetry, CompanionUi.fullWidth())
                 addView(dolphinGdbPort, CompanionUi.fullWidth())
                 addView(Button(this@MainActivity).apply {
                     text = "Save Dolphin GDB port"

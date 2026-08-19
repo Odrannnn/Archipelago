@@ -42,6 +42,7 @@ class BridgeService : Service() {
     override fun onCreate() {
         super.onCreate()
         restoreActiveRom()
+        dolphinTelemetryText = "Dolphin GDB is not connected."
         createNotificationChannel()
         publish("Starting Archipelago bridge…")
         publishServerWaitingForRom()
@@ -93,6 +94,7 @@ class BridgeService : Service() {
         getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
         statusText = "Bridge service stopped"
         statusDetails = null
+        dolphinTelemetryText = "Dolphin GDB service stopped."
         serverStatusText = "⏹️ Archipelago service stopped"
         serverStatusDetails = "Open the companion app to restart the bridge service."
         lastServerState = null
@@ -123,6 +125,10 @@ class BridgeService : Service() {
         var nextSessionAttempt = 0L
         var nextDolphinAttempt = 0L
         var nextDolphinProbe = 0L
+        var nextDolphinTelemetry = 0L
+        var nextDolphinTelemetryLog = 0L
+        var dolphinPeakRequestRate = 0.0
+        var dolphinPeakBandwidth = 0.0
         var sniMemoryAttached = false
         var sniResetGeneration: Long? = null
         var serverPaused = false
@@ -233,6 +239,7 @@ class BridgeService : Service() {
                     dolphinPort = null
                     dolphinGameId = null
                     nextDolphinAttempt = 0L
+                    dolphinTelemetryText = "Dolphin GDB port changed · restart the running game before reconnecting."
                 }
                 if (dolphinClient == null && now >= nextDolphinAttempt) {
                     var candidate: DolphinGdbClient? = null
@@ -246,6 +253,13 @@ class BridgeService : Service() {
                         dolphinGameId = gameId
                         activeDolphinClient = candidate
                         nextDolphinProbe = now + TimeUnit.SECONDS.toMillis(1)
+                        candidate.takeTelemetrySnapshot()
+                        nextDolphinTelemetry = now + DOLPHIN_TELEMETRY_INTERVAL_MILLIS
+                        nextDolphinTelemetryLog = now + DOLPHIN_TELEMETRY_LOG_INTERVAL_MILLIS
+                        dolphinPeakRequestRate = 0.0
+                        dolphinPeakBandwidth = 0.0
+                        dolphinTelemetryText =
+                            "Connected · ${gameId.ifBlank { "unknown game" }} · collecting a live performance sample…"
                         if (activeRuntime == null) {
                             publishDolphinReady(gameId, configuredDolphinPort)
                         }
@@ -269,14 +283,42 @@ class BridgeService : Service() {
                         }
                         nextDolphinProbe = now + TimeUnit.SECONDS.toMillis(1)
                     } catch (error: Exception) {
+                        val lastTelemetry = dolphinTelemetryText
                         connectedDolphin.close()
                         if (activeDolphinClient === connectedDolphin) activeDolphinClient = null
                         dolphinClient = null
                         dolphinPort = null
                         dolphinGameId = null
                         nextDolphinAttempt = now + TimeUnit.SECONDS.toMillis(1)
+                        dolphinTelemetryText =
+                            "Dolphin GDB disconnected · restart the game to reopen its debugger.\n" +
+                                "Last live sample:\n$lastTelemetry"
                         Log.w(TAG, "Dolphin GDB transport disconnected", error)
                     }
+                }
+
+                val measuredDolphin = dolphinClient
+                val measuredPort = dolphinPort
+                if (measuredDolphin != null && measuredPort != null && now >= nextDolphinTelemetry) {
+                    val snapshot = measuredDolphin.takeTelemetrySnapshot()
+                    val rates = DolphinTelemetryFormatter.rates(snapshot)
+                    dolphinPeakRequestRate = maxOf(dolphinPeakRequestRate, rates.requestsPerSecond)
+                    dolphinPeakBandwidth = maxOf(dolphinPeakBandwidth, rates.kibibytesPerSecond)
+                    dolphinTelemetryText = DolphinTelemetryFormatter.display(
+                        snapshot,
+                        dolphinGameId.orEmpty(),
+                        measuredPort,
+                        dolphinPeakRequestRate,
+                        dolphinPeakBandwidth,
+                    )
+                    if (now >= nextDolphinTelemetryLog) {
+                        Log.i(
+                            TAG,
+                            DolphinTelemetryFormatter.logLine(snapshot, dolphinGameId.orEmpty(), measuredPort),
+                        )
+                        nextDolphinTelemetryLog = now + DOLPHIN_TELEMETRY_LOG_INTERVAL_MILLIS
+                    }
+                    nextDolphinTelemetry = now + DOLPHIN_TELEMETRY_INTERVAL_MILLIS
                 }
 
                 if (mgbaBridge == null && now >= nextMgbaAttempt) {
@@ -565,6 +607,7 @@ class BridgeService : Service() {
             if (activeBridge === mgbaBridge) activeBridge = null
             if (activeSniClient === sniClient) activeSniClient = null
             if (activeDolphinClient === dolphinClient) activeDolphinClient = null
+            if (!stopping) dolphinTelemetryText = "Dolphin GDB is not connected."
             running = false
         }
     }
@@ -712,6 +755,8 @@ class BridgeService : Service() {
         private const val ACTIVE_ROM_SLOT = "slot"
         private const val ACTIVE_ROM_SERVER = "server"
         private const val PATCHED_ROM_DESCRIPTION = "compatible patched Game Boy or SNES ROM"
+        private const val DOLPHIN_TELEMETRY_INTERVAL_MILLIS = 2_000L
+        private const val DOLPHIN_TELEMETRY_LOG_INTERVAL_MILLIS = 10_000L
         const val ACTION_RECONNECT = "eu.odran.archipelago.RECONNECT_BRIDGE"
 
         @Volatile
@@ -735,6 +780,10 @@ class BridgeService : Service() {
 
         @Volatile
         var statusDetails: String? = null
+            private set
+
+        @Volatile
+        var dolphinTelemetryText: String = "Dolphin GDB is not connected."
             private set
 
         @Volatile
