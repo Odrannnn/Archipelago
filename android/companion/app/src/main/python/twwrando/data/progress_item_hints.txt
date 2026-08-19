@@ -1,0 +1,88 @@
+Tingle Tuner:
+  an electronical device
+Wind Waker:
+  the wand of the wind conductor
+Spoils Bag:
+  a storage for collectibles
+Grappling Hook:
+  an item to swing across platforms
+Power Bracelets:
+  the strength to lift heavy rocks
+Iron Boots:
+  a very heavy item
+Bait Bag:
+  a storage for food
+Boomerang:
+  an item that always comes back to you
+Hookshot:
+  an item that reels
+Delivery Bag:
+  a storage for letters
+Bombs:
+  an explosive item
+Skull Hammer:
+  the hammer of the dead
+Deku Leaf:
+  a magic leaf
+Progressive Shield:
+  a defensive item
+Triforce Shard:
+  a piece of the power of the gods
+Nayru's Pearl:
+  a blue jewel
+Din's Pearl:
+  a red jewel
+Farore's Pearl:
+  a green jewel
+Wind's Requiem:
+  the song of wind
+Ballad of Gales:
+  the song of gales
+Command Melody:
+  the song of command
+Earth God's Lyric:
+  the song of earth's god
+Wind God's Aria:
+  the song of wind's god
+Song of Passing:
+  the song of time
+Boat's Sail:
+  the wind follower
+Note to Mom:
+  the writings of a letter sorter
+Maggie's Letter:
+  the writings of a woman
+Moblin's Letter:
+  the writings of a creature
+Cabana Deed:
+  a pass for a private residence
+Progressive Magic Meter:
+  an upgrade for your magic
+Ghost Ship Chart:
+  the chart of fears
+Progressive Sword:
+  an upgrade for your blade
+Progressive Bow:
+  an upgrade for your bow
+Wallet Capacity Upgrade:
+  an upgrade for your Rupee bag
+Progressive Picto Box:
+  an upgrade for your camera
+Empty Bottle:
+  a glass container
+Small Key:
+  a key
+Big Key:
+  an ominous key
+Treasure Chart:
+  a blue map
+Triforce Chart:
+  a purple map
+Tingle Statue:
+  a statue of a fairy
+Bomb Bag Capacity Upgrade:
+  an upgrade for your bomb bag
+Quiver Capacity Upgrade:
+  an upgrade for your quiver
+Magic Armor:
+  a protective crystal

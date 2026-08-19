@@ -1,0 +1,200 @@
+sys/main.dol:
+  hurricane_spin_item_resource_arc_name: 0x803FCFA8
+  ballad_of_gales_warp_table: 0x803FCFB0
+  ballad_of_gales_warp_float_bank: 0x803FCFF8
+  custom_DynamicNameTable: 0x803FD050
+  custom_l_objectName: 0x803FD084
+  custom_DMC: 0x803FD09C
+  custom_l_objectName_end: 0x803FD09C
+  init_save_with_tweaks: 0x803FD87C
+  init_starting_gear: 0x803FDC20
+  num_triforce_shards_to_start_with: 0x803FDC68
+  should_start_with_heros_clothes: 0x803FDC69
+  sword_mode: 0x803FDC6A
+  skip_rematch_bosses: 0x803FDC6B
+  starting_gear: 0x803FDC6C
+  starting_quarter_hearts: 0x803FDCC4
+  starting_magic: 0x803FDCC6
+  captured_prologue_pigs_bitfield: 0x803FDCC7
+  option_targeting_mode: 0x803FDCC8
+  convert_progressive_item_id: 0x803FDCCC
+  progressive_sword_item_func: 0x803FDF5C
+  progressive_shield_item_func: 0x803FDFC4
+  progressive_bow_func: 0x803FE00C
+  progressive_wallet_item_func: 0x803FE064
+  progressive_bomb_bag_item_func: 0x803FE09C
+  progressive_quiver_item_func: 0x803FE0DC
+  progressive_picto_box_item_func: 0x803FE11C
+  magic_meter_item_func: 0x803FE164
+  magic_meter_upgrade_item_func: 0x803FE184
+  normal_magic_meter_item_func: 0x803FE1A4
+  hurricane_spin_item_func: 0x803FE1BC
+  custom_createItem: 0x803FE1E8
+  generic_on_dungeon_bit: 0x803FE234
+  generic_small_key_item_get_func: 0x803FE290
+  drc_small_key_item_get_func: 0x803FE328
+  fw_small_key_item_get_func: 0x803FE34C
+  totg_small_key_item_get_func: 0x803FE370
+  et_small_key_item_get_func: 0x803FE394
+  wt_small_key_item_get_func: 0x803FE3B8
+  drc_big_key_item_get_func: 0x803FE3DC
+  fw_big_key_item_get_func: 0x803FE404
+  totg_big_key_item_get_func: 0x803FE42C
+  et_big_key_item_get_func: 0x803FE454
+  wt_big_key_item_get_func: 0x803FE47C
+  drc_dungeon_map_item_get_func: 0x803FE4A4
+  fw_dungeon_map_item_get_func: 0x803FE4CC
+  totg_dungeon_map_item_get_func: 0x803FE4F4
+  ff_dungeon_map_item_get_func: 0x803FE51C
+  et_dungeon_map_item_get_func: 0x803FE544
+  wt_dungeon_map_item_get_func: 0x803FE56C
+  drc_compass_item_get_func: 0x803FE594
+  fw_compass_item_get_func: 0x803FE5BC
+  totg_compass_item_get_func: 0x803FE5E4
+  ff_compass_item_get_func: 0x803FE60C
+  et_compass_item_get_func: 0x803FE634
+  wt_compass_item_get_func: 0x803FE65C
+  dragon_tingle_statue_item_get_func: 0x803FE684
+  forbidden_tingle_statue_item_get_func: 0x803FE6B0
+  goddess_tingle_statue_item_get_func: 0x803FE6DC
+  earth_tingle_statue_item_get_func: 0x803FE708
+  wind_tingle_statue_item_get_func: 0x803FE734
+  check_tingle_statue_owned: 0x803FE760
+  custom_isTbox_for_unloaded_stage_save_info: 0x803FE7E8
+  give_archipelago_item: 0x803FE818
+  give_archipelago_item_array: 0x803FE87C
+  give_archipelago_item_equ: 0x803FE87C
+  modify_triforce_count: 0x803FE88C
+  archipelago_slot_name: 0x803FE8A0
+  archipelago_charts_mapping: 0x803FE8E0
+  hookshot_sight_failsafe_check: 0x803FE944
+  deluxe_picto_box_item_func_fix_equipped_picto_box: 0x803FE95C
+  stop_sub_bgm_when_unloading_stage: 0x803FE990
+  zero_out_arrow_on_hit_callback: 0x803FE9A8
+  check_can_defend: 0x803FE9B8
+  check_ganondorf_in_phase_3: 0x803FE9E8
+  check_play_special_item_get_music: 0x803FEA04
+  multiply_damage_amount: 0x803FEA6C
+  damage_multiplier: 0x803FEA90
+  invert_camera_horizontal_axis: 0x803FEA94
+  convert_progressive_item_id_for_createDemoItem: 0x803FEAA0
+  convert_progressive_item_id_for_daItem_create: 0x803FEACC
+  convert_progressive_item_id_for_dProcGetItem_init_1: 0x803FEAF8
+  convert_progressive_item_id_for_dProcGetItem_init_2: 0x803FEB20
+  check_open_map_select: 0x803FEB48
+  set_starting_health: 0x803FEBA8
+  get_current_health_for_file_select_screen: 0x803FEBC4
+  get_max_health_for_file_select_screen: 0x803FEBEC
+  fully_refill_magic_meter_and_cap_health_on_load_save: 0x803FEC10
+  turn_while_swinging: 0x803FEC40
+  check_animate_rainbow_rupee_color: 0x803FECA0
+  rainbow_rupee_keyframe: 0x803FECE0
+  check_run_new_text_commands: 0x803FECF0
+  exec_curr_num_keys_text_command: 0x803FED30
+  set_warp_confirm_dialog_message_id_for_custom_warps: 0x803FEE10
+  check_player_in_casual_clothes: 0x803FEE28
+  read_custom_DynamicNameTable_loop: 0x803FEE64
+  read_custom_l_objectName_loop_for_dStage_searchName: 0x803FEE90
+  read_custom_l_objectName_loop_for_dStage_getName: 0x803FEEB8
+  get_num_owned_tingle_statues: 0x803FEEE4
+  ladder_up_check_unequip_held_item: 0x803FEF58
+  ladder_down_check_unequip_held_item: 0x803FEF70
+  gameover_continue_reset_life: 0x803FEF88
+  give_pearl_and_raise_totg_if_necessary: 0x803FEFA4
+  remove_low_health_anim_at_full_health: 0x803FF038
+  give_temporary_sword_during_ganondorf_fight_in_swordless: 0x803FF05C
+  give_temporary_sword_in_orcas_house_in_swordless: 0x803FF078
+  remove_temporary_sword_when_loading_stage_in_swordless: 0x803FF0C0
+  test_room_stage_name: 0x8022D034
+  test_room_starting_items_list: 0x8022D03C
+  test_room_spawn_id: 0x800531E3
+  test_room_room_index: 0x800531E7
+  test_room_override_layer_num: 0x800531EB
+files/rels/d_a_demo_item.rel:
+  check_give_item: 0x1344
+files/rels/d_a_npc_bs1.rel:
+  set_shop_item_in_bait_bag_slot_sold_out: 0x61F0
+  check_shop_item_in_bait_bag_slot_sold_out: 0x6220
+  custom_getSelectItemNo_progressive: 0x624C
+files/rels/d_a_st.rel:
+  stalfos_kill_lower_body_when_upper_body_light_arrowed: 0xA778
+  stalfos_set_death_switch: 0xA7C0
+files/rels/d_a_pt.rel:
+  miniblin_set_death_switch_when_light_arrowed: 0x60BC
+files/rels/d_a_pw.rel:
+  poe_fix_light_arrows_bug: 0x7FB4
+files/rels/d_a_mt.rel:
+  magtail_respawn_when_head_light_arrowed: 0xA04C
+files/rels/d_a_fganon.rel:
+  phantom_ganon_check_link_within_y_diff: 0xB020
+  check_ganons_tower_chest_opened: 0xB03C
+files/rels/d_a_bdk.rel:
+  initialize_helmaroc_king_landing_timer: 0xEA88
+  check_helmaroc_king_landing_timeout: 0xEA98
+files/rels/d_a_boko.rel:
+  check_phantom_ganons_sword_should_disappear: 0x4B88
+  phantom_ganon_maze_stage_name: 0x4BC4
+files/rels/d_a_rd.rel:
+  redead_check_disable_spawn_switch: 0x61E4
+  redead_set_death_switch: 0x6224
+files/rels/d_a_ph.rel:
+  peahat_check_disable_spawn_switch: 0x7F70
+  peahat_set_death_switch: 0x7FB8
+  peahat_check_enable_spawn_switch: 0x7FE4
+  peahat_check_enable_spawn_switch_for_draw: 0x803C
+files/rels/d_a_mo2.rel:
+  moblin_set_death_switch: 0xE2D4
+files/rels/d_a_tn.rel:
+  darknut_set_death_switch: 0xEA24
+files/rels/d_a_nzg.rel:
+  rat_hole_all_rats_dead: 0xE00
+files/rels/d_a_obj_ftree.rel:
+  create_item_for_withered_trees_without_setting_speeds: 0x535C
+  withered_tree_item_try_give_momentum: 0x5384
+  withered_tree_item_speeds: 0x53F8
+files/rels/d_a_npc_people.rel:
+  create_item_and_set_event_bit_for_townsperson: 0xCF18
+files/rels/d_a_npc_photo.rel:
+  lenzo_set_deluxe_picto_box_event_bit: 0x5EC8
+files/rels/d_a_npc_rsh1.rel:
+  zunari_give_item_and_set_magic_armor_event_bit: 0x5D18
+  zunari_magic_armor_slot_item_id: 0x5D70
+files/rels/d_a_npc_sv.rel:
+  salvage_corp_give_item_and_set_event_bit: 0x3580
+files/rels/d_a_npc_kp1.rel:
+  maggie_give_item_and_set_event_bit: 0x338C
+files/rels/d_a_npc_bm1.rel:
+  rito_cafe_postman_start_event_and_set_event_bit: 0xAFD0
+files/rels/d_a_npc_ds1.rel:
+  doc_bandam_check_new_potion_and_give_free_item: 0x60F8
+  doc_bandam_green_potion_slot_item_id: 0x6154
+  doc_bandam_blue_potion_slot_item_id: 0x6155
+files/rels/d_a_tsubo.rel:
+  create_pot_item: 0x9964
+files/rels/d_a_obj_homen.rel:
+  create_stone_head_item: 0x36DC
+files/rels/d_a_ship.rel:
+  set_wind_dir_to_ship_dir: 0xE3A8
+  slow_down_ship_when_stopping: 0xE3F0
+  ship_stopping_deceleration: 0xE420
+  slow_down_ship_when_idle: 0xE428
+  ship_idle_deceleration: 0xE458
+files/rels/d_a_npc_md.rel:
+  reset_medli_position: 0x15D78
+  medli_possible_et_spawn_positions: 0x15E50
+files/rels/d_a_npc_cb1.rel:
+  reset_makar_position: 0xB214
+  makar_possible_wt_spawn_positions: 0xB2EC
+files/rels/d_a_warpdm20.rel:
+  check_hyrule_warp_unlocked: 0x1EBC
+files/rels/d_a_npc_os.rel:
+  set_inactive_servant_when_player_leaves_room: 0x8AB4
+files/rels/d_a_obj_hsehi1.rel:
+  set_item_obtained_from_totg_tablet_event_bit: 0x29D0
+files/rels/d_a_shop_item.rel:
+  convert_progressive_item_id_for_shop_item: 0x1174
+files/rels/d_a_obj_warpt.rel:
+  set_prm_color_for_warp_pot_particles: 0x3280
+  set_env_color_for_warp_pot_particles: 0x32A8
+  custom_warp_pot_prm_color: 0x32D0
+  custom_warp_pot_env_color: 0x32D4

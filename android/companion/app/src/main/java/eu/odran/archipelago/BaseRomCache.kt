@@ -13,7 +13,8 @@ object BaseRomCache {
     private val lock = Any()
 
     fun isPresent(context: Context, game: String): Boolean =
-        cacheDirectory(context).listFiles()?.any { it.isFile && it.name.startsWith(cachePrefix(game)) } == true
+        cacheDirectory(context).listFiles()?.any { it.isFile && it.name.startsWith(cachePrefix(game)) } == true ||
+            BaseRomDocumentStore.isPresent(context, game)
 
     /** Returns cached bytes, removing incomplete or unexpectedly large entries. */
     fun load(context: Context, game: String, inputKey: String): ByteArray? = synchronized(lock) {
@@ -68,10 +69,11 @@ object BaseRomCache {
     }
 
     fun forget(context: Context, game: String): Boolean = synchronized(lock) {
-        cacheDirectory(context).listFiles()
+        val bytesForgotten = cacheDirectory(context).listFiles()
             ?.filter { it.isFile && it.name.startsWith(cachePrefix(game)) }
             ?.all { it.delete() }
             ?: true
+        bytesForgotten && BaseRomDocumentStore.forget(context, game)
     }
 
     private fun cacheDirectory(context: Context) = File(context.noBackupFilesDir, CACHE_DIRECTORY)

@@ -191,6 +191,13 @@ exposed to the LAN.
 Offline generation and ROM patching do not require an Internet connection.
 Hosting, invitations, and live multiworld play do.
 
+The Wind Waker 3.x `.aptww` files are patched with the bundled official
+`tanjo3/wwrando` `ap_2.5.1` engine. The companion asks for a North American
+`GZLE01` ISO and writes the patched ISO directly through Android's file picker,
+so the full disc image is never copied into the app's memory or private cache.
+The clean ISO location is remembered through Android's persisted document
+permission and can be forgotten from the same base-ROM control as other games.
+
 ## Repository layout
 
 - [`android/companion/`](android/companion/) — Android companion application,

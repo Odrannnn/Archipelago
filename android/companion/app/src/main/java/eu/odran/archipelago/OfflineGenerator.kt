@@ -1,6 +1,8 @@
 package eu.odran.archipelago
 
 import android.content.Context
+import android.net.Uri
+import android.os.ParcelFileDescriptor
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
 import org.json.JSONArray
@@ -20,6 +22,8 @@ data class RomInputRequirement(
 data class RomRequirements(
     val game: String,
     val inputs: List<RomInputRequirement>,
+    val streaming: Boolean = false,
+    val resultExtension: String = "",
 )
 
 data class WorldCapability(
@@ -222,6 +226,8 @@ object OfflineGenerator {
                     fileName = input.optString("file_name"),
                 )
             },
+            streaming = root.optBoolean("streaming", false),
+            resultExtension = root.optString("result_extension"),
         )
     }
 
@@ -238,6 +244,24 @@ object OfflineGenerator {
             rom,
             workDirectory(context).absolutePath,
         )
+        Unit
+    }
+
+    fun validateRomInputDocument(
+        context: Context,
+        patch: ByteArray,
+        inputKey: String,
+        uri: Uri,
+    ) = synchronized(runtimeLock) {
+        context.contentResolver.openFileDescriptor(uri, "r")?.use { descriptor ->
+            python(context).getModule("offline_generator").callAttr(
+                "validate_rom_input_path",
+                patch,
+                inputKey,
+                descriptor.procPath(),
+                workDirectory(context).absolutePath,
+            )
+        } ?: error("Could not open the selected ROM document")
         Unit
     }
 
@@ -321,6 +345,39 @@ object OfflineGenerator {
             stagedInputs.values.forEach { it.delete() }
         }
     }
+
+    fun patchRomDocuments(
+        context: Context,
+        patch: ByteArray,
+        romInputs: Map<String, Uri>,
+        output: Uri,
+    ) = synchronized(runtimeLock) {
+        val openedInputs = mutableListOf<ParcelFileDescriptor>()
+        var openedOutput: ParcelFileDescriptor? = null
+        try {
+            val paths = JSONObject()
+            romInputs.forEach { (key, uri) ->
+                val descriptor = context.contentResolver.openFileDescriptor(uri, "r")
+                    ?: error("Could not open ROM input $key")
+                openedInputs += descriptor
+                paths.put(key, descriptor.procPath())
+            }
+            openedOutput = context.contentResolver.openFileDescriptor(output, "rwt")
+                ?: error("Could not open the selected ISO destination")
+            python(context).getModule("offline_generator").callAttr(
+                "patch_rom",
+                patch,
+                paths.toString(),
+                openedOutput.procPath(),
+                workDirectory(context).absolutePath,
+            )
+        } finally {
+            openedOutput?.close()
+            openedInputs.forEach { it.close() }
+        }
+    }
+
+    private fun ParcelFileDescriptor.procPath(): String = "/proc/self/fd/$fd"
 
     private fun parseChoices(array: JSONArray?): List<FormChoice> = if (array == null) {
         emptyList()

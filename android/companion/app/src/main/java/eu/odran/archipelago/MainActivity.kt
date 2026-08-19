@@ -60,6 +60,8 @@ class MainActivity : Activity() {
     private var pendingRomPatch: RomPatchSession? = null
     private var pendingRomRequirements: RomRequirements? = null
     private val pendingRomInputs = linkedMapOf<String, ByteArray>()
+    private val pendingRomInputUris = linkedMapOf<String, Uri>()
+    private var pendingStreamingDestinationName: String? = null
     private val refreshStatus = object : Runnable {
         override fun run() {
             val activeRoom = renderedRoom
@@ -311,6 +313,10 @@ class MainActivity : Activity() {
             if (requestCode == REQUEST_PATCH_BASE_ROM) {
                 clearPendingRomPatch()
             }
+            if (requestCode == REQUEST_SAVE_STREAMING_ROM) {
+                clearPendingRomPatch()
+                inviteStatus.text = "Wind Waker ISO patching canceled."
+            }
             if (requestCode == REQUEST_INVITE_APWORLD) {
                 pendingRequiredApWorldInvite = null
                 inviteStatus.text = "APWorld import canceled · invitation not loaded."
@@ -337,6 +343,7 @@ class MainActivity : Activity() {
             REQUEST_OPEN_INVITE -> handleInvite(Intent(Intent.ACTION_VIEW, data.data))
             REQUEST_OPEN_PLAYER_PATCH -> openManualPlayerPatch(data.data!!)
             REQUEST_PATCH_BASE_ROM -> acceptBaseRom(data.data!!)
+            REQUEST_SAVE_STREAMING_ROM -> patchRomDocuments(data.data!!)
             REQUEST_INVITE_APWORLD -> installRequiredInviteApWorld(data.data!!)
             REQUEST_PATCH_APWORLD -> installRequiredPatchApWorld(data.data!!)
             REQUEST_SELECT_PATCHED_ROM -> rememberExistingPatchedRom(data.data!!, data.flags)
@@ -836,7 +843,9 @@ class MainActivity : Activity() {
     private fun openBaseRomPicker(input: RomInputRequirement) {
         val picker = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
-            type = "application/octet-stream"
+            // GameCube ISOs are exposed under several provider-specific MIME
+            // types. Let SAF show all documents, then validate the GZLE01 header.
+            type = if (pendingRomRequirements?.streaming == true) "*/*" else "application/octet-stream"
         }
         val label = input.description.ifBlank { input.fileName.ifBlank { "clean ROM" } }
         startActivityForResult(
@@ -870,9 +879,16 @@ class MainActivity : Activity() {
                 .onSuccess { requirements ->
                     pendingRomRequirements = requirements
                     pendingRomInputs.clear()
+                    pendingRomInputUris.clear()
                     requirements.inputs.forEach { input ->
-                        BaseRomCache.load(this, requirements.game, input.key)?.let { bytes ->
-                            pendingRomInputs[input.key] = bytes
+                        if (requirements.streaming) {
+                            BaseRomDocumentStore.load(this, requirements.game, input.key)?.let { uri ->
+                                pendingRomInputUris[input.key] = uri
+                            }
+                        } else {
+                            BaseRomCache.load(this, requirements.game, input.key)?.let { bytes ->
+                                pendingRomInputs[input.key] = bytes
+                            }
                         }
                     }
                     continueRomSelection()
@@ -887,9 +903,26 @@ class MainActivity : Activity() {
     private fun continueRomSelection() {
         val session = pendingRomPatch ?: return
         val requirements = pendingRomRequirements ?: return
-        val missing = requirements.inputs.firstOrNull { it.key !in pendingRomInputs }
+        val missing = requirements.inputs.firstOrNull {
+            if (requirements.streaming) it.key !in pendingRomInputUris else it.key !in pendingRomInputs
+        }
         if (missing == null) {
-            patchRomInputs(pendingRomInputs.toMap())
+            if (requirements.streaming) {
+                val extension = requirements.resultExtension.ifBlank { ".iso" }
+                pendingStreamingDestinationName = "${File(session.patchName).nameWithoutExtension}$extension"
+                runOnUiThread {
+                    startActivityForResult(
+                        Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "application/octet-stream"
+                            putExtra(Intent.EXTRA_TITLE, pendingStreamingDestinationName)
+                        },
+                        REQUEST_SAVE_STREAMING_ROM,
+                    )
+                }
+            } else {
+                patchRomInputs(pendingRomInputs.toMap())
+            }
             return
         }
         runOnUiThread {
@@ -901,26 +934,29 @@ class MainActivity : Activity() {
     private fun acceptBaseRom(uri: Uri) {
         val session = pendingRomPatch ?: return
         val requirements = pendingRomRequirements ?: return
-        val input = requirements.inputs.firstOrNull { it.key !in pendingRomInputs } ?: return
+        val input = requirements.inputs.firstOrNull {
+            if (requirements.streaming) it.key !in pendingRomInputUris else it.key !in pendingRomInputs
+        } ?: return
         inviteStatus.text = "Reading ${input.description}…"
         thread(name = "shared-invite-rom-input") {
             runCatching {
-                val selectedBytes = contentResolver.openInputStream(uri)?.use {
-                    it.readAtMost(MAX_ROM_BYTES.toInt() + 1)
+                if (requirements.streaming) {
+                    contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    OfflineGenerator.validateRomInputDocument(this, session.patchBytes, input.key, uri)
+                    pendingRomInputUris[input.key] = uri
+                    null
+                } else {
+                    val selectedBytes = contentResolver.openInputStream(uri)?.use {
+                        it.readAtMost(MAX_ROM_BYTES.toInt() + 1)
+                    } ?: error("Could not read the selected base ROM.")
+                    require(selectedBytes.size.toLong() <= MAX_ROM_BYTES) {
+                        "The selected base ROM is too large."
+                    }
+                    OfflineGenerator.validateRomInput(this, session.patchBytes, input.key, selectedBytes)
+                    selectedBytes
                 }
-                    ?: error("Could not read the selected base ROM.")
-                require(selectedBytes.size.toLong() <= MAX_ROM_BYTES) {
-                    "The selected base ROM is too large."
-                }
-                OfflineGenerator.validateRomInput(
-                    this,
-                    session.patchBytes,
-                    input.key,
-                    selectedBytes,
-                )
-                selectedBytes
             }.onSuccess { selectedBytes ->
-                pendingRomInputs[input.key] = selectedBytes
+                if (selectedBytes != null) pendingRomInputs[input.key] = selectedBytes
                 continueRomSelection()
             }.onFailure { error ->
                 runOnUiThread {
@@ -983,6 +1019,29 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun patchRomDocuments(destination: Uri) {
+        val session = pendingRomPatch ?: return
+        val requirements = pendingRomRequirements ?: return
+        val inputs = pendingRomInputUris.toMap()
+        inviteStatus.text = "Creating the patched ${session.game} ISO…"
+        thread(name = "player-disc-patching") {
+            runCatching {
+                OfflineGenerator.patchRomDocuments(this, session.patchBytes, inputs, destination)
+                inputs.forEach { (key, uri) -> BaseRomDocumentStore.store(this, requirements.game, key, uri) }
+            }.onSuccess {
+                val name = pendingStreamingDestinationName ?: "Patched ${session.game}.iso"
+                clearPendingRomPatch()
+                runOnUiThread { inviteStatus.text = "Saved $name · ready to load in Dolphin." }
+            }.onFailure { error ->
+                BaseRomCache.forget(this, requirements.game)
+                clearPendingRomPatch()
+                runOnUiThread {
+                    inviteStatus.text = "Could not patch the base ISO: ${error.message ?: error.javaClass.simpleName}"
+                }
+            }
+        }
+    }
+
     private fun patchStatusSubject(session: RomPatchSession): String =
         session.playerName?.let { "Room loaded for $it." } ?: "${session.game} player patch loaded."
 
@@ -990,6 +1049,8 @@ class MainActivity : Activity() {
         pendingRomPatch = null
         pendingRomRequirements = null
         pendingRomInputs.clear()
+        pendingRomInputUris.clear()
+        pendingStreamingDestinationName = null
     }
 
     private fun InputStream.readAtMost(maxBytes: Int): ByteArray {
@@ -1243,6 +1304,7 @@ class MainActivity : Activity() {
         private const val REQUEST_INVITE_APWORLD = 306
         private const val REQUEST_OPEN_PLAYER_PATCH = 307
         private const val REQUEST_PATCH_APWORLD = 308
+        private const val REQUEST_SAVE_STREAMING_ROM = 309
         private const val MAX_PATCH_BYTES = 32 * 1024 * 1024
         private const val MAX_ROM_BYTES = 32L * 1024 * 1024 + 512
     }

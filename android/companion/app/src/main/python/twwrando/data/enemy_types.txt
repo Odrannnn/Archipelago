@@ -1,0 +1,921 @@
+-
+  Pretty name: Bokoblin
+  Actor name: Bk
+  Params: 0xFFFFFF00
+  X Rotation: 0x001F
+  Z Rotation: 0x00FF
+  Required particle IDs: []
+  Requirements to defeat: Can Defeat Bokoblins
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground, Pot]
+  Memory used by first one: 53280
+  Memory used by subsequent ones: 23088
+  Enable spawn switch param name: spawn_condition_switch
+  Death switch param name: disable_spawn_on_death_switch
+  Path param name: path_index
+  Allow near pits: True # Dies when falling in pits, but properly sets it death switch, so we allow it.
+  Can be killed with thrown objects: True # 3 hits
+  Can be killed with bomb flowers: True
+-
+  Pretty name: Green ChuChu
+  Actor name: c_green
+  Params: 0xFFFF0000
+  X Rotation: 0x0000
+  Z Rotation: 0x00FF
+  Required particle IDs: []
+  Requirements to defeat: Can Defeat Green ChuChus
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground, Pot, Ceiling]
+  Memory used by first one: 31904
+  Memory used by subsequent ones: 18496
+  Enable spawn switch param name: enable_spawn_switch
+  Death switch param name: null
+  Path param name: null
+  Allow near pits: True # TODO CHECK (they can jump off while trying to attack the player, but don't by themselves. do they die in the pit, or still count as a living enemy?)
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: True
+-
+  Pretty name: Red ChuChu
+  Actor name: c_red
+  Params: 0xFFFF0100
+  X Rotation: 0x0000
+  Z Rotation: 0x00FF
+  Required particle IDs: []
+  Requirements to defeat: Can Defeat Red ChuChus
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground, Pot, Ceiling]
+  Memory used by first one: 31904
+  Memory used by subsequent ones: 18496
+  Enable spawn switch param name: enable_spawn_switch
+  Death switch param name: null
+  Path param name: null
+  Allow near pits: True # TODO CHECK
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: True
+-
+  Pretty name: Yellow ChuChu
+  Actor name: c_kiiro
+  Params: 0xFFFF0400
+  X Rotation: 0x0000
+  Z Rotation: 0x00FF
+  Required particle IDs: []
+  Requirements to defeat: Can Defeat Yellow ChuChus
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground, Pot, Ceiling]
+  Memory used by first one: 31904
+  Memory used by subsequent ones: 18496
+  Enable spawn switch param name: enable_spawn_switch
+  Death switch param name: null
+  Path param name: null
+  Allow near pits: True # TODO CHECK
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: True
+-
+  Pretty name: Blue ChuChu
+  Actor name: c_blue
+  Params: 0xFFFF0200
+  X Rotation: 0x0000
+  Z Rotation: 0x00FF
+  Required particle IDs: []
+  Requirements to defeat: Can Defeat Blue ChuChus
+  Allow randomizing from: False # Randomizing from them would break the logic for getting the vanilla Blue Chu Jelly locations.
+  Allow randomizing to: False # Randomizing to them would allow you to get Blue Chu Jelly more easily than in vanilla.
+  Placement categories: [Ground, Pot, Ceiling]
+  Memory used by first one: 31904
+  Memory used by subsequent ones: 18496
+  Enable spawn switch param name: enable_spawn_switch
+  Death switch param name: null
+  Path param name: null
+  Allow near pits: True # TODO CHECK
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: True
+-
+  Pretty name: Dark ChuChu
+  Actor name: c_black
+  Params: 0xFFFF0300
+  X Rotation: 0x0000
+  Z Rotation: 0x00FF
+  Required particle IDs: [0x82A8, 0x82A9]
+  Requirements to defeat: Can Defeat Dark ChuChus
+  Allow randomizing from: False # some rooms need something to place on the switch. for now don't randomize these guys, eventually maybe replace them with magtails?
+  Allow randomizing to: False # Can't be randomized since there would be no light ray to petrify it.
+  Placement categories: [Ground, Pot, Ceiling]
+  Memory used by first one: 31904
+  Memory used by subsequent ones: 18496
+  Enable spawn switch param name: enable_spawn_switch
+  Death switch param name: null
+  Path param name: null
+  Allow near pits: True # TODO CHECK
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: False
+-
+  Pretty name: Kargaroc
+  Actor name: Bb
+  Params: 0xFFFFFF00
+  X Rotation: 0x001F
+  Z Rotation: 0x00FF
+  Required particle IDs: []
+  Requirements to defeat: Can Defeat Kargarocs
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Air, Ground, Ceiling]
+  Memory used by first one: 49120
+  Memory used by subsequent ones: 41024
+  Enable spawn switch param name: enable_spawn_switch
+  Death switch param name: null
+  Path param name: path_index
+  Allow near pits: True # TODO CHECK
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: True
+-
+  Pretty name: Lantern Moblin
+  Actor name: mo2
+  Params: 0xFFFFFF01
+  X Rotation: 0x001F
+  Z Rotation: 0x00FF
+  Required particle IDs: []
+  Requirements to defeat: Can Defeat Moblins
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground]
+  Memory used by first one: 105088
+  Memory used by subsequent ones: 66400
+  Enable spawn switch param name: enable_spawn_switch
+  Death switch param name: disable_spawn_on_death_switch
+  Path param name: path_index
+  Allow near pits: True # Dies instantly when over a pit. In vanilla it didn't set its death switch but this was fixed.
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: True
+-
+  Pretty name: Blue Moblin
+  Actor name: mo2
+  Params: 0xFFFFFF00
+  X Rotation: 0x001F
+  Z Rotation: 0x00FF
+  Required particle IDs: []
+  Requirements to defeat: Can Defeat Moblins
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground]
+  Memory used by first one: 60512
+  Memory used by subsequent ones: 36112
+  Enable spawn switch param name: enable_spawn_switch
+  Death switch param name: disable_spawn_on_death_switch
+  Path param name: path_index
+  Allow near pits: True # Dies instantly when over a pit. In vanilla it didn't set its death switch but this was fixed.
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: True
+-
+  Pretty name: Peahat
+  Actor name: p_hat
+  Params: 0xFFFFFFFF
+  X Rotation: 0x0000
+  Z Rotation: 0x0000
+  Required particle IDs: []
+  Requirements to defeat: Can Defeat Peahats
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Air, Ceiling]
+  Memory used by first one: 14688
+  Memory used by subsequent ones: 10208
+  Enable spawn switch param name: enable_spawn_switch
+  Death switch param name: disable_spawn_on_death_switch
+  Path param name: null
+  Allow near pits: True # TODO CHECK
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: True
+-
+  Pretty name: Seahat
+  Actor name: p_hat
+  Params: 0xFFFFFF01
+  X Rotation: 0x0000
+  Z Rotation: 0x0000
+  Required particle IDs: []
+  Requirements to defeat: Can Defeat Seahats
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Sea]
+  Memory used by first one: 23872
+  Memory used by subsequent ones: 16096
+  Enable spawn switch param name: null
+  Death switch param name: null
+  Path param name: null
+  Allow near pits: True # TODO CHECK
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: False
+-
+  Pretty name: Armos Knight
+  Actor name: amos
+  Params: 0xFF01FF00
+  X Rotation: 0x0000
+  Z Rotation: 0x0000
+  Required particle IDs: [0x8127, 0x8128, 0x8156, 0x8157, 0xA125, 0xA126, 0xA154, 0xA155]
+  Requirements to defeat: Can Defeat Armos Knights
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground]
+  Memory used by first one: 13152
+  Memory used by subsequent ones: 7456
+  Enable spawn switch param name: spawn_condition_switch
+  Death switch param name: null
+  Path param name: null
+  Allow near pits: True # TODO CHECK
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: True
+-
+  Pretty name: Armos
+  Actor name: amos2
+  Params: 0xFF01FFFF
+  X Rotation: 0x0000
+  Z Rotation: 0x0000
+  Required particle IDs: [0x81AE, 0x81AF, 0x81B0, 0xA125]
+  Requirements to defeat: Can Defeat Armos
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground]
+  Memory used by first one: 11840
+  Memory used by subsequent ones: 6976
+  Enable spawn switch param name: spawn_condition_switch
+  Death switch param name: null
+  Path param name: null
+  Allow near pits: True # TODO CHECK
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: True
+-
+  Pretty name: Inanimate Armos
+  Actor name: amos2
+  Params: 0x8001FFFF
+  X Rotation: 0x0000
+  Z Rotation: 0x0000
+  Required particle IDs: [0x81AE, 0x81AF, 0x81B0, 0xA125]
+  Requirements to defeat: Impossible
+  Allow randomizing from: False
+  Allow randomizing to: False
+  Placement categories: [Ground]
+  Memory used by first one: 11840
+  Memory used by subsequent ones: 6976
+  Enable spawn switch param name: null
+  Death switch param name: null
+  Path param name: null
+  Allow near pits: True # TODO CHECK
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: False
+-
+  Pretty name: Dexivine
+  Actor name: Sss
+  Params: 0x00FFFFFF
+  X Rotation: 0x0000
+  Z Rotation: 0x0000
+  Required particle IDs: [0x8184]
+  Requirements to defeat: Can Defeat Dexivines
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground]
+  Memory used by first one: 7744
+  Memory used by subsequent ones: 6976
+  Enable spawn switch param name: enable_spawn_switch
+  Death switch param name: null
+  Path param name: null
+  Allow near pits: True # TODO CHECK
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: True
+  # Note: Cannot escape from a Dexivine that catches you without some weapon to cut it down.
+-
+  Pretty name: Keese
+  Actor name: keeth
+  Params: 0xFFFF0101
+  X Rotation: 0x0000
+  Z Rotation: 0x00FF
+  Required particle IDs: [0x8099, 0x809A, 0x809B]
+  Requirements to defeat: Can Defeat Keese
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Air, Ceiling]
+  Memory used by first one: 15744
+  Memory used by subsequent ones: 6016
+  Enable spawn switch param name: enable_spawn_switch
+  Death switch param name: null
+  Path param name: path_index
+  Allow near pits: True # TODO CHECK
+  Can be killed with thrown objects: True # 1 hit
+  Can be killed with bomb flowers: True
+-
+  Pretty name: Fire Keese
+  Actor name: Fkeeth
+  Params: 0xFFFF8101
+  X Rotation: 0x0000
+  Z Rotation: 0x00FF
+  Required particle IDs: [0x8061, 0x8099, 0x809A, 0x809B]
+  Requirements to defeat: Can Defeat Fire Keese
+  Allow randomizing from: True
+  Allow randomizing to: False # We will place these, but just by randomizing the parameters on regular Keese instead.
+  Placement categories: [Air, Ceiling]
+  Memory used by first one: 17376
+  Memory used by subsequent ones: 7648
+  Enable spawn switch param name: enable_spawn_switch
+  Death switch param name: null
+  Path param name: path_index
+  Allow near pits: True # TODO CHECK
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: True
+-
+  Pretty name: Freshwater Octorok
+  Actor name: Oq
+  Params: 0xFFFFFFFF
+  X Rotation: 0x0000
+  Z Rotation: 0x0000
+  Required particle IDs: []
+  Requirements to defeat: Can Defeat Freshwater Octoroks
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Water]
+  Memory used by first one: 28640
+  Memory used by subsequent ones: 11936
+  Enable spawn switch param name: null
+  Death switch param name: null
+  Path param name: null
+  Allow near pits: True # TODO CHECK
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: False
+-
+  Pretty name: Saltwater Octorok
+  Actor name: Oqw
+  Params: 0xFFFFFF01
+  X Rotation: 0x0000
+  Z Rotation: 0x0000
+  Required particle IDs: []
+  Requirements to defeat: Can Defeat Saltwater Octoroks
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Sea]
+  Memory used by first one: 34784
+  Memory used by subsequent ones: 18080
+  Enable spawn switch param name: null
+  Death switch param name: null
+  Path param name: null
+  Allow near pits: True # TODO CHECK
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: False
+-
+  Pretty name: Saltwater Octorok Spawner
+  Actor name: Oqw
+  Params: 0xFFFFFF03
+  X Rotation: 0x0000
+  Z Rotation: 0x0000
+  Required particle IDs: []
+  Requirements to defeat: Can Defeat Saltwater Octoroks
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Sea]
+  Memory used by first one: 112784
+  Memory used by subsequent ones: 93888
+  Enable spawn switch param name: null
+  Death switch param name: null
+  Path param name: null
+  Allow near pits: True # TODO CHECK
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: False
+-
+  Pretty name: Wizzrobe
+  Actor name: wiz_r
+  Params: 0xFFFFFF00 # Does not follow a path, does not spawn enemies
+  X Rotation: 0x0000
+  Z Rotation: 0x00FF
+  Required particle IDs: [0x8238, 0x8239, 0x823A, 0x823C, 0x823D, 0x8280, 0x8281, 0x8282, 0x8283, 0x8284, 0x8287, 0x8288, 0x8289]
+  Requirements to defeat: Can Defeat Wizzrobes
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground, StationaryAir]
+  Memory used by first one: 65712 # 25440 without the fireballs being spawned
+  Memory used by subsequent ones: 54224 # 13536 without the fireballs being spawned
+  Enable spawn switch param name: enable_spawn_switch
+  Death switch param name: disable_spawn_on_death_switch
+  Path param name: path_index
+  Allow near pits: True
+  Can be killed with thrown objects: True # Takes two pots to kill.
+  Can be killed with bomb flowers: True
+-
+  Pretty name: ReDead
+  Actor name: Rdead1
+  Params: 0xFFFFFFFE
+  X Rotation: 0x0000
+  Z Rotation: 0x00FF
+  Required particle IDs: []
+  Requirements to defeat: Can Defeat ReDeads
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground]
+  Memory used by first one: 14272
+  Memory used by subsequent ones: 9664
+  Enable spawn switch param name: enable_spawn_switch # Also needs dont_check_enable_spawn_switch to be set to 0
+  Death switch param name: disable_spawn_on_death_switch # Param added by the randomizer
+  Path param name: null
+  Allow near pits: True # TODO CHECK (note that if they fall down a small ledge, they keep trying to return to their spawn point but can't because it's high up now)
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: True
+-
+  Pretty name: Sitting ReDead
+  Actor name: Rdead2
+  Params: 0xFFFFFFFF
+  X Rotation: 0x0000
+  Z Rotation: 0x00FF
+  Required particle IDs: []
+  Requirements to defeat: Can Defeat ReDeads
+  Allow randomizing from: True
+  Allow randomizing to: False # We will place these, but just by randomizing the parameters on regular ReDeads instead.
+  Placement categories: [Ground]
+  Memory used by first one: 14272
+  Memory used by subsequent ones: 9664
+  Enable spawn switch param name: enable_spawn_switch # Also needs dont_check_enable_spawn_switch to be set to 0
+  Death switch param name: disable_spawn_on_death_switch # Param added by the randomizer
+  Path param name: null
+  Allow near pits: True # TODO CHECK
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: True
+-
+  Pretty name: Poe
+  Actor name: pow
+  Params: 0xFFFFFF00
+  X Rotation: 0x0000
+  Z Rotation: 0x0000
+  Required particle IDs: [0x82EE, 0x8445]
+  Requirements to defeat: Can Defeat Poes Without Light Ray
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground]
+  Memory used by first one: 59712
+  Memory used by subsequent ones: 39984
+  Enable spawn switch param name: null
+  Death switch param name: null
+  Path param name: path_index
+  Allow near pits: False # If they happen to go over the edge, they float down into the pit and don't come back up. (e.g. in Cave01/Room1)
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: False
+-
+  Pretty name: Chasing Morth
+  Actor name: kuro_s
+  Params: 0xFFFF0A00
+  X Rotation: 0x0000
+  Z Rotation: 0x0000
+  Required particle IDs: []
+  Requirements to defeat: Can Defeat Morths
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground, Pot]
+  Memory used by first one: 44896 # For 10 Morths.
+  Memory used by subsequent ones: 43520 # For 10 Morths.
+  Enable spawn switch param name: null
+  Death switch param name: null
+  Path param name: null
+  Allow near pits: False
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: False
+  # Note: These don't count as being alive, if only morths are in a room the room will consider itself completed immediately.
+-
+  Pretty name: Morth
+  Actor name: kuro_t
+  Params: 0xFFFF0A01
+  X Rotation: 0x0000
+  Z Rotation: 0x0000
+  Required particle IDs: []
+  Requirements to defeat: Can Defeat Morths
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground, Pot]
+  Memory used by first one: 44896 # For 10 Morths.
+  Memory used by subsequent ones: 43520 # For 10 Morths.
+  Enable spawn switch param name: null
+  Death switch param name: null
+  Path param name: null
+  Allow near pits: False
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: False
+  # Note: These don't count as being alive, if only morths are in a room the room will consider itself completed immediately.
+-
+  Pretty name: Miniblin
+  Actor name: Puti
+  Params: 0xFFFFFFFF
+  X Rotation: 0x0000
+  Z Rotation: 0x0000
+  Required particle IDs: []
+  Requirements to defeat: Can Defeat Miniblins
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground]
+  Memory used by first one: 7904
+  Memory used by subsequent ones: 5312
+  Enable spawn switch param name: enable_spawn_switch
+  Death switch param name: null # TODO irregular_switch acts as this for single miniblins, but it's buggy for permanent switches. perhaps we could make use of it, but replace the switch that's set with a temporary switch...?
+  Path param name: null
+  Allow near pits: True # TODO CHECK
+  Can be killed with thrown objects: True # 1 hit
+  Can be killed with bomb flowers: True
+-
+  Pretty name: Rat
+  Actor name: nezumi
+  Params: 0xFFFF00FF
+  X Rotation: 0x0000
+  Z Rotation: 0x0000
+  Required particle IDs: [0x8188]
+  Requirements to defeat: Can Defeat Rats
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground]
+  Memory used by first one: 24512
+  Memory used by subsequent ones: 12960
+  Enable spawn switch param name: null
+  Death switch param name: null
+  Path param name: null
+  Allow near pits: False # Rats run off by themselves, often before the player even sees them.
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: True
+-
+  Pretty name: Bombchu
+  Actor name: nezumi
+  Params: 0xFFFF01FF
+  X Rotation: 0x0000
+  Z Rotation: 0x0000
+  Required particle IDs: [0x8188]
+  Requirements to defeat: Can Defeat Bombchus
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground]
+  Memory used by first one: 26944
+  Memory used by subsequent ones: 15392
+  Enable spawn switch param name: null
+  Death switch param name: null
+  Path param name: null
+  Allow near pits: False # Rats run off by themselves, often before the player even sees them.
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: False
+-
+  Pretty name: Rat Hole
+  Actor name: nezuana
+  Params: 0xFF0005C8
+  X Rotation: 0x0000
+  Z Rotation: 0x00FF
+  Required particle IDs: [0x8188]
+  Requirements to defeat: Can Defeat Rats
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground]
+  Memory used by first one: 99136 # For 5 rats, also includes the rat shopkeeper.
+  Memory used by subsequent ones: 79040 # For 5 rats, also includes the rat shopkeeper.
+  Enable spawn switch param name: null
+  Death switch param name: null
+  Path param name: null
+  Allow near pits: False # Rats run off by themselves, often before the player even sees them.
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: True
+-
+  Pretty name: Bombchu Hole
+  Actor name: nezuana
+  Params: 0xFF0105C8
+  X Rotation: 0x0000
+  Z Rotation: 0x00FF
+  Required particle IDs: [0x8188]
+  Requirements to defeat: Can Defeat Bombchus
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground]
+  Memory used by first one: 92128 # For 5 Bombchus.
+  Memory used by subsequent ones: 78784 # For 5 Bombchus.
+  Enable spawn switch param name: null
+  Death switch param name: null
+  Path param name: null
+  Allow near pits: False # Rats run off by themselves, often before the player even sees them.
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: False
+-
+  Pretty name: Rat and Bombchu Hole
+  Actor name: nezuana
+  Params: 0xFF0205C8
+  X Rotation: 0x0000
+  Z Rotation: 0x00FF
+  Required particle IDs: [0x8188]
+  Requirements to defeat: Can Defeat Rats & Can Defeat Bombchus
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground]
+  Memory used by first one: 92128 # For 5 rats/Bombchus.
+  Memory used by subsequent ones: 78784 # For 5 rats/Bombchus.
+  Enable spawn switch param name: null
+  Death switch param name: null
+  Path param name: null
+  Allow near pits: False # Rats run off by themselves, often before the player even sees them.
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: False
+-
+  Pretty name: Stalfos
+  Actor name: Stal
+  Params: 0xFFFFFFFF
+  X Rotation: 0x001F
+  Z Rotation: 0x00FF
+  Required particle IDs: [0x8179, 0x817A, 0x817B, 0x817E, 0xA17C, 0xA17D]
+  Requirements to defeat: Can Defeat Stalfos
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground]
+  Memory used by first one: 93536
+  Memory used by subsequent ones: 42064
+  Enable spawn switch param name: ambush_switch # Also needs type to be set to 1 for underground (or 2/3 for in a coffin)
+  Death switch param name: disable_spawn_on_death_switch
+  Path param name: null
+  Allow near pits: True # Dies instantly when over a pit. In vanilla it didn't set its death switch but this was fixed. TODO: Still doesn't die in lava pits though.
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: True
+-
+  Pretty name: Darknut
+  Actor name: Tn
+  Params: 0xFFFF9610
+  X Rotation: 0x001F
+  Z Rotation: 0x00FF
+  Required particle IDs: [0x81B4, 0x81B5, 0x81B6, 0xA1B3]
+  Requirements to defeat: Can Defeat Darknuts
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground]
+  Memory used by first one: 109296
+  Memory used by subsequent ones: 73920
+  Enable spawn switch param name: enable_spawn_switch
+  Death switch param name: disable_spawn_on_death_switch
+  Path param name: path_index
+  Allow near pits: True # Dies instantly when over a pit. In vanilla it didn't set its death switch but this was fixed.
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: False
+-
+  Pretty name: Boko Baba
+  Actor name: bbaba
+  Params: 0xFFFFFFFF
+  X Rotation: 0x0000
+  Z Rotation: 0x0000
+  Required particle IDs: [0x8106, 0x8107, 0x8108, 0x8109, 0x810A, 0x810C]
+  Requirements to defeat: Can Defeat Boko Babas
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground]
+  Memory used by first one: 20288
+  Memory used by subsequent ones: 12704
+  Enable spawn switch param name: null
+  Death switch param name: null
+  Path param name: null
+  Allow near pits: True # TODO CHECK
+  Can be killed with thrown objects: False # Needs 2 hits, but it's not possible to throw the second one fast enough
+  Can be killed with bomb flowers: True
+-
+  Pretty name: Boko Bud Boko Baba
+  Actor name: bbaba
+  Params: 0xFFFF01FF
+  X Rotation: 0x0000
+  Z Rotation: 0x0000
+  Required particle IDs: [0x8106, 0x8107, 0x8108, 0x8109, 0x810A, 0x810C]
+  Requirements to defeat: Can Defeat Boko Babas
+  Allow randomizing from: False # Player would not be able to progress without the Baba Buds left behind by these.
+  Allow randomizing to: False
+  Placement categories: [Ground]
+  Memory used by first one: 20288
+  Memory used by subsequent ones: 12704
+  Enable spawn switch param name: null
+  Death switch param name: null
+  Path param name: null
+  Allow near pits: True # TODO CHECK
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: False
+-
+  Pretty name: Magtail
+  Actor name: magtail
+  Params: 0xFFFF7FFF
+  X Rotation: 0x0000
+  Z Rotation: 0x00FF
+  Required particle IDs: [0x8095, 0x8096, 0x80CF, 0xC06C]
+  Requirements to defeat: Can Defeat Magtails
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground]
+  Memory used by first one: 80896
+  Memory used by subsequent ones: 56512
+  Enable spawn switch param name: enable_spawn_switch
+  Death switch param name: disable_spawn_on_death_switch
+  Path param name: path_index
+  Allow near pits: False # If it falls in the sea, it dies, but doesn't set its death switch. TODO: try to code it to set that properly. also TODO: I assume these work in lava pits? if so, I may need to separate lava vs sea pits into separate conditions.
+  Can be killed with thrown objects: False # They do take damage from thrown objects, but it's annoying to hit them and just two objects isn't enough to kill it, so don't make this required.
+  Can be killed with bomb flowers: True
+-
+  Pretty name: Red Bubble
+  Actor name: bable
+  Params: 0x01FFFF02
+  X Rotation: 0x0000
+  Z Rotation: 0x00FF
+  Required particle IDs: [0x8122, 0x8123, 0x8124, 0x815B]
+  Requirements to defeat: Can Defeat Red Bubbles
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground, Air, Ceiling]
+  Memory used by first one: 7936
+  Memory used by subsequent ones: 5504
+  Enable spawn switch param name: enable_spawn_switch
+  Death switch param name: null
+  Path param name: path_index
+  Allow near pits: True # TODO CHECK
+  Can be killed with thrown objects: False
+  Can be killed with bomb flowers: True
+-
+  Pretty name: Blue Bubble
+  Actor name: bable
+  Params: 0x01FFFF03
+  X Rotation: 0x0000
+  Z Rotation: 0x00FF
+  Required particle IDs: [0x8122, 0x8123, 0x8124, 0x815B]
+  Requirements to defeat: Can Defeat Blue Bubbles
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground, Air, Ceiling]
+  Memory used by first one: 7936
+  Memory used by subsequent ones: 5504
+  Enable spawn switch param name: enable_spawn_switch
+  Death switch param name: null
+  Path param name: path_index
+  Allow near pits: True # TODO CHECK
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: True
+-
+  Pretty name: Inanimate Bubble
+  Actor name: bable
+  Params: 0xFFFFFF80
+  X Rotation: 0x0000
+  Z Rotation: 0x00FF
+  Required particle IDs: [0x8122, 0x8123, 0x8124, 0x815B]
+  Requirements to defeat: Nothing
+  Allow randomizing from: False
+  Allow randomizing to: False
+  Placement categories: [Ground]
+  Memory used by first one: 7936
+  Memory used by subsequent ones: 5504
+  Enable spawn switch param name: null
+  Death switch param name: null
+  Path param name: null
+  Allow near pits: True # TODO CHECK
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: False
+-
+  Pretty name: Wingless Mothula
+  Actor name: gmos
+  Params: 0xFF010000
+  X Rotation: 0x00FF
+  Z Rotation: 0x00FF
+  Required particle IDs: [0x81A1, 0x81A2, 0x81A3]
+  Requirements to defeat: Can Defeat Mothulas
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground]
+  Memory used by first one: 133200 # This includes the maximum of 10 spawned morths
+  Memory used by subsequent ones: 68896
+  Enable spawn switch param name: null
+  Death switch param name: disable_spawn_on_death_switch
+  Path param name: null
+  Allow near pits: False # They don't die in pits.
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: True
+-
+  Pretty name: Winged Mothula
+  Actor name: gmos
+  Params: 0xFF020000
+  X Rotation: 0x00FF
+  Z Rotation: 0x00FF
+  Required particle IDs: [0x81A1, 0x81A2, 0x81A3]
+  Requirements to defeat: Can Defeat Winged Mothulas
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Air, Ceiling]
+  Memory used by first one: 148272 # This includes the maximum of 20 spawned morths + 1 falling wing
+  Memory used by subsequent ones: 111792
+  Enable spawn switch param name: null
+  Death switch param name: disable_spawn_on_death_switch
+  Path param name: null
+  Allow near pits: False # They turn into wingless ones, which then don't die in pits.
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: True
+-
+  Pretty name: Cross-Sector Gyorg Spawner
+  Actor name: GyCtrl
+  Params: 0xFFFFFE50
+  X Rotation: 0x0000
+  Z Rotation: 0x0000
+  Required particle IDs: []
+  Requirements to defeat: Can Defeat Gyorgs
+  Allow randomizing from: True
+  Allow randomizing to: False # Don't risk memory issues by letting enemies go across sectors.
+  Placement categories: [Sea]
+  Memory used by first one: 106576 # For 5 Gyorgs.
+  Memory used by subsequent ones: 88736 # For 5 Gyorgs.
+  Enable spawn switch param name: enable_spawn_switch
+  Death switch param name: null
+  Path param name: null
+  Allow near pits: True
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: False
+-
+  Pretty name: Gyorg Spawner
+  Actor name: GyCtrlB
+  Params: 0xFFFFFE51
+  X Rotation: 0x0000
+  Z Rotation: 0x0000
+  Required particle IDs: []
+  Requirements to defeat: Can Defeat Gyorgs
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Sea]
+  Memory used by first one: 106576 # For 5 Gyorgs.
+  Memory used by subsequent ones: 88736 # For 5 Gyorgs.
+  Enable spawn switch param name: enable_spawn_switch
+  Death switch param name: null
+  Path param name: null
+  Allow near pits: True
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: False
+#-
+#  Pretty name: Blue Beamos
+#  Actor name: Hmos1
+#  Params: 0x00000002
+#  X Rotation: 0x0000
+#  Z Rotation: 0x0000
+#  Required particle IDs: [0x8120, 0x8121, 0x814C, 0x815C, 0x815D, 0x815E, 0x815F, 0x8160]
+#  Requirements to defeat: Can Defeat Beamos
+#  Allow randomizing from: False
+#  Allow randomizing to: False
+#  Placement categories: [Ground]
+#-
+#  Pretty name: Red Beamos
+#  Actor name: Hmos2
+#  Params: 0x1000FD02
+#  X Rotation: 0x0000
+#  Z Rotation: 0x1FFF
+#  Required particle IDs: [0x8120, 0x8121, 0x814C, 0x815C, 0x815D, 0x815E, 0x815F, 0x8160]
+#  Requirements to defeat: Can Defeat Beamos
+#  Allow randomizing from: False
+#  Allow randomizing to: False
+#  Placement categories: [Ground]
+#-
+#  Pretty name: Laser Forcefield
+#  Actor name: Hmos3
+#  Params: 0x2000FF0F
+#  X Rotation: 0x0000
+#  Z Rotation: 0x0000
+#  Required particle IDs: [0x8120, 0x8121, 0x814C, 0x815C, 0x815D, 0x815E, 0x815F, 0x8160]
+#  Requirements to defeat: Can Defeat Beamos
+#  Allow randomizing from: False
+#  Allow randomizing to: False
+#  Placement categories: [Wall]
+#-
+#  Pretty name: Floormaster Hole
+#  Actor name: Fmaster
+#  #Params: 0x
+#  #X Rotation: 0x
+#  #Z Rotation: 0x
+#  Required particle IDs: [0x809E]
+#  Requirements to defeat: Can Defeat Floormasters
+#  Allow randomizing from: False
+#  Allow randomizing to: False
+#  Placement categories: [Ground]
+-
+  Pretty name: Path-Following Floormaster
+  Actor name: Fmastr1
+  Params: 0xFFFF01FF
+  X Rotation: 0x01FF
+  Z Rotation: 0x00FF
+  Required particle IDs: [0x809E]
+  Requirements to defeat: Can Defeat Floormasters
+  Allow randomizing from: True
+  Allow randomizing to: False # It wouldn't have a path to follow so it would go to some weird spot
+  Placement categories: [Ground]
+  Memory used by first one: 12608
+  Memory used by subsequent ones: 8608
+  Enable spawn switch param name: enable_spawn_switch
+  Death switch param name: null
+  Path param name: path_index
+  Allow near pits: True # TODO CHECK
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: False # Floormasters actually can be killed by bombs but this is annoying to do.
+-
+  Pretty name: Floormaster
+  Actor name: Fmastr2
+  Params: 0xFFFF02FF # FF for the exit to put Link in when captured means Link will just be brought back to the entrance of the current room.
+  X Rotation: 0x01FF
+  Z Rotation: 0x00FF
+  Required particle IDs: [0x809E]
+  Requirements to defeat: Can Defeat Floormasters
+  Allow randomizing from: True
+  Allow randomizing to: True
+  Placement categories: [Ground]
+  Memory used by first one: 12608
+  Memory used by subsequent ones: 8608
+  Enable spawn switch param name: enable_spawn_switch
+  Death switch param name: null
+  Path param name: path_index
+  Allow near pits: True # TODO CHECK
+  Can be killed with thrown objects: True # TODO CHECK
+  Can be killed with bomb flowers: False # Floormasters actually can be killed by bombs but this is annoying to do.

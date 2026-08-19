@@ -97,6 +97,8 @@ class GeneratorActivity : Activity() {
     private var savedYamlMetadataRefreshInProgress = false
     private var pendingRomRequirements: RomRequirements? = null
     private val pendingRomInputs = linkedMapOf<String, ByteArray>()
+    private val pendingRomInputUris = linkedMapOf<String, Uri>()
+    private var pendingStreamingPatch: Pair<File, Map<String, Uri>>? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -1681,6 +1683,7 @@ class GeneratorActivity : Activity() {
             .setNegativeButton("Cancel") { _, _ ->
                 pendingRomRequirements = null
                 pendingRomInputs.clear()
+                pendingRomInputUris.clear()
                 patchButton.isEnabled = canPatchSelectedRom()
             }
             .setPositiveButton("Choose clean ROM") { _, _ -> openBaseRomPicker(input) }
@@ -1690,7 +1693,11 @@ class GeneratorActivity : Activity() {
     private fun openBaseRomPicker(input: RomInputRequirement) {
         val picker = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
-            type = "application/octet-stream"
+            // Android file providers commonly label GameCube ISOs as
+            // application/x-iso9660-image instead of application/octet-stream.
+            // A wildcard is required for consistent SAF interoperability; the
+            // official patcher still validates GZLE01 before accepting the file.
+            type = if (pendingRomRequirements?.streaming == true) "*/*" else "application/octet-stream"
         }
         val label = input.description.ifBlank { input.fileName.ifBlank { "clean ROM" } }
         startActivityForResult(
@@ -1730,9 +1737,16 @@ class GeneratorActivity : Activity() {
                 .onSuccess { requirements ->
                     pendingRomRequirements = requirements
                     pendingRomInputs.clear()
+                    pendingRomInputUris.clear()
                     requirements.inputs.forEach { input ->
-                        BaseRomCache.load(this, requirements.game, input.key)?.let { bytes ->
-                            pendingRomInputs[input.key] = bytes
+                        if (requirements.streaming) {
+                            BaseRomDocumentStore.load(this, requirements.game, input.key)?.let { uri ->
+                                pendingRomInputUris[input.key] = uri
+                            }
+                        } else {
+                            BaseRomCache.load(this, requirements.game, input.key)?.let { bytes ->
+                                pendingRomInputs[input.key] = bytes
+                            }
                         }
                     }
                     continueRomSelection(selectedPatch)
@@ -1746,13 +1760,30 @@ class GeneratorActivity : Activity() {
 
     private fun continueRomSelection(selectedPatch: File) {
         val requirements = pendingRomRequirements ?: return
-        val missing = requirements.inputs.firstOrNull { it.key !in pendingRomInputs }
+        val missing = requirements.inputs.firstOrNull {
+            if (requirements.streaming) it.key !in pendingRomInputUris else it.key !in pendingRomInputs
+        }
         if (missing == null) {
             runOnUiThread {
                 forgetBaseRomButton.isEnabled = true
                 status.text = "Validating ROM inputs and patching ${selectedPatch.name}…"
             }
-            patchRomInputs(selectedPatch, pendingRomInputs.toMap())
+            if (requirements.streaming) {
+                pendingStreamingPatch = selectedPatch to pendingRomInputUris.toMap()
+                val extension = requirements.resultExtension.ifBlank { ".iso" }
+                runOnUiThread {
+                    startActivityForResult(
+                        Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "application/octet-stream"
+                            putExtra(Intent.EXTRA_TITLE, "${selectedPatch.nameWithoutExtension}$extension")
+                        },
+                        REQUEST_STREAMING_ROM_OUTPUT,
+                    )
+                }
+            } else {
+                patchRomInputs(selectedPatch, pendingRomInputs.toMap())
+            }
             return
         }
         runOnUiThread {
@@ -1766,20 +1797,23 @@ class GeneratorActivity : Activity() {
     private fun acceptBaseRom(uri: Uri) {
         val selectedPatch = patchFile ?: return
         val requirements = pendingRomRequirements ?: return
-        val input = requirements.inputs.firstOrNull { it.key !in pendingRomInputs } ?: return
+        val input = requirements.inputs.firstOrNull {
+            if (requirements.streaming) it.key !in pendingRomInputUris else it.key !in pendingRomInputs
+        } ?: return
         patchButton.isEnabled = false
         status.text = "Reading ${input.description}…"
         thread(name = "offline-rom-input") {
             runCatching {
-                val selectedBytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                    ?: error("Could not read the selected ROM")
-                OfflineGenerator.validateRomInput(
-                    this,
-                    selectedPatch.readBytes(),
-                    input.key,
-                    selectedBytes,
-                )
-                pendingRomInputs[input.key] = selectedBytes
+                if (requirements.streaming) {
+                    contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    OfflineGenerator.validateRomInputDocument(this, selectedPatch.readBytes(), input.key, uri)
+                    pendingRomInputUris[input.key] = uri
+                } else {
+                    val selectedBytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        ?: error("Could not read the selected ROM")
+                    OfflineGenerator.validateRomInput(this, selectedPatch.readBytes(), input.key, selectedBytes)
+                    pendingRomInputs[input.key] = selectedBytes
+                }
             }.onSuccess {
                 continueRomSelection(selectedPatch)
             }.onFailure { error ->
@@ -1820,6 +1854,32 @@ class GeneratorActivity : Activity() {
         }
     }
 
+    private fun patchRomDocuments(destination: Uri) {
+        val (selectedPatch, inputs) = pendingStreamingPatch ?: return
+        val requirements = pendingRomRequirements ?: return
+        status.text = "Patching ${requirements.game} directly into the selected ISO…"
+        thread(name = "offline-disc-patching") {
+            runCatching {
+                OfflineGenerator.patchRomDocuments(this, selectedPatch.readBytes(), inputs, destination)
+                inputs.forEach { (key, uri) -> BaseRomDocumentStore.store(this, requirements.game, key, uri) }
+            }.onSuccess { runOnUiThread {
+                pendingStreamingPatch = null
+                pendingRomRequirements = null
+                pendingRomInputUris.clear()
+                patchButton.isEnabled = true
+                forgetBaseRomButton.isEnabled = true
+                status.text = "Saved patched ${requirements.game} ISO."
+            } }.onFailure { error ->
+                BaseRomCache.forget(this, requirements.game)
+                pendingStreamingPatch = null
+                pendingRomRequirements = null
+                pendingRomInputUris.clear()
+                runOnUiThread { patchButton.isEnabled = true }
+                showError("Disc patching failed", error)
+            }
+        }
+    }
+
     private fun createPatchedRom(selectedPatch: File, romInputs: Map<String, ByteArray>): File {
         val patchBytes = selectedPatch.readBytes()
         val extension = OfflineGenerator.patchResultExtension(this, patchBytes)
@@ -1851,12 +1911,20 @@ class GeneratorActivity : Activity() {
             if (requestCode == REQUEST_BASE_ROM) {
                 pendingRomRequirements = null
                 pendingRomInputs.clear()
+                pendingRomInputUris.clear()
+                patchButton.isEnabled = canPatchSelectedRom()
+            }
+            if (requestCode == REQUEST_STREAMING_ROM_OUTPUT) {
+                pendingStreamingPatch = null
+                pendingRomRequirements = null
+                pendingRomInputUris.clear()
                 patchButton.isEnabled = canPatchSelectedRom()
             }
             return
         }
         when (requestCode) {
             REQUEST_BASE_ROM -> acceptBaseRom(data.data!!)
+            REQUEST_STREAMING_ROM_OUTPUT -> patchRomDocuments(data.data!!)
             REQUEST_IMPORT_YAML -> importYaml(data.data!!)
             REQUEST_EXPORT -> {
                 val export = pendingExport ?: return
@@ -1936,6 +2004,7 @@ class GeneratorActivity : Activity() {
     companion object {
         private const val REQUEST_BASE_ROM = 201
         private const val REQUEST_EXPORT = 202
+        private const val REQUEST_STREAMING_ROM_OUTPUT = 204
         private const val REQUEST_IMPORT_YAML = 203
     }
 }

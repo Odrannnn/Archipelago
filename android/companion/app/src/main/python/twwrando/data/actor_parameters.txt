@@ -1,0 +1,3503 @@
+
+d_a_acorn_leaf:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x80000000
+
+d_a_agbsw0:
+  gba_message_id:
+    Bitfield name: params
+    Mask: 0x0000FFFF
+  condition_switch:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  activated_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+  tingle_tuner_trigger_extra_param:
+    Bitfield name: x_rot
+    Mask: 0xFFFF
+  behavior_type:
+    Bitfield name: z_rot
+    Mask: 0x00FF
+
+d_a_alldie:
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_am:
+  behavior_type:
+    Bitfield name: params
+    Mask: 0x000000FF
+  guarded_area_range:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  invert_spawn_condition_switch:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  spawn_condition_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_am2:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  invert_spawn_condition_switch:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  spawn_condition_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_amiprop:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000F00
+
+d_a_andsw0:
+  num_switches_to_check:
+    Bitfield name: params
+    Mask: 0x000000FF
+  behavior_type:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  first_switch_to_check:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0xFF000000
+  evnt_index:
+    Bitfield name: x_rot
+    Mask: 0x00FF
+  time_limit_in_half_seconds:
+    Bitfield name: z_rot
+    Mask: 0x00FF
+
+d_a_andsw2:
+  num_switches_to_check:
+    Bitfield name: params
+    Mask: 0x000000FF
+  behavior_type:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  first_switch_to_check:
+    Bitfield name: params
+    Mask: 0xFF000000
+  event_index:
+    Bitfield name: x_rot
+    Mask: 0x00FF
+  time_limit_half_seconds:
+    Bitfield name: z_rot
+    Mask: 0x00FF
+
+d_a_arrow_iceeff: {}
+
+d_a_arrow_lighteff:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_atdoor:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_att:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_auction: {}
+
+d_a_bb:
+  behavior_type:
+    Bitfield name: params
+    Mask: 0x000000FF
+  range:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  path_index:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  enable_spawn_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+  disable_spawn_switch:
+    Bitfield name: z_rot
+    Mask: 0x00FF
+
+d_a_bdk:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_bdkobj:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000000F # (WARNING: overlaps)
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x000000FF # (WARNING: overlaps)
+
+d_a_beam:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  unknown_param_4:
+    Bitfield name: params
+    Mask: 0x0F000000
+  unknown_param_5:
+    Bitfield name: params
+    Mask: 0x10000000 # (WARNING: overlaps)
+  unknown_param_6:
+    Bitfield name: params
+    Mask: 0x30000000 # (WARNING: overlaps)
+  unknown_param_7:
+    Bitfield name: params
+    Mask: 0xC0000000
+  unknown_param_8:
+    Bitfield name: x_rot
+    Mask: 0xFFFF
+
+d_a_bflower:
+  type:
+    Bitfield name: params
+    Mask: 0x000000F0
+  watered_switch:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_bgn:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_bgn2: {}
+
+d_a_bgn3: {}
+
+d_a_bigelf:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_bita:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_bk:
+  bokoblin_type:
+    Bitfield name: params
+    Mask: 0x0000000F
+  invert_spawn_condition_switch:
+    Bitfield name: params
+    Mask: 0x00000010
+  is_green:
+    Bitfield name: params
+    Mask: 0x00000020
+  weapon:
+    Bitfield name: params
+    Mask: 0x000000C0
+  sight_range:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  frozen_pose:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  path_index:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  spawn_condition_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+  disable_spawn_on_death_switch:
+    Bitfield name: z_rot
+    Mask: 0x00FF
+
+d_a_bl:
+  bubble_type:
+    Bitfield name: params
+    Mask: 0x000000FF
+  enable_spawn_switch:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  path_index:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  bubble_should_float:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_bmd: {}
+
+d_a_bmdfoot:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000000F
+
+d_a_bmdhand:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x00000001 # (WARNING: overlaps)
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000003 # (WARNING: overlaps)
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x0000001F # (WARNING: overlaps)
+
+d_a_bo:
+  type:
+    Bitfield name: params
+    Mask: 0x000000FF
+  leave_behind_baba_bud:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_boko:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x3FFFFFFF # (WARNING: overlaps)
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0xFFFFFFFF # (WARNING: overlaps)
+  unknown_param_3:
+    Bitfield name: x_rot
+    Mask: 0xFFFF
+
+d_a_boss_item:
+  stage_id:
+    Bitfield name: params
+    Mask: 0x000000FF
+  # The below item_id parameter did not exist for boss items in the vanilla game.
+  # The randomizer adds it so that boss items can be randomized and are not just always heart containers.
+  item_id:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_bpw:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_branch: {}
+
+d_a_bridge:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  path_index:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_bst:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_btd: {}
+
+d_a_bwd:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_bwdg: {}
+
+d_a_bwds:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_canon:
+  unknown_param_1:
+    Bitfield name: x_rot
+    Mask: 0xFFFF
+
+d_a_cc:
+  behavior_type:
+    Bitfield name: params
+    Mask: 0x000000FF
+  chuchu_type:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  sight_range:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  enable_spawn_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_coming2: {}
+
+d_a_coming3: {}
+
+d_a_dai:
+  event_reg_index:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_daiocta:
+  number_of_eyes:
+    Bitfield name: params
+    Mask: 0x000000FF
+  sight_range:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  post_loss_spawn_id:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  disable_spawn_on_death_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+  death_event_waits_for_great_fairy:
+    Bitfield name: z_rot
+    Mask: 0x00FF
+
+d_a_daiocta_eye: {}
+
+d_a_deku_item:
+  item_pickup_flag:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_demo_dk: {}
+
+d_a_demo_item:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_demo_kmm: {}
+
+d_a_dk:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_door10:
+  switch_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  type:
+    Bitfield name: params
+    Mask: 0x00000F00
+  event_index:
+    Bitfield name: params
+    Mask: 0x000FF000
+  switch_2:
+    Bitfield name: params
+    Mask: 0x0FF00000
+  from_room_num:
+    Bitfield name: x_rot
+    Mask: 0x003F
+  to_room_num:
+    Bitfield name: x_rot
+    Mask: 0x0FC0
+  ship_id:
+    Bitfield name: z_rot
+    Mask: 0x003F
+  arg_1:
+    Bitfield name: z_rot
+    Mask: 0xFF00
+
+d_a_door12:
+  switch_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  type:
+    Bitfield name: params
+    Mask: 0x00000F00
+  event_index:
+    Bitfield name: params
+    Mask: 0x000FF000
+  switch_2:
+    Bitfield name: params
+    Mask: 0x0FF00000
+  from_room_num:
+    Bitfield name: x_rot
+    Mask: 0x003F
+  to_room_num:
+    Bitfield name: x_rot
+    Mask: 0x0FC0
+  ship_id:
+    Bitfield name: z_rot
+    Mask: 0x003F
+  appearance_type:
+    Bitfield name: z_rot
+    Mask: 0xFF00
+
+d_a_dr: {}
+
+d_a_dr2: {}
+
+d_a_dummy: {}
+
+d_a_ep:
+  type:
+    Bitfield name: params
+    Mask: 0x0000003F
+  has_fireflies:
+    Bitfield name: params
+    Mask: 0x00000040
+  is_wooden:
+    Bitfield name: params
+    Mask: 0x00000080
+  unknown_param_4:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_5:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  on_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_fallrock: {}
+
+d_a_fallrock_tag:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_fan:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000300
+
+d_a_ff:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF # (WARNING: overlaps)
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0xFFFF00FF # (WARNING: overlaps)
+
+d_a_fganon:
+  behavior_type:
+    Bitfield name: params
+    Mask: 0x0000000F
+  which_clone:
+    Bitfield name: params
+    Mask: 0x000000F0
+  sight_range:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  disable_spawn_on_death_switch:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  fight_in_progress_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_fgmahou:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000000F
+
+d_a_fire:
+  switch_to_check:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000F00
+  disable_spawn_chest_open_flag:
+    Bitfield name: params
+    Mask: 0x0001F000
+  disable_spawn_condition:
+    Bitfield name: params
+    Mask: 0x000E0000
+  unknown_param_5:
+    Bitfield name: params
+    Mask: 0x00F00000
+
+d_a_floor:
+  disable_spawn_on_destroyed_switch:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_fm:
+  link_captured_exit:
+    Bitfield name: params
+    Mask: 0x000000FF
+  type:
+    Bitfield name: params
+    Mask: 0x00000300
+  targeting_behavior_type:
+    Bitfield name: params
+    Mask: 0x00000C00
+  path_index:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  enable_spawn_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+  disable_spawn_switch:
+    Bitfield name: x_rot
+    Mask: 0x00FF
+  partner_captured_exit:
+    Bitfield name: x_rot
+    Mask: 0xFF00
+  sight_range:
+    Bitfield name: z_rot
+    Mask: 0x00FF
+
+d_a_ghostship:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_gm:
+  mothula_initially_missing_wings:
+    Bitfield name: params
+    Mask: 0x000000FF
+  type:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  mothula_type:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  disable_spawn_on_death_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+  unknown_param_5:
+    Bitfield name: z_rot
+    Mask: 0x00FF
+
+d_a_gnd:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000000F # (WARNING: overlaps)
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x000000FF # (WARNING: overlaps)
+
+d_a_goal_flag:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_grass:
+  grass_subtype:
+    Bitfield name: params
+    Mask: 0x0000000F
+  grass_type:
+    Bitfield name: params
+    Mask: 0x00000030
+  grass_item_drop_type:
+    Bitfield name: params
+    Mask: 0x00000FC0
+
+d_a_gy: {}
+
+d_a_gy_ctrl:
+  type:
+    Bitfield name: params
+    Mask: 0x0000000F
+  num_spawned_gyorgs:
+    Bitfield name: params
+    Mask: 0x000000F0
+  sight_range:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  enable_spawn_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_himo3:
+  attachment_model_type:
+    Bitfield name: params
+    Mask: 0x000000FF
+  rope_length:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  movement_speed:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  path_index:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_hitobj:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_hmlif:
+  enable_movement_switch:
+    Bitfield name: params
+    Mask: 0x000000FF
+  path_index:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x000F0000
+  unknown_param_4:
+    Bitfield name: params
+    Mask: 0x00300000
+  unknown_param_5:
+    Bitfield name: params
+    Mask: 0x07C00000
+  type:
+    Bitfield name: params
+    Mask: 0x78000000
+  unknown_param_7:
+    Bitfield name: params
+    Mask: 0x80000000
+  eye_shot_switch:
+    Bitfield name: z_rot
+    Mask: 0x00FF
+
+d_a_hot_floor:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x00000001
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000002
+
+d_a_hys:
+  switch_to_set_when_shot:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_icelift:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000000F
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000FF0
+  do_not_freeze_player_switch:
+    Bitfield name: params
+    Mask: 0x000FF000
+
+d_a_ikari:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_jbo:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_kaji: {}
+
+d_a_kamome:
+  type:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  path_index:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  enable_spawn_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_kanban:
+  message_id:
+    Bitfield name: params
+    Mask: 0x0000FFFF
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0xFFF00000
+
+d_a_kantera:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_kb:
+  color:
+    Bitfield name: params
+    Mask: 0x0000000F
+  sight_range:
+    Bitfield name: params
+    Mask: 0x000000F0
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  path_index:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  unknown_param_5:
+    Bitfield name: z_rot
+    Mask: 0xFFFF
+
+d_a_kddoor: {}
+
+d_a_ki:
+  behavior_type:
+    Bitfield name: params
+    Mask: 0x000000FF
+  range:
+    Bitfield name: params
+    Mask: 0x00007F00
+  is_fire_keese:
+    Bitfield name: params
+    Mask: 0x00008000
+  path_index:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  enable_spawn_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_kita:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_klft:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  path_index:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  at_point_1_switch:
+    Bitfield name: z_rot
+    Mask: 0x00FF
+
+d_a_kmon: {}
+
+d_a_kn:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_knob00:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0xF0000000
+
+d_a_kokiie:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  fallen_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_komore: {}
+
+d_a_ks:
+  behavior_type:
+    Bitfield name: params
+    Mask: 0x000000FF
+  num_morths_in_group:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  pot_notice_range:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_kt:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0xFFFFFFFF
+
+d_a_kui:
+  model_type:
+    Bitfield name: params
+    Mask: 0x0000000F
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000F0
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_kytag00:
+  colo_entry_index:
+    Bitfield name: params
+    Mask: 0x000000FF
+  effect_type:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  fade_radius:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  fade_height:
+    Bitfield name: params
+    Mask: 0xFF000000
+  switch_to_check:
+    Bitfield name: x_rot
+    Mask: 0x00FF
+  invert_position_checks:
+    Bitfield name: x_rot
+    Mask: 0xFF00
+  unknown_param_7:
+    Bitfield name: z_rot
+    Mask: 0x00FF
+
+d_a_kytag01: {}
+
+d_a_kytag02:
+  path_index:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_kytag03:
+  switch_to_check:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_kytag04:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: x_rot
+    Mask: 0x00FF
+
+d_a_kytag05:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_kytag06: {}
+
+d_a_kytag07:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_lamp:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_lbridge:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_leaflift:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000000F
+
+d_a_lod_bg: {}
+
+d_a_lstair:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_lwood: {}
+
+d_a_machine:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_magma: {}
+
+d_a_majuu_flag:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_mant:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_mbdoor:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000F00
+  from_room_num:
+    Bitfield name: x_rot
+    Mask: 0x003F
+  to_room_num:
+    Bitfield name: x_rot
+    Mask: 0x0FC0
+  unknown_param_3:
+    Bitfield name: z_rot
+    Mask: 0x003F
+
+d_a_mdoor:
+  unknown_switch:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  unknown_param_4:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_mflft:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_mgameboard: {}
+
+d_a_mmusic: {}
+
+d_a_mo2:
+  moblin_type:
+    Bitfield name: params
+    Mask: 0x000000FF
+  frozen_pose:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  path_index:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  enable_spawn_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+  disable_spawn_on_death_switch:
+    Bitfield name: z_rot
+    Mask: 0x00FF
+
+d_a_movie_player: {}
+
+d_a_mozo:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_msw:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_mt:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00007F00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00008000
+  path_index:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  enable_spawn_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+  disable_spawn_on_death_switch:
+    Bitfield name: z_rot
+    Mask: 0x00FF
+
+d_a_mtoge:
+  switch_to_check:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_npc_ac1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_npc_ah:
+  which_hoho:
+    Bitfield name: params
+    Mask: 0x000000FF
+  disable_spawn_switch:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_npc_aj1:
+  type:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_switch:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_npc_auction: {}
+
+d_a_npc_ba1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_npc_bj1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_npc_bm1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_npc_bmcon1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_npc_bms1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_npc_bmsw: {}
+
+d_a_npc_bs1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00F00000
+
+d_a_npc_btsw: {}
+
+d_a_npc_btsw2:
+  path_index:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_npc_cb1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0xFFFFFFFF
+
+d_a_npc_co1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_npc_de1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_npc_ds1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x00F00000
+
+d_a_npc_gk1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_npc_gp1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_npc_hi1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_npc_ho: {}
+
+d_a_npc_hr:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: x_rot
+    Mask: 0xFFFF
+
+d_a_npc_jb1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_npc_ji1: {}
+
+d_a_npc_kamome:
+  unknown_param_1:
+    Bitfield name: x_rot
+    Mask: 0xFFFF
+  unknown_param_2:
+    Bitfield name: z_rot
+    Mask: 0xFFFF
+
+d_a_npc_kf1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  player_is_near_exit_switch:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  unknown_param_4:
+    Bitfield name: params
+    Mask: 0x0F000000
+
+d_a_npc_kg1: {}
+
+d_a_npc_kg2: {}
+
+d_a_npc_kk1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  enable_path_follow_switch:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  path_index:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_npc_km1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_npc_ko1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_npc_kp1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_npc_ls1:
+  which_aryll:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_npc_md:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_npc_mk:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_npc_mn:
+  switch_to_check:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  path_index:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_npc_mt: {}
+
+d_a_npc_nz: {}
+
+d_a_npc_ob1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_npc_os:
+  returned_switch:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_npc_p1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00F00000
+
+d_a_npc_p2:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x00000003
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x000003FC
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x0003FC00
+
+d_a_npc_people:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x80000000
+
+d_a_npc_pf1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_npc_photo:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_npc_pm1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_npc_roten:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_npc_rsh1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x00F00000 # (WARNING: overlaps)
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00FF0000 # (WARNING: overlaps)
+
+d_a_npc_sarace: {}
+
+d_a_npc_so: {}
+
+d_a_npc_sv: {}
+
+d_a_npc_tc:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000000F # (WARNING: overlaps)
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x000000FF # (WARNING: overlaps)
+
+d_a_npc_tt: {}
+
+d_a_npc_uk:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x000F0000
+
+d_a_npc_ym1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_npc_yw1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_npc_zk1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_npc_zl1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_nz:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  rat_type:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_nzg:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  num_spawned_rats:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  rat_hole_type:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  unknown_param_4:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_obj_adnno: {}
+
+d_a_obj_ajav:
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_ajavw: {}
+
+d_a_obj_akabe:
+  disable_spawn_switch:
+    Bitfield name: params
+    Mask: 0x000000FF
+  scale_mode:
+    Bitfield name: params
+    Mask: 0x00000300
+  always_on:
+    Bitfield name: params
+    Mask: 0x00001000
+  collision_archive:
+    Bitfield name: params
+    Mask: 0x000F0000
+
+d_a_obj_apzl:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_obj_ashut:
+  switch_to_check:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_obj_auzu:
+  disable_spawn_switch:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00010000
+  unknown_param_4:
+    Bitfield name: params
+    Mask: 0x00F00000
+
+d_a_obj_aygr:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x00000001
+
+d_a_obj_balancelift:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_obj_barrel:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x70000000
+  unknown_param_2:
+    Bitfield name: z_rot
+    Mask: 0xFFFF
+
+d_a_obj_barrel2:
+  dropped_item_id:
+    Bitfield name: params
+    Mask: 0x0000003F
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000100
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00000400
+  item_pickup_flag:
+    Bitfield name: params
+    Mask: 0x007F0000
+  unknown_param_5:
+    Bitfield name: params
+    Mask: 0x03000000
+  unknown_param_6:
+    Bitfield name: params
+    Mask: 0x10000000
+
+d_a_obj_barrier:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x00000100
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00010000
+
+d_a_obj_bemos:
+  type:
+    Bitfield name: params
+    Mask: 0xF0000000
+  beamos_sight_range:
+    Bitfield name: params
+    Mask: 0x000000FF
+  beamos_head_rotation_speed:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  dropped_item_id:
+    Bitfield name: z_rot
+    Mask: 0x003F
+  beamos_item_pickup_flag:
+    Bitfield name: z_rot
+    Mask: 0x1FC0
+  barrier_deactivated_switch:
+    Bitfield name: params
+    Mask: 0x000000FF
+  barrier_behavior_type:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  barrier_laser_path_index:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_obj_bscurtain:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_buoyflag:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x00000003
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000100
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x80000000
+
+d_a_obj_buoyrace:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_obj_cafelmp: {}
+
+d_a_obj_canon:
+  extra_scale:
+    Bitfield name: params
+    Mask: 0x000000FF
+  enable_spawn_switch:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  visible_area_path_index:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  disable_spawn_on_death_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_obj_coming:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000000F
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000040
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00000700
+  unknown_param_4:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  unknown_param_5:
+    Bitfield name: params
+    Mask: 0x03000000
+  unknown_param_6:
+    Bitfield name: params
+    Mask: 0x30000000
+
+d_a_obj_correct:
+  type:
+    Bitfield name: params
+    Mask: 0x0000000F
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  event_index:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_obj_demo_barrel: {}
+
+d_a_obj_dmgroom: {}
+
+d_a_obj_doguu:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_doguu_demo:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_dragonhead:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_obj_drift:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x00000007
+
+d_a_obj_eayogn: {}
+
+d_a_obj_ebomzo:
+  bombed_switch:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_eff:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_ekskz:
+  destroyed_switch:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_eskban:
+  destroyed_switch:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_ferris:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_figure:
+  which_figurine:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_firewall:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_flame:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00001F00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00006000
+  unknown_param_4:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  unknown_param_5:
+    Bitfield name: params
+    Mask: 0x30000000
+  unknown_param_6:
+    Bitfield name: params
+    Mask: 0x80000000
+
+d_a_obj_ftree:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000000F
+
+d_a_obj_ganonbed: {}
+
+d_a_obj_gaship: {}
+
+d_a_obj_gaship2: {}
+
+d_a_obj_gnnbtltaki:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000000F
+
+d_a_obj_gnndemotakie: {}
+
+d_a_obj_gnndemotakis: {}
+
+d_a_obj_gong: {}
+
+d_a_obj_gryw00:
+  activation_switch:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_gtaki: {}
+
+d_a_obj_hami2:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_hami3:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00010000
+
+d_a_obj_hami4:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_hat:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_hbrf1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000100
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_obj_hcbh:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000003F
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00001FC0
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x001FE000
+
+d_a_obj_hfuck1: {}
+
+d_a_obj_hha:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_obj_hlift:
+  lift_height:
+    Bitfield name: params
+    Mask: 0x00000007
+  model_size:
+    Bitfield name: params
+    Mask: 0x00000010
+  switch_to_check:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  evnt_index:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_obj_hole:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_obj_homen:
+  item_pickup_flag:
+    Bitfield name: params
+    Mask: 0x0000007F
+  type:
+    Bitfield name: params
+    Mask: 0x00000100
+  dropped_item_id:
+    Bitfield name: params
+    Mask: 0x0003F000
+  enemy_to_spawn:
+    Bitfield name: params
+    Mask: 0x003C0000
+  destroyed_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+  # The below item_id parameter did not exist for stone heads in the vanilla game.
+  # The randomizer adds it so that they can drop any item, without the limited size of dropped_item_id.
+  item_id:
+    Bitfield name: x_rot
+    Mask: 0x00FF
+
+d_a_obj_homensmoke:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x00000001
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000002
+
+d_a_obj_hsehi1:
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x000000FF
+  message_id:
+    Bitfield name: params
+    Mask: 0x00FFFF00
+
+d_a_obj_htetu1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_ice:
+  melted_switch:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_iceisland:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_obj_ikada:
+  type:
+    Bitfield name: params
+    Mask: 0x0000000F
+  interior_room_number:
+    Bitfield name: params
+    Mask: 0x000003F0
+  interior_spawn_id:
+    Bitfield name: params
+    Mask: 0x0003FC00
+  unknown_param_5:
+    Bitfield name: params
+    Mask: 0x03FC0000
+  unknown_param_6:
+    Bitfield name: x_rot
+    Mask: 0x00FF
+  path_index:
+    Bitfield name: x_rot
+    Mask: 0xFF00
+  salvage_corp_path_index:
+    Bitfield name: params
+    Mask: 0x00FF0000 # (WARNING: overlaps)
+
+d_a_obj_Itnak:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_obj_jump:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x00000001
+
+d_a_obj_kanat:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_kanoke:
+  is_upright:
+    Bitfield name: params
+    Mask: 0x00000001
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000003E
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00000040
+  opened_switch:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unused_switch:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_obj_ladder:
+  length_type:
+    Bitfield name: params
+    Mask: 0x00000007
+  switch_to_check:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  event_index:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_obj_leaves:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000003F
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00001FC0
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x001FE000
+
+d_a_obj_light: {}
+
+d_a_obj_lpalm: {}
+
+d_a_obj_magmarock:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_obj_majyuu_door:
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_mkie:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000100
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00001000
+  unknown_param_4:
+    Bitfield name: params
+    Mask: 0x00002000
+  destroyed_switch:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_obj_mkiek:
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000100
+
+d_a_obj_mknjd:
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00010000
+
+d_a_obj_mmrr: {}
+
+d_a_obj_monument:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x00000001
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_obj_movebox:
+  dropped_item_id:
+    Bitfield name: params
+    Mask: 0x0000003F
+  stay_moved_switch_1:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  item_pickup_flag:
+    Bitfield name: params
+    Mask: 0x007F0000
+  type:
+    Bitfield name: params
+    Mask: 0x0F000000
+  do_not_stay_moved_after_reload:
+    Bitfield name: params
+    Mask: 0x40000000
+  disable_flag_on_top:
+    Bitfield name: params
+    Mask: 0x80000000
+  unknown_param_7:
+    Bitfield name: x_rot
+    Mask: 0x00FF
+  stay_moved_to_path:
+    Bitfield name: z_rot
+    Mask: 0x00FF
+  stay_moved_switch_2:
+    Bitfield name: z_rot
+    Mask: 0xFF00
+
+d_a_obj_msdan:
+  switch_to_check:
+    Bitfield name: params
+    Mask: 0x000000FF
+  staircase_length:
+    Bitfield name: params
+    Mask: 0x00010000
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00040000
+  event_index:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_obj_msdan2:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_msdan_sub:
+  switch_to_check:
+    Bitfield name: params
+    Mask: 0x000000FF
+  which_stair_index:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  staircase_length:
+    Bitfield name: params
+    Mask: 0x00010000
+
+d_a_obj_msdan_sub2:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_obj_mshokki:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x00000003
+
+d_a_obj_mtest:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x00000007
+  switch_to_check:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x000F0000
+  unknown_param_4:
+    Bitfield name: params
+    Mask: 0x0F000000
+
+d_a_obj_nest: {}
+
+d_a_obj_ohatch:
+  opened_switch:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_ojtree: {}
+
+d_a_obj_ospbox:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000003F
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000700
+
+d_a_obj_otble:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_paper:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000FFFF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x000F0000
+
+d_a_obj_pbco: {}
+
+d_a_obj_pbka: {}
+
+d_a_obj_pfall: {}
+
+d_a_obj_pirateship:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000000F
+  pirate_ship_door_type:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_obj_plant: {}
+
+d_a_obj_quake:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000700
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00003800
+
+d_a_obj_rcloud:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x00000001
+
+d_a_obj_rflw: {}
+
+d_a_obj_rforce: {}
+
+d_a_obj_roten:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_obj_shelf:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x00000001
+  unknown_param_2:
+    Bitfield name: x_rot
+    Mask: 0xFFFF
+
+d_a_obj_shmrgrd:
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_smplbg:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_stair:
+  disable_spawn_switch:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_swflat:
+  type:
+    Bitfield name: params
+    Mask: 0x00000003
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  disabled_switch:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_obj_swhammer:
+  switch_to_unset:
+    Bitfield name: params
+    Mask: 0x000000FF
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_obj_swheavy:
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  type:
+    Bitfield name: params
+    Mask: 0x07000000
+
+d_a_obj_swlight:
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x000000FF
+  other_switch:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  is_paired:
+    Bitfield name: params
+    Mask: 0x00010000
+
+d_a_obj_swpush:
+  evnt_index:
+    Bitfield name: params
+    Mask: 0x000000FF
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  uses_alt_model:
+    Bitfield name: params
+    Mask: 0x00010000
+  behavior_type:
+    Bitfield name: params
+    Mask: 0x07000000
+  should_use_disabled_switch:
+    Bitfield name: params
+    Mask: 0x40000000
+  disabled_switch:
+    Bitfield name: z_rot
+    Mask: 0x00FF
+
+d_a_obj_table:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_tapestry:
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_obj_tenmado:
+  switch_to_check:
+    Bitfield name: params
+    Mask: 0x000000FF
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_obj_tide:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x00070000
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_obj_timer:
+  time_limit_half_seconds:
+    Bitfield name: params
+    Mask: 0x000000FF
+  switch_to_unset:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_obj_tntrap:
+  enable_spawn_switch:
+    Bitfield name: params
+    Mask: 0x000000FF
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00010000
+  unknown_param_4:
+    Bitfield name: params
+    Mask: 0x00060000
+
+d_a_obj_toripost: {}
+
+d_a_obj_tousekiki: {}
+
+d_a_obj_tower: {}
+
+d_a_obj_trap:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000F00
+
+d_a_obj_tribox:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00010000
+
+d_a_obj_try:
+  type:
+    Bitfield name: params
+    Mask: 0x0000000F
+  switch_to_check:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  is_placed:
+    Bitfield name: params
+    Mask: 0x80000000
+
+d_a_obj_usovmc: {}
+
+d_a_obj_Vds:
+  switch_to_check:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_vfan:
+  destroyed_switch:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_vgnfd: {}
+
+d_a_obj_vmc:
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_obj_vmsdz: {}
+
+d_a_obj_vmsms: {}
+
+d_a_obj_volcano:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_obj_Vteng: {}
+
+d_a_obj_vtil:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000000F
+
+d_a_obj_vyasi:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_warpt:
+  type:
+    Bitfield name: params
+    Mask: 0x0000000F
+  cyclic_event_reg_index:
+    Bitfield name: params
+    Mask: 0x000000F0
+  cyclic_dest_1_exit:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  cyclic_dest_2_exit:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  cyclic_dest_3_exit:
+    Bitfield name: params
+    Mask: 0xFF000000
+  cyclic_top_unblocked_switch:
+    Bitfield name: x_rot
+    Mask: 0x00FF
+  cyclic_play_unlocked_sfx:
+    Bitfield name: z_rot
+    Mask: 0x00FF
+  cyclic_is_locked:
+    Bitfield name: z_rot
+    Mask: 0xFF00
+  noncyclic_exit_to_this_pot:
+    Bitfield name: params
+    Mask: 0x00000FF0
+  noncyclic_exit_to_dest_pot:
+    Bitfield name: params
+    Mask: 0x000FF000
+  noncyclic_this_unlocked_switch:
+    Bitfield name: x_rot
+    Mask: 0x00FF
+  noncyclic_dest_unlocked_switch:
+    Bitfield name: x_rot
+    Mask: 0xFF00
+
+d_a_obj_wood: {}
+
+d_a_obj_xfuta: {}
+
+d_a_obj_Yboil:
+  disabled_switch:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_obj_ygush00:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x00000007
+
+d_a_obj_YLzou:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_obj_zouK:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000000F
+
+d_a_oq:
+  octorok_type:
+    Bitfield name: params
+    Mask: 0x000000FF
+  octorok_projectile_type:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_oship:
+  behavior_type:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000F00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x0000F000
+  path_index:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  disable_spawn_on_death_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+  enable_spawn_switch:
+    Bitfield name: x_rot
+    Mask: 0x00FF
+  is_golden:
+    Bitfield name: x_rot
+    Mask: 0xFF00
+
+d_a_pedestal:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_ph:
+  peahat_type:
+    Bitfield name: params
+    Mask: 0x000000FF
+  horizontal_range:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  vertical_range:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  # The below parameters are added by the randomizer.
+  disable_spawn_on_death_switch:
+    Bitfield name: x_rot
+    Mask: 0x00FF
+  enable_spawn_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_pirate_flag: {}
+
+d_a_pt:
+  miniblin_type:
+    Bitfield name: params
+    Mask: 0x0000000F
+  initial_spawn_type:
+    Bitfield name: params
+    Mask: 0x00000010
+  respawn_delay:
+    Bitfield name: params
+    Mask: 0x000000E0
+  range:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  irregular_switch:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  enable_spawn_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+  initial_spawn_delay:
+    Bitfield name: x_rot
+    Mask: 0xFFFF
+
+d_a_pw:
+  poe_type:
+    Bitfield name: params
+    Mask: 0x000000FF
+  poe_floats:
+    Bitfield name: params
+    Mask: 0x00000100
+  poe_color:
+    Bitfield name: params
+    Mask: 0x0000FE00
+  sight_range:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  path_index:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_pz:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_race_item:
+  item_id:
+    Bitfield name: params
+    Mask: 0x000000FF
+  item_pickup_flag:
+    Bitfield name: params
+    Mask: 0x00007F00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00078000
+
+d_a_rd:
+  idle_animation:
+    Bitfield name: params
+    Mask: 0x00000001
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x000000FE
+  dont_check_enable_spawn_switch:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  enable_spawn_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+  # The below parameter is added by the randomizer.
+  disable_spawn_on_death_switch:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_rectangle: {}
+
+d_a_sail: {}
+
+d_a_saku:
+  height_type:
+    Bitfield name: params
+    Mask: 0x0000000F
+  strength_type:
+    Bitfield name: params
+    Mask: 0x000000F0
+  bottom_destroyed_switch:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  top_destroyed_switch:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_salvage:
+  unknown_salvaged_object_type:
+    Bitfield name: params
+    Mask: 0x0000000F
+  item_id:
+    Bitfield name: params
+    Mask: 0x00000FF0
+  chart_index_plus_1:
+    Bitfield name: params
+    Mask: 0x0FF00000
+  salvage_flag:
+    Bitfield name: params
+    Mask: 0x0FF00000
+  salvaged_event_bit_index:
+    Bitfield name: params
+    Mask: 0x0FF00000
+  salvage_type:
+    Bitfield name: params
+    Mask: 0xF0000000
+  duplicate_id:
+    Bitfield name: z_rot
+    Mask: 0x0003
+  switch_to_check:
+    Bitfield name: z_rot
+    Mask: 0x0003
+
+d_a_salvage_tbox:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000F00
+
+d_a_sbox: {}
+
+d_a_scene_change: {}
+
+d_a_seatag: {}
+
+d_a_shand:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_ship:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_shop_item:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000F00
+
+d_a_shutter:
+  switch_to_check:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000F00
+
+d_a_shutter2:
+  switch_to_check:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_sie_flag: {}
+
+d_a_sitem:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  unknown_param_4:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_sk:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_sk2:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_spotbox:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x00000001
+
+d_a_ss:
+  type:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  disable_spawn_on_death_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_ssk:
+  type:
+    Bitfield name: params
+    Mask: 0x000000FF
+  sight_range:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  disable_spawn_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_sss:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  enable_spawn_switch:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_st:
+  stalfos_type:
+    Bitfield name: params
+    Mask: 0x0000000F
+  sight_range:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unused_param:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  ambush_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+  disable_spawn_on_death_switch:
+    Bitfield name: z_rot
+    Mask: 0x00FF
+
+d_a_steam_tag:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000003FC
+
+d_a_stone:
+  dropped_item_id:
+    Bitfield name: params
+    Mask: 0x0000003F
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x000000C0
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  item_pickup_flag:
+    Bitfield name: params
+    Mask: 0x007F0000
+  unknown_param_5:
+    Bitfield name: params
+    Mask: 0x07000000
+  unknown_param_6:
+    Bitfield name: params
+    Mask: 0x70000000
+
+d_a_stone2:
+  dropped_item_id:
+    Bitfield name: params
+    Mask: 0x0000003F
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  item_pickup_flag:
+    Bitfield name: params
+    Mask: 0x007F0000
+  type:
+    Bitfield name: params
+    Mask: 0x07000000
+  unknown_param_5:
+    Bitfield name: params
+    Mask: 0x70000000
+  unknown_param_6:
+    Bitfield name: params
+    Mask: 0x80000000
+  destroyed_event_index:
+    Bitfield name: z_rot
+    Mask: 0x00FF
+
+d_a_swattack:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_swc00:
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x000000FF
+  prerequisite_switch:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  behavior_type:
+    Bitfield name: params
+    Mask: 0x00030000
+
+d_a_swhit0:
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x000000FF
+  event_index:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  type:
+    Bitfield name: params
+    Mask: 0x000F0000
+  time_limit:
+    Bitfield name: params
+    Mask: 0x0FF00000
+  unknown_param_5:
+    Bitfield name: x_rot
+    Mask: 0xFFFF
+  switch_to_check:
+    Bitfield name: z_rot
+    Mask: 0x00FF
+
+d_a_switem:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  dropped_item_id:
+    Bitfield name: params
+    Mask: 0x00003F00
+  item_pickup_flag:
+    Bitfield name: params
+    Mask: 0x001FC000
+
+d_a_swpropeller:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000F00
+
+d_a_swtact:
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x000F0000
+
+d_a_swtdoor:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_syan: {}
+
+d_a_tag_attention:
+  switch_to_check:
+    Bitfield name: params
+    Mask: 0x000000FF
+  type:
+    Bitfield name: params
+    Mask: 0x00000300
+
+d_a_tag_ba1: {}
+
+d_a_tag_etc:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x00000F00
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_tag_event:
+  behavior_type:
+    Bitfield name: params
+    Mask: 0x000000FF
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  enable_spawn_switch:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  evnt_index:
+    Bitfield name: params
+    Mask: 0xFF000000
+  enable_spawn_event_bit:
+    Bitfield name: z_rot
+    Mask: 0xFFFF
+
+d_a_tag_evsw:
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x000000FF
+  event_bit_to_check:
+    Bitfield name: params
+    Mask: 0x00FFFF00
+  type:
+    Bitfield name: params
+    Mask: 0x03000000
+
+d_a_tag_ghostship:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_tag_hint:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000003F
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x000000C0
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  enable_spawn_switch:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  evnt_index:
+    Bitfield name: params
+    Mask: 0xFF000000
+  message_id:
+    Bitfield name: x_rot
+    Mask: 0xFFFF
+  unknown_param_7:
+    Bitfield name: z_rot
+    Mask: 0xFFFF
+
+d_a_tag_island:
+  type:
+    Bitfield name: params
+    Mask: 0x000000FF
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  event_index:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_tag_kb_item:
+  item_id:
+    Bitfield name: params
+    Mask: 0x000000FF
+  item_pickup_flag:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  should_set_switch:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_tag_kf1:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0F000000
+
+d_a_tag_kk1: {}
+
+d_a_tag_light:
+  type:
+    Bitfield name: params
+    Mask: 0x00000003
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000300 # (WARNING: overlaps)
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x000003FC # (WARNING: overlaps)
+  unknown_param_4:
+    Bitfield name: params
+    Mask: 0x00003C00
+  unknown_param_5:
+    Bitfield name: params
+    Mask: 0x0000C000
+  enable_spawn_switch:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  unknown_param_7:
+    Bitfield name: params
+    Mask: 0xFF000000
+
+d_a_tag_md_cb:
+  message_id:
+    Bitfield name: params
+    Mask: 0x0000FFFF
+  first_switch_to_check:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  num_switches_to_check:
+    Bitfield name: params
+    Mask: 0xFF000000
+  disable_spawn_switch:
+    Bitfield name: x_rot
+    Mask: 0x00FF
+
+d_a_tag_mk:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_tag_msg:
+  type:
+    Bitfield name: params
+    Mask: 0x00000040
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  enable_spawn_switch:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  evnt_index:
+    Bitfield name: params
+    Mask: 0xFF000000
+  message_id:
+    Bitfield name: x_rot
+    Mask: 0xFFFF
+  enable_spawn_event_bit:
+    Bitfield name: z_rot
+    Mask: 0xFFFF
+
+d_a_tag_photo:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_tag_ret:
+  spawn_id:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_tag_so:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_tag_volcano:
+  disable_spawn_chest_open_flag:
+    Bitfield name: params
+    Mask: 0x0000003F
+  type:
+    Bitfield name: params
+    Mask: 0x000000C0
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  timer_duration:
+    Bitfield name: params
+    Mask: 0x00FF0000
+
+d_a_tag_waterlevel:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_tama:
+  unknown_param_1:
+    Bitfield name: x_rot
+    Mask: 0xFFFF
+
+d_a_tbox:
+  behavior_type:
+    Bitfield name: params
+    Mask: 0x0000007F
+  opened_flag:
+    Bitfield name: params
+    Mask: 0x00000F80
+  appear_condition_switch:
+    Bitfield name: params
+    Mask: 0x000FF000
+  chest_type:
+    Bitfield name: params
+    Mask: 0x00F00000
+  room_num:
+    Bitfield name: x_rot
+    Mask: 0x003F
+  switch_to_set:
+    Bitfield name: z_rot
+    Mask: 0x00FF
+  item_id:
+    Bitfield name: z_rot
+    Mask: 0xFF00
+
+d_a_title: {}
+
+d_a_tn:
+  behavior_type:
+    Bitfield name: params
+    Mask: 0x0000000F
+  color:
+    Bitfield name: params
+    Mask: 0x000000F0
+  frozen_pose:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  path_index:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  enable_spawn_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+  equipment:
+    Bitfield name: x_rot
+    Mask: 0x00E0
+  disable_spawn_on_death_switch:
+    Bitfield name: z_rot
+    Mask: 0x00FF
+
+d_a_toge:
+  disabled_switch:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000F00
+
+d_a_tori_flag: {}
+
+d_a_tornado:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0xFFFFFFFF
+
+d_a_tpota: {}
+
+d_a_tsubo:
+  dropped_item_id:
+    Bitfield name: params
+    Mask: 0x0000003F
+  behavior_type:
+    Bitfield name: params
+    Mask: 0x00003F00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x0000C000
+  item_pickup_flag:
+    Bitfield name: params
+    Mask: 0x007F0000
+  type:
+    Bitfield name: params
+    Mask: 0x0F000000
+  invincible_when_off_camera:
+    Bitfield name: params
+    Mask: 0x70000000
+  do_not_ground_on_spawn:
+    Bitfield name: params
+    Mask: 0x80000000
+  enable_spawn_switch:
+    Bitfield name: z_rot
+    Mask: 0x00FF
+  # The below item_id parameter did not exist for pots in the vanilla game.
+  # The randomizer adds it so that pots can drop any item, without the limited size of dropped_item_id.
+  item_id:
+    Bitfield name: z_rot
+    Mask: 0xFF00
+
+d_a_wall:
+  disable_spawn_on_destroyed_switch:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_warpdm20:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000000F
+
+d_a_warpf:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0xF0000000
+
+d_a_warpfout: {}
+
+d_a_warpgn:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+
+d_a_warphr:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0xF0000000
+
+d_a_warpls:
+  activation_switch:
+    Bitfield name: params
+    Mask: 0x000000FF
+  exit_index:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  activated_event_index:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  type:
+    Bitfield name: params
+    Mask: 0xF0000000
+
+d_a_warpmj:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+
+d_a_waterfall:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000F00
+
+d_a_wbird: {}
+
+d_a_windmill:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000000F
+
+d_a_wind_tag:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x000000FF
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x001F0000
+  unknown_param_4:
+    Bitfield name: params
+    Mask: 0x00600000
+  unknown_param_5:
+    Bitfield name: params
+    Mask: 0x00800000
+  disable_spawn_switch:
+    Bitfield name: params
+    Mask: 0xFF000000
+  unknown_param_7:
+    Bitfield name: z_rot
+    Mask: 0x000F
+  unknown_param_8:
+    Bitfield name: z_rot
+    Mask: 0x00F0
+
+d_a_wz:
+  behavior_type:
+    Bitfield name: params
+    Mask: 0x000000FF
+  disable_spawn_on_death_switch:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  enable_spawn_switch:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  path_index:
+    Bitfield name: params
+    Mask: 0xFF000000
+  summon_table_index:
+    Bitfield name: z_rot
+    Mask: 0x00FF
+
+d_a_ygcwp:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000000F
+
+d_a_ykgr:
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00F00000
+
+d_a_yougan: {}
+
+f_pc_profile_lst: {}
+
+
+
+### Below this are non-REL classes.
+
+d_a_player_main:
+  room_num:
+    Bitfield name: params
+    Mask: 0x0000003F
+  unknown_param_1:
+    Bitfield name: params
+    Mask: 0x00000040
+  unknown_param_2:
+    Bitfield name: params
+    Mask: 0x00000080
+  unknown_param_3:
+    Bitfield name: params
+    Mask: 0x00000F00
+  spawn_type:
+    Bitfield name: params
+    Mask: 0x0000F000
+  unknown_param_4:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  evnt_index:
+    Bitfield name: params
+    Mask: 0xFF000000
+  ship_id:
+    Bitfield name: z_rot
+    Mask: 0xFF00
+  spawn_id:
+    Bitfield name: z_rot
+    Mask: 0x00FF
+
+d_a_item:
+  item_id:
+    Bitfield name: params
+    Mask: 0x000000FF
+  item_pickup_flag:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  enable_spawn_switch:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  behavior_type:
+    Bitfield name: params
+    Mask: 0x03000000
+  item_action:
+    Bitfield name: params
+    Mask: 0xFC000000
+  enable_activation_switch:
+    Bitfield name: z_rot
+    Mask: 0x00FF
+
+d_a_sea: {}
+
+d_throwstone: {}
+
+d_a_nh: {}
+
+d_a_npc_fa1: {}
+
+d_a_obj_search: {}
+
+d_a_spc_item01: {}
+
+d_a_ib: {}
+
+d_a_arrow: {}
+
+d_a_boomerang: {}
+
+d_a_hookshot: {}
+
+d_a_bomb: {}
+
+d_a_bomb2: {}
+
+d_a_demo00: {}
+
+d_a_agb: {}
+
+d_a_bg: {}
+
+d_a_himo2: {}
+
+d_a_esa: {}
+
+d_a_grid: {}
+
+d_a_dai_item: {}
+
+d_a_vrbox: {}
+
+d_a_vrbox2: {}
+
+
+
+### Below this are custom actors added by the randomizer.
+
+d_a_switch_op:
+  operation:
+    Bitfield name: params
+    Mask: 0x0000000F
+  is_continuous:
+    Bitfield name: params
+    Mask: 0x00000010
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x0000FF00
+  first_switch_to_check:
+    Bitfield name: params
+    Mask: 0x00FF0000
+  num_switches_to_check:
+    Bitfield name: params
+    Mask: 0xFF000000
+  evnt_index:
+    Bitfield name: x_rot
+    Mask: 0x00FF
+  delay:
+    Bitfield name: z_rot
+    Mask: 0xFFFF
+
+d_a_dungeon_flag_sw:
+  switch_to_set:
+    Bitfield name: params
+    Mask: 0x000000FF
+  stage_no_bitmask:
+    Bitfield name: params
+    Mask: 0x00FFFF00
+  flag_to_check:
+    Bitfield name: params
+    Mask: 0x07000000

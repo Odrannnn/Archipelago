@@ -22,6 +22,7 @@ os.environ["SKIP_REQUIREMENTS_UPDATE"] = "1"
 MGBA_ROM_EXTENSIONS = frozenset({".gb", ".gbc", ".gba"})
 SNES_ROM_EXTENSIONS = frozenset({".sfc", ".smc"})
 ANDROID_ROM_EXTENSIONS = MGBA_ROM_EXTENSIONS | SNES_ROM_EXTENSIONS
+CUSTOM_PATCH_EXTENSIONS = frozenset({".aptww"})
 
 
 def _world_load_failure(package_name: str, game: str, error: Exception) -> str:
@@ -456,6 +457,10 @@ def world_catalog(work_directory: str) -> str:
         patch_type = AutoPatchRegister.patch_types.get(game)
         patch_extension = getattr(patch_type, "patch_file_ending", "") if patch_type else ""
         result_extension = getattr(patch_type, "result_file_ending", "") if patch_type else ""
+        if game == "The Wind Waker":
+            from android_tww_patcher import PATCH_EXTENSION, RESULT_EXTENSION
+            patch_extension = PATCH_EXTENSION
+            result_extension = RESULT_EXTENSION
         result.append({
             "game": game,
             "version": world.world_version.as_simple_string(),
@@ -466,7 +471,10 @@ def world_catalog(work_directory: str) -> str:
             "result_extension": result_extension,
             "generation": True,
             "template": True,
-            "rom_patch": bool(patch_type and result_extension.lower() in ANDROID_ROM_EXTENSIONS),
+            "rom_patch": bool(
+                game == "The Wind Waker"
+                or (patch_type and result_extension.lower() in ANDROID_ROM_EXTENSIONS)
+            ),
             "live_bridge": game in bridge_games,
         })
     return json.dumps({"worlds": result, "failures": worlds.failed_world_loads})
@@ -506,7 +514,7 @@ def generate(yaml_text: str, work_directory: str, seed: str = "") -> str:
     generate_multiworld(args, numeric_seed)
 
     from worlds.Files import AutoPatchRegister
-    patch_endings = {ending.lower() for ending in AutoPatchRegister.file_endings}
+    patch_endings = {ending.lower() for ending in AutoPatchRegister.file_endings} | CUSTOM_PATCH_EXTENSIONS
     files = []
     patches = []
     for path in sorted(output.iterdir()):
@@ -559,6 +567,10 @@ def patch_result_extension(patch_bytes, work_directory: str = "") -> str:
         except KeyError as error:
             raise ValueError("The selected file is not a supported Archipelago ROM patch") from error
     game = manifest.get("game")
+    if game == "The Wind Waker":
+        from android_tww_patcher import RESULT_EXTENSION, load_plando
+        load_plando(bytes(patch_bytes))
+        return RESULT_EXTENSION
     from worlds.Files import AutoPatchRegister
     handler = AutoPatchRegister.patch_types.get(game)
     if handler is None:
@@ -619,9 +631,15 @@ def _rom_requirements(game: str, work_directory: str) -> tuple[object, list[dict
 def rom_requirements(patch_bytes, work_directory: str) -> str:
     """Describe every validated ROM input requested by the registered APWorld."""
     game = patch_game(patch_bytes, work_directory)
+    if game == "The Wind Waker":
+        from android_tww_patcher import load_plando, requirements
+        load_plando(bytes(patch_bytes))
+        return json.dumps(requirements())
     _, requirements = _rom_requirements(game, work_directory)
     return json.dumps({
         "game": game,
+        "streaming": False,
+        "result_extension": patch_result_extension(patch_bytes, work_directory),
         "inputs": [
             {key: value for key, value in requirement.items() if not key.startswith("_")}
             for requirement in requirements
@@ -632,6 +650,8 @@ def rom_requirements(patch_bytes, work_directory: str) -> str:
 def validate_rom_input(patch_bytes, input_key: str, rom_bytes, work_directory: str) -> None:
     """Run the APWorld's declared validator for one Android-selected ROM."""
     game = patch_game(patch_bytes, work_directory)
+    if game == "The Wind Waker":
+        raise ValueError("Wind Waker ISOs must be validated through streamed document access")
     _, requirements = _rom_requirements(game, work_directory)
     requirement = next(
         (item for item in requirements if item["key"] == input_key),
@@ -746,11 +766,17 @@ def patch_rom(patch_bytes, rom_input_paths_json: str, output_path: str, work_dir
     _, registry = _load_worlds(work_directory)
     if game not in registry.world_types:
         raise ValueError(f"Install the {game} APWorld before patching this ROM")
-    destination = Path(output_path).resolve()
-    destination.parent.mkdir(parents=True, exist_ok=True)
     raw_paths = json.loads(rom_input_paths_json)
     if not isinstance(raw_paths, dict):
         raise ValueError("ROM inputs must be a key-to-file mapping")
+    if game == "The Wind Waker":
+        from android_tww_patcher import INPUT_KEY, patch
+        input_path = raw_paths.get(INPUT_KEY)
+        if not input_path:
+            raise ValueError("Missing the clean Wind Waker ISO")
+        return patch(patch_data_bytes, str(input_path), str(output_path), work_directory)
+    destination = Path(output_path).resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
     rom_inputs = {
         str(key): Path(str(path)).read_bytes()
         for key, path in raw_paths.items()
@@ -758,3 +784,17 @@ def patch_rom(patch_bytes, rom_input_paths_json: str, output_path: str, work_dir
     result, _ = _apply_procedure_patch(patch_data_bytes, rom_inputs, work_directory)
     destination.write_bytes(result)
     return str(destination)
+
+
+def validate_rom_input_path(
+    patch_bytes, input_key: str, input_path: str, work_directory: str,
+) -> None:
+    """Validate a large SAF-backed input without copying it into Python memory."""
+    game = patch_game(patch_bytes, work_directory)
+    if game != "The Wind Waker":
+        raise ValueError(f"{game} does not use streamed ROM inputs")
+    from android_tww_patcher import INPUT_KEY, load_plando, validate_iso_path
+    if input_key != INPUT_KEY:
+        raise ValueError(f"{game} did not request ROM input {input_key}")
+    load_plando(bytes(patch_bytes))
+    validate_iso_path(input_path)

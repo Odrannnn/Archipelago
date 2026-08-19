@@ -32,8 +32,8 @@ android {
         applicationId = "eu.odran.archipelago"
         minSdk = 26
         targetSdk = 35
-        versionCode = 76
-        versionName = "0.25.0"
+        versionCode = 77
+        versionName = "0.26.0"
 
         ndk {
             // The custom mGBA bridge currently targets 64-bit Android devices.
@@ -73,6 +73,8 @@ chaquopy {
         // Archipelago discovers APWorlds with os.scandir and the MARS patcher
         // reads adjacent JSON/BPS resources, so this package must be physical.
         extractPackages("worlds")
+        // The official Wind Waker patcher reads its ASM/data resources by path.
+        extractPackages("twwrando")
         providers.gradleProperty("chaquopy.buildPython").orNull?.let {
             buildPython(it)
         }
@@ -83,6 +85,9 @@ chaquopy {
             install("platformdirs==4.10.1")
             install("typing_extensions==4.15.0")
             install("requests==2.32.5")
+            install("ruamel.yaml==0.18.10")
+            install("pillow==11.0.0")
+            install("numpy==1.26.2")
         }
     }
 }
