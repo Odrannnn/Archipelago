@@ -224,7 +224,8 @@ password. It starts `com.dishii.soh/.MainActivity` with the
 `archipelago_password` extras. The password is never placed in a deep-link URL.
 The selected hosted room and player are remembered so the same launch action is
 available from the main screen. SoH connects to the Archipelago server directly,
-so its connection does not use the companion's emulator bridge.
+so its active-room view shows direct-launch status and omits the emulator bridge,
+ROM-patching, and PopTracker controls.
 
 The app applies a selected supported player patch through its registered APWorld
 handler. It discovers all checksum-validated ROM settings declared by that world,
@@ -256,7 +257,8 @@ deletes local room records without affecting hosted rooms or ROM files. Existing
 single-room data is migrated automatically. **Open in PopTracker** launches the
 PopTracker Android app with the active room's current host and port, selected
 player name, saved room password, and the room's game identifier so the
-matching tracker pack can load automatically. For player-specific rooms, the
+matching tracker pack can load automatically. This action is not shown for Ship
+of Harkinian, which does not have a compatible PopTracker pack. For player-specific rooms, the
 companion also remembers the saved ROM document and retains its Android document
 permission, so the active-room section can launch that player's existing ROM in
 RetroArch without applying the player patch again. Selecting a different

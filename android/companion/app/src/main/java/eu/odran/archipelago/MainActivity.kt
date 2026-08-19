@@ -61,8 +61,18 @@ class MainActivity : Activity() {
     private val pendingRomInputs = linkedMapOf<String, ByteArray>()
     private val refreshStatus = object : Runnable {
         override fun run() {
-            status.text = BridgeService.statusText
-            serverStatus.text = BridgeService.serverStatusText
+            val activeRoom = renderedRoom
+            if (SohLauncher.isGame(activeRoom?.gameName)) {
+                status.text = "Ship of Harkinian connects directly to Archipelago."
+                serverStatus.text = if (activeRoom?.port?.let { it > 0 } == true) {
+                    "Ready to launch SoH as ${activeRoom?.playerName ?: "the selected player"}."
+                } else {
+                    "Refresh the room before launching SoH."
+                }
+            } else {
+                status.text = BridgeService.statusText
+                serverStatus.text = BridgeService.serverStatusText
+            }
             renderedRoom?.let { room ->
                 retroArchButton?.text = if (RetroArchLauncher.isRunningRom(
                         room.gameName,
@@ -86,6 +96,7 @@ class MainActivity : Activity() {
             text = "Starting background bridge…"
             CompanionUi.styleBody(this)
             setOnLongClickListener {
+                if (SohLauncher.isGame(renderedRoom?.gameName)) return@setOnLongClickListener false
                 val details = BridgeService.statusDetails ?: return@setOnLongClickListener false
                 AlertDialog.Builder(this@MainActivity)
                     .setTitle("Emulator connection error")
@@ -100,6 +111,7 @@ class MainActivity : Activity() {
             CompanionUi.styleBody(this)
             setPadding(0, CompanionUi.dp(this@MainActivity, 6), 0, 0)
             setOnLongClickListener {
+                if (SohLauncher.isGame(renderedRoom?.gameName)) return@setOnLongClickListener false
                 val details = BridgeService.serverStatusDetails ?: return@setOnLongClickListener false
                 AlertDialog.Builder(this@MainActivity)
                     .setTitle("Archipelago connection status")
@@ -497,10 +509,10 @@ class MainActivity : Activity() {
                     if (invite.hasPlayerPatch) {
                         append("This invite is for player slot ${invite.playerSlot} and contains ${invite.patchName}. ")
                     } else if (invite.hasPlayerIdentity) {
-                        append(
-                            "This invite is for ${invite.playerName}, slot ${invite.playerSlot}, in ${invite.gameName}. " +
-                                "That game does not require a player ROM patch. ",
-                        )
+                        append("This invite is for ${invite.playerName}, slot ${invite.playerSlot}, in ${invite.gameName}. ")
+                        if (!SohLauncher.isGame(invite.gameName)) {
+                            append("That game does not require a player ROM patch. ")
+                        }
                     }
                     append("The companion will verify room ${invite.roomId.take(10)}… on archipelago.gg, wake its ")
                     append("server if necessary, and load its current connection address. ")
@@ -993,7 +1005,8 @@ class MainActivity : Activity() {
             setPadding(0, 0, 0, CompanionUi.dp(this@MainActivity, 8))
         }, matchWrapParams())
 
-        val popTrackerButton = Button(this).apply {
+        val isSohRoom = SohLauncher.isGame(room.gameName)
+        val popTrackerButton = if (isSohRoom) null else Button(this).apply {
             val playerName = room.playerName
             text = when {
                 room.port <= 0 -> "PopTracker unavailable until refresh"
@@ -1017,7 +1030,7 @@ class MainActivity : Activity() {
             }
         }
 
-        if (SohLauncher.isGame(room.gameName) && !room.playerName.isNullOrBlank()) {
+        if (isSohRoom && !room.playerName.isNullOrBlank()) {
             joinedRoomContainer.addView(Button(this).apply {
                 text = if (room.port > 0) {
                     "Launch Ship of Harkinian"
@@ -1045,7 +1058,7 @@ class MainActivity : Activity() {
             }, matchWrapParams())
         }
 
-        if (!room.patchedRomUri.isNullOrBlank()) {
+        if (!isSohRoom && !room.patchedRomUri.isNullOrBlank()) {
             val actionHeight = CompanionUi.dp(this, 48)
             val romActions = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -1122,8 +1135,9 @@ class MainActivity : Activity() {
                 })
             }
             joinedRoomContainer.addView(romActions, matchWrapParams())
-            joinedRoomContainer.addView(popTrackerButton, CompanionUi.insetTop(popTrackerButton, this, 6))
-        } else {
+            val trackerButton = checkNotNull(popTrackerButton)
+            joinedRoomContainer.addView(trackerButton, CompanionUi.insetTop(trackerButton, this, 6))
+        } else if (popTrackerButton != null) {
             joinedRoomContainer.addView(popTrackerButton, matchWrapParams())
         }
 
@@ -1135,7 +1149,7 @@ class MainActivity : Activity() {
                 setOnClickListener { resolveAndLoadRoom(room.roomId) }
             }, matchWrapParams())
         }
-        if (room.playerSlot != null && room.patchedRomUri.isNullOrBlank()) {
+        if (!isSohRoom && room.playerSlot != null && room.patchedRomUri.isNullOrBlank()) {
             if (room.patchedRomSha256 != null) {
                 moreRoomActions.addView(Button(this).apply {
                     text = "Choose matching patched ROM"
@@ -1151,7 +1165,7 @@ class MainActivity : Activity() {
             }
         }
         moreRoomActions.addView(Button(this).apply {
-            text = "Open room and player patches"
+            text = if (isSohRoom) "Open room" else "Open room and player patches"
             CompanionUi.styleQuiet(this)
             setOnClickListener {
                 openWebUrl("${ArchipelagoWebHostClient.BASE_URL}/room/${room.roomId}")
