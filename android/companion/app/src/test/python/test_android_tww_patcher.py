@@ -39,10 +39,12 @@ class WindWakerPatcherTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             iso = Path(temporary) / "ww.iso"
             iso.write_bytes(b"GZLE01" + bytes(32))
-            patcher.validate_iso_path(str(iso))
+            with iso.open("rb") as stream:
+                patcher.validate_iso_fd(stream.fileno())
             iso.write_bytes(b"GZLP01" + bytes(32))
             with self.assertRaisesRegex(ValueError, "North American"):
-                patcher.validate_iso_path(str(iso))
+                with iso.open("rb") as stream:
+                    patcher.validate_iso_fd(stream.fileno())
 
 
 if __name__ == "__main__":

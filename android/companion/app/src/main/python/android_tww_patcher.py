@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import builtins
 import os
 import sys
 import types
@@ -56,9 +57,10 @@ def load_plando(patch_bytes: bytes) -> dict[str, object]:
     return document
 
 
-def validate_iso_path(path: str) -> None:
+def validate_iso_fd(fd: int) -> None:
     try:
-        with open(path, "rb") as stream:
+        with os.fdopen(os.dup(int(fd)), "rb") as stream:
+            stream.seek(0)
             header = stream.read(6)
     except OSError as error:
         raise ValueError("The selected Wind Waker ISO could not be opened") from error
@@ -118,9 +120,9 @@ def _options_and_plando(document):
     return options, plando
 
 
-def patch(patch_bytes: bytes, input_path: str, output_path: str, work_directory: str) -> str:
+def patch(patch_bytes: bytes, input_fd: int, output_fd: int, work_directory: str) -> str:
     document = load_plando(patch_bytes)
-    validate_iso_path(input_path)
+    validate_iso_fd(input_fd)
     *_, WWRandomizer = _runtime()
     options, plando = _options_and_plando(document)
     args = types.SimpleNamespace(
@@ -128,13 +130,37 @@ def patch(patch_bytes: bytes, input_path: str, output_path: str, work_directory:
         noitemrando=False, mapselect=False, heap=False, test=None,
     )
     os.makedirs(work_directory, exist_ok=True)
-    randomizer = WWRandomizer(plando.seed, input_path, work_directory, options, plando, args)
-    original_export = randomizer.gcm.export_disc_to_iso_with_changed_files
+    input_path = str(Path(work_directory) / ".android-saf-input.iso")
+    output_path = str(Path(work_directory) / ".android-saf-output.iso")
+    Path(input_path).touch(exist_ok=True)
+    original_open = builtins.open
 
-    def export_to_selected_document(_ignored_path):
-        yield from original_export(output_path)
+    def descriptor_open(file, mode="r", *args, **kwargs):
+        try:
+            path = os.fspath(file)
+        except TypeError:
+            path = None
+        if path == input_path:
+            stream = os.fdopen(os.dup(int(input_fd)), mode)
+            stream.seek(0)
+            return stream
+        if path == output_path:
+            return os.fdopen(os.dup(int(output_fd)), mode)
+        return original_open(file, mode, *args, **kwargs)
 
-    randomizer.gcm.export_disc_to_iso_with_changed_files = export_to_selected_document
-    for _progress in randomizer.randomize():
-        pass
-    return output_path
+    builtins.open = descriptor_open
+    try:
+        randomizer = WWRandomizer(plando.seed, input_path, work_directory, options, plando, args)
+        original_export = randomizer.gcm.export_disc_to_iso_with_changed_files
+
+        def export_to_selected_document(_ignored_path):
+            yield from original_export(output_path)
+
+        randomizer.gcm.export_disc_to_iso_with_changed_files = export_to_selected_document
+        for _progress in randomizer.randomize():
+            pass
+    finally:
+        builtins.open = original_open
+        Path(input_path).unlink(missing_ok=True)
+        Path(output_path).unlink(missing_ok=True)
+    return "document"

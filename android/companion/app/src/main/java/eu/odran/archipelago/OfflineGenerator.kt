@@ -255,10 +255,10 @@ object OfflineGenerator {
     ) = synchronized(runtimeLock) {
         context.contentResolver.openFileDescriptor(uri, "r")?.use { descriptor ->
             python(context).getModule("offline_generator").callAttr(
-                "validate_rom_input_path",
+                "validate_rom_input_fd",
                 patch,
                 inputKey,
-                descriptor.procPath(),
+                descriptor.fd,
                 workDirectory(context).absolutePath,
             )
         } ?: error("Could not open the selected ROM document")
@@ -360,7 +360,7 @@ object OfflineGenerator {
                 val descriptor = context.contentResolver.openFileDescriptor(uri, "r")
                     ?: error("Could not open ROM input $key")
                 openedInputs += descriptor
-                paths.put(key, descriptor.procPath())
+                paths.put(key, descriptor.fd)
             }
             openedOutput = context.contentResolver.openFileDescriptor(output, "rwt")
                 ?: error("Could not open the selected ISO destination")
@@ -368,7 +368,7 @@ object OfflineGenerator {
                 "patch_rom",
                 patch,
                 paths.toString(),
-                openedOutput.procPath(),
+                openedOutput.fd,
                 workDirectory(context).absolutePath,
             )
         } finally {
@@ -376,8 +376,6 @@ object OfflineGenerator {
             openedInputs.forEach { it.close() }
         }
     }
-
-    private fun ParcelFileDescriptor.procPath(): String = "/proc/self/fd/$fd"
 
     private fun parseChoices(array: JSONArray?): List<FormChoice> = if (array == null) {
         emptyList()

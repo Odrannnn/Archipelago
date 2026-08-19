@@ -771,10 +771,10 @@ def patch_rom(patch_bytes, rom_input_paths_json: str, output_path: str, work_dir
         raise ValueError("ROM inputs must be a key-to-file mapping")
     if game == "The Wind Waker":
         from android_tww_patcher import INPUT_KEY, patch
-        input_path = raw_paths.get(INPUT_KEY)
-        if not input_path:
+        input_fd = raw_paths.get(INPUT_KEY)
+        if input_fd is None:
             raise ValueError("Missing the clean Wind Waker ISO")
-        return patch(patch_data_bytes, str(input_path), str(output_path), work_directory)
+        return patch(patch_data_bytes, int(input_fd), int(output_path), work_directory)
     destination = Path(output_path).resolve()
     destination.parent.mkdir(parents=True, exist_ok=True)
     rom_inputs = {
@@ -786,15 +786,15 @@ def patch_rom(patch_bytes, rom_input_paths_json: str, output_path: str, work_dir
     return str(destination)
 
 
-def validate_rom_input_path(
-    patch_bytes, input_key: str, input_path: str, work_directory: str,
+def validate_rom_input_fd(
+    patch_bytes, input_key: str, input_fd: int, work_directory: str,
 ) -> None:
-    """Validate a large SAF-backed input without copying it into Python memory."""
+    """Validate a large SAF-backed input through its already-open descriptor."""
     game = patch_game(patch_bytes, work_directory)
     if game != "The Wind Waker":
         raise ValueError(f"{game} does not use streamed ROM inputs")
-    from android_tww_patcher import INPUT_KEY, load_plando, validate_iso_path
+    from android_tww_patcher import INPUT_KEY, load_plando, validate_iso_fd
     if input_key != INPUT_KEY:
         raise ValueError(f"{game} did not request ROM input {input_key}")
     load_plando(bytes(patch_bytes))
-    validate_iso_path(input_path)
+    validate_iso_fd(input_fd)
