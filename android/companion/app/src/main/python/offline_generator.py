@@ -441,10 +441,12 @@ def world_catalog(work_directory: str) -> str:
         for game in handlers
     }
     from android_bizhawk_runtime import custom_client_games
+    from android_dolphin_runtime import built_in_dolphin_games
     bridge_games = (
         standard_mgba_clients
         | custom_client_games()
         | set(AutoSNIClientRegister.game_handlers)
+        | built_in_dolphin_games()
     )
 
     installed_root = Path(work_directory).resolve() / "worlds"

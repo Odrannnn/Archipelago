@@ -1,8 +1,8 @@
-"""Refresh the pinned Archipelago core and supported bundled mGBA worlds.
+"""Refresh the pinned Archipelago core and supported bundled worlds.
 
 Run this after updating the repository checkout. The Android app intentionally
-embeds only the core modules and official worlds supported by its mGBA
-bridge. Community APWorlds remain user-imported.
+embeds only the core modules and official worlds supported by its Android
+emulator bridges. Community APWorlds remain user-imported.
 """
 
 from __future__ import annotations
@@ -53,6 +53,7 @@ def main() -> None:
         path.name: path.read_bytes()
         for path in (DESTINATION / "worlds" / "_bizhawk").glob("*.py")
     }
+    android_auto_sni = (DESTINATION / "worlds" / "AutoSNIClient.py").read_bytes()
     android_launcher_components = (DESTINATION / "worlds" / "LauncherComponents.py").read_bytes()
     if not android_bizhawk:
         raise RuntimeError("The Android BizHawk compatibility package is missing")
@@ -75,6 +76,7 @@ def main() -> None:
     worlds.mkdir()
     for module in ("__init__.py", "AutoWorld.py", "Files.py"):
         shutil.copy2(ARCHIPELAGO / "worlds" / module, worlds / module)
+    (worlds / "AutoSNIClient.py").write_bytes(android_auto_sni)
     (worlds / "LauncherComponents.py").write_bytes(android_launcher_components)
     copy_tree(ARCHIPELAGO / "worlds" / "generic", worlds / "generic")
     bizhawk = worlds / "_bizhawk"
@@ -83,6 +85,21 @@ def main() -> None:
         (bizhawk / name).write_bytes(contents)
     for world in BUNDLED_WORLDS:
         copy_tree(ARCHIPELAGO / "worlds" / world, worlds / world)
+
+    # Keep the Android core-install note alongside the upstream Super Metroid
+    # desktop setup instructions.
+    sm_guide = worlds / "sm" / "docs" / "multiworld_en.md"
+    text = sm_guide.read_text(encoding="utf-8")
+    marker = "##### RetroArch 1.10.1 or newer\n\n"
+    android_note = (
+        "> **Android companion:** install `snes9x_apbridge_v1_libretro_android.so` with\n"
+        "> **Load Core > Install or Restore a Core**. The companion launches that core\n"
+        "> directly and does not require Network Commands. The desktop instructions\n"
+        "> below apply to the standard Archipelago client only.\n\n"
+    )
+    if marker not in text:
+        raise RuntimeError("Could not annotate the Super Metroid Android core instructions")
+    sm_guide.write_text(text.replace(marker, marker + android_note, 1), encoding="utf-8", newline="\n")
 
     # LADX's package registers a desktop launcher entry while it is imported.
     # Android supplies its own launcher and live mGBA bridge, so keep the world

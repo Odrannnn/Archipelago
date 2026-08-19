@@ -20,6 +20,15 @@ any `Dolphin.ini` setting. A world still needs its normal upstream client
 bundled or an Android runtime adapter before the companion can join a room for
 that game.
 
+The Wind Waker is the GameCube world built into the pinned Archipelago release.
+Its upstream client remains authoritative for ROM and slot detection, indexed
+item delivery, location checks, DeathLink, chart mappings, goal completion, and
+visited-stage tracker data. The Android Dolphin runtime supplies only the shared
+transport, room connection, console, and emulator reconnect lifecycle. Load an
+ISO randomized with the matching Wind Waker randomizer build in the Dolphin
+Archipelago fork; the companion reads the embedded slot name and connects it to
+the configured room automatically.
+
 The Dolphin settings card reports two-second transport samples: request rate,
 read/write throughput, average and maximum round-trip time, probe traffic, and
 failures. It also retains session-wide latency, failures, and peak sampled rate

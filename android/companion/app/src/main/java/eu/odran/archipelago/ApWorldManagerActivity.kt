@@ -54,6 +54,18 @@ class ApWorldManagerActivity : Activity() {
             }, CompanionUi.cardParams(this@ApWorldManagerActivity))
             addView(CompanionUi.card(
                 this@ApWorldManagerActivity,
+                "Built-in GameCube live sync",
+                "Upstream Dolphin Memory Engine clients included with the companion. Use the Dolphin Archipelago Android fork for direct memory access.",
+            ).apply {
+                addView(TextView(this@ApWorldManagerActivity).apply {
+                    text = OfflineGenerator.bundledWorlds(this@ApWorldManagerActivity)
+                        .filter { it.platform == "GameCube" }
+                        .joinToString("\n") { "• ${it.game}" }
+                    CompanionUi.styleBody(this)
+                }, CompanionUi.fullWidth())
+            }, CompanionUi.cardParams(this@ApWorldManagerActivity))
+            addView(CompanionUi.card(
+                this@ApWorldManagerActivity,
                 "Available games",
                 "Built-in games ship with the app. Imported worlds can be removed independently.",
             ).apply {

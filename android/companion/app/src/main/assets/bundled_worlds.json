@@ -11,6 +11,7 @@
   {"game": "SMZ3", "package": "smz3", "platform": "SNES"},
   {"game": "Super Mario World", "package": "smw", "platform": "SNES"},
   {"game": "Super Metroid", "package": "sm", "platform": "SNES"},
+  {"game": "The Wind Waker", "package": "tww", "platform": "GameCube"},
   {"game": "Yoshi's Island", "package": "yoshisisland", "platform": "SNES"},
   {"game": "Yu-Gi-Oh! 2006", "package": "yugioh06", "platform": "GBA"}
 ]

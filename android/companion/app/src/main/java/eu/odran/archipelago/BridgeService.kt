@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit
  * threads while RetroArch is in the foreground.
  */
 class BridgeService : Service() {
-    private enum class EmulatorTransport { MGBA, SNI }
+    private enum class EmulatorTransport { MGBA, SNI, DOLPHIN }
 
     private data class ActiveEmulator(
         val transport: EmulatorTransport,
@@ -117,6 +117,9 @@ class BridgeService : Service() {
         var sniRuntime: PythonSniRuntime? = null
         var sniGame: DetectedGameInfo? = null
         var dolphinClient: DolphinMemoryClient? = null
+        var dolphinRuntime: PythonDolphinRuntime? = null
+        var dolphinGame: DetectedGameInfo? = null
+        var dolphinMemoryAttached = false
         var dolphinPort: Int? = null
         var dolphinGameId: String? = null
         var dolphinAttempt: Future<Result<ConnectedDolphin>>? = null
@@ -262,6 +265,13 @@ class BridgeService : Service() {
                         val connected = connection.client
                         try {
                             DolphinMemoryEngineBridge.attach(this, connected)
+                            val existingRuntime = dolphinRuntime
+                            if (existingRuntime == null) {
+                                dolphinRuntime = PythonDolphinRuntime(this, connected)
+                                dolphinGame = null
+                            } else {
+                                existingRuntime.attach(connected)
+                            }
                             val gameId = connection.gameId
                             dolphinClient = connected
                             dolphinPort = checkNotNull(attemptedPort)
@@ -274,6 +284,16 @@ class BridgeService : Service() {
                             dolphinPeakRequestRate = 0.0
                             dolphinPeakBandwidth = 0.0
                             lastDolphinUnavailableLog = 0L
+                            val runtime = checkNotNull(dolphinRuntime)
+                            dolphinGame = if (dolphinGame?.let(runtime::validateActive) == true) {
+                                dolphinGame
+                            } else {
+                                runtime.probe()
+                            }
+                            if (dolphinGame != null && !dolphinMemoryAttached) {
+                                runtime.emulatorReattached()
+                                dolphinMemoryAttached = true
+                            }
                             dolphinTelemetryText =
                                 "Connected via ${connected.transportLabel} · " +
                                     "${gameId.ifBlank { "unknown game" }} · collecting a live performance sample…"
@@ -288,6 +308,11 @@ class BridgeService : Service() {
                         } catch (error: Exception) {
                             connected.close()
                             if (activeDolphinClient === connected) activeDolphinClient = null
+                            dolphinRuntime?.detach(connected)
+                            dolphinMemoryAttached = false
+                            if (dolphinClient === connected) dolphinClient = null
+                            dolphinPort = null
+                            dolphinGameId = null
                             nextDolphinAttempt = now + TimeUnit.SECONDS.toMillis(1)
                             dolphinTelemetryText = "Dolphin memory transport setup failed · retrying."
                             Log.w(TAG, "Dolphin memory setup failed after connection", error)
@@ -337,6 +362,26 @@ class BridgeService : Service() {
                             dolphinProbeSlowPublished = false
                             val gameChanged = gameId != dolphinGameId
                             if (gameChanged) dolphinGameId = gameId
+                            val runtime = dolphinRuntime
+                            if (runtime != null) {
+                                runCatching {
+                                    dolphinGame = if (dolphinGame?.let(runtime::validateActive) == true) {
+                                        dolphinGame
+                                    } else {
+                                        runtime.probe()
+                                    }
+                                    if (dolphinGame == null) {
+                                        dolphinMemoryAttached = false
+                                    } else if (!dolphinMemoryAttached) {
+                                        runtime.emulatorReattached()
+                                        dolphinMemoryAttached = true
+                                    }
+                                }.onFailure { error ->
+                                    dolphinGame = null
+                                    dolphinMemoryAttached = false
+                                    Log.w(TAG, "Dolphin game-client probe failed", error)
+                                }
+                            }
                             nextDolphinProbe = now + TimeUnit.SECONDS.toMillis(1)
                             if (recoveredFromSlowResponse || gameChanged) {
                                 dolphinTelemetryText =
@@ -357,6 +402,8 @@ class BridgeService : Service() {
                                 val lastTelemetry = dolphinTelemetryText
                                 probedDolphin?.close()
                                 if (activeDolphinClient === probedDolphin) activeDolphinClient = null
+                                probedDolphin?.let { dolphinRuntime?.detach(it) }
+                                dolphinMemoryAttached = false
                                 dolphinClient = null
                                 dolphinPort = null
                                 dolphinGameId = null
@@ -608,19 +655,25 @@ class BridgeService : Service() {
                 val sniCandidate = sniGame?.takeIf { sniClient != null }?.let {
                     ActiveEmulator(EmulatorTransport.SNI, checkNotNull(sniRuntime), it)
                 }
+                val dolphinCandidate = dolphinGame?.takeIf { dolphinClient != null }?.let {
+                    ActiveEmulator(EmulatorTransport.DOLPHIN, checkNotNull(dolphinRuntime), it)
+                }
                 val currentCandidate = when (activeTransport) {
                     EmulatorTransport.MGBA -> gbaCandidate
                     EmulatorTransport.SNI -> sniCandidate
+                    EmulatorTransport.DOLPHIN -> dolphinCandidate
                     null -> null
                 }
                 val alternateCandidate = when (activeTransport) {
-                    EmulatorTransport.MGBA -> sniCandidate
-                    EmulatorTransport.SNI -> gbaCandidate
-                    null -> sniCandidate ?: gbaCandidate
+                    EmulatorTransport.MGBA -> sniCandidate ?: dolphinCandidate
+                    EmulatorTransport.SNI -> gbaCandidate ?: dolphinCandidate
+                    EmulatorTransport.DOLPHIN -> sniCandidate ?: gbaCandidate
+                    null -> dolphinCandidate ?: sniCandidate ?: gbaCandidate
                 }
                 val activeTransportUnavailable = when (activeTransport) {
                     EmulatorTransport.MGBA -> mgbaBridge == null
                     EmulatorTransport.SNI -> sniClient == null
+                    EmulatorTransport.DOLPHIN -> dolphinClient == null
                     null -> false
                 }
                 val desired = currentCandidate ?: alternateCandidate ?: if (
@@ -655,7 +708,11 @@ class BridgeService : Service() {
                         publishServerWaitingForRom()
                         publish("Emulator bridge ready · waiting for a supported patched ROM…")
                     } else {
-                        val emulator = if (desired.transport == EmulatorTransport.SNI) "SNES emulator" else "mGBA"
+                        val emulator = when (desired.transport) {
+                            EmulatorTransport.MGBA -> "mGBA"
+                            EmulatorTransport.SNI -> "SNES emulator"
+                            EmulatorTransport.DOLPHIN -> "Dolphin"
+                        }
                         publish("$emulator connected · ${desired.game.game} · live bridge client")
                     }
                 }
@@ -688,6 +745,7 @@ class BridgeService : Service() {
                     val emulatorAvailable = when (activeTransport) {
                         EmulatorTransport.MGBA -> mgbaBridge != null
                         EmulatorTransport.SNI -> sniClient != null
+                        EmulatorTransport.DOLPHIN -> dolphinClient != null
                         null -> false
                     }
                     try {
@@ -712,7 +770,7 @@ class BridgeService : Service() {
                     }
                 }
 
-                if (mgbaBridge != null || sniClient != null || session != null) {
+                if (mgbaBridge != null || sniClient != null || dolphinClient != null || session != null) {
                     TimeUnit.MILLISECONDS.sleep(125)
                 } else {
                     TimeUnit.MILLISECONDS.sleep(500)
@@ -732,6 +790,7 @@ class BridgeService : Service() {
             if (activeSession === oldSession) activeSession = null
             runCatching { gbaRuntime?.close() }
             runCatching { sniRuntime?.close() }
+            runCatching { dolphinRuntime?.close() }
             runCatching { mgbaBridge?.close() }
             runCatching { sniClient?.close() }
             runCatching { pendingDolphinClient?.close() }
