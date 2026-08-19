@@ -16,6 +16,11 @@ data class SeedHistoryEntry(
     val patches: List<GeneratedArtifact>,
 )
 
+internal data class SeedHistoryDocumentFile(
+    val name: String,
+    val file: File,
+)
+
 /** Persistent app-private storage for generated seed packages and their source YAML. */
 object SeedHistoryStore {
     private const val INDEX_VERSION = 1
@@ -60,6 +65,7 @@ object SeedHistoryStore {
         )
         val entries = readIndex(context).filterNot { it.id == id } + entry
         writeIndex(context, entries)
+        CompanionDocumentsProvider.notifyGeneratedSeedsChanged(context)
         entry
     }
 
@@ -68,6 +74,28 @@ object SeedHistoryStore {
         val entry = entries.firstOrNull { it.id == id } ?: return@synchronized
         entryDirectory(context, entry).deleteRecursively()
         writeIndex(context, entries.filterNot { it.id == id })
+        CompanionDocumentsProvider.notifyGeneratedSeedsChanged(context)
+    }
+
+    internal fun documentFiles(context: Context, id: String): List<SeedHistoryDocumentFile> = synchronized(lock) {
+        val entry = readIndex(context).firstOrNull { it.id == id } ?: return@synchronized emptyList()
+        val directory = entryDirectory(context, entry)
+        buildList {
+            File(directory, "Players.yaml").canonicalFile.takeIf {
+                it.parentFile == directory && it.isFile
+            }?.let { add(SeedHistoryDocumentFile(it.name, it)) }
+            (entry.files + entry.patches)
+                .distinctBy { it.path }
+                .mapNotNull { artifact ->
+                    val file = runCatching { File(artifact.path).canonicalFile }.getOrNull()
+                        ?: return@mapNotNull null
+                    file.takeIf { it.parentFile == directory && it.isFile }?.let {
+                        SeedHistoryDocumentFile(it.name, it)
+                    }
+                }
+                .sortedBy { it.name }
+                .forEach(::add)
+        }
     }
 
     private fun historyRoot(context: Context): File =

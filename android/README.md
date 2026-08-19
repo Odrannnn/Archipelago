@@ -41,6 +41,9 @@ game-specific Archipelago logic. No memory port is exposed to the LAN.
   mode without adding game or filename branches to the companion.
 - The seed generator keeps named YAML configurations in app-private storage and
   can validate, remember, and reload existing `.yaml` or `.yml` files.
+- A read-only Storage Access Framework provider exposes saved YAMLs and generated
+  seed artifacts to compatible file managers without exposing cached ROMs or
+  requesting broad storage access.
 - Player-specific `.apinvite` files can omit the patch for self-connecting games.
   Ship of Harkinian invites retain the selected slot, player name, and game so
   the recipient can resolve the room and use the direct SoH launch action.

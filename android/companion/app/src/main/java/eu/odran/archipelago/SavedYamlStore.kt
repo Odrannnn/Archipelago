@@ -45,6 +45,7 @@ object SavedYamlStore {
                 file.delete()
                 throw it
             }
+        CompanionDocumentsProvider.notifySavedYamlsChanged(context)
         entry
     }
 
@@ -67,7 +68,17 @@ object SavedYamlStore {
         val file = yamlFile(context, id)
         if (file.exists() && !file.delete()) return false
         writeIndex(context, entries.filterNot { it.id == id })
+        CompanionDocumentsProvider.notifySavedYamlsChanged(context)
         true
+    }
+
+    internal fun documentFile(context: Context, id: String): File? = synchronized(lock) {
+        if (!idPattern.matches(id) || readIndex(context).none { it.id == id }) return@synchronized null
+        val root = storageRoot(context).canonicalFile
+        val file = File(root, "$id.yaml").canonicalFile
+        file.takeIf {
+            it.parentFile == root && it.isFile && it.length() in 1..MAX_YAML_BYTES.toLong()
+        }
     }
 
     private fun validateName(name: String): String {

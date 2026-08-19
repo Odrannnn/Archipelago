@@ -139,6 +139,14 @@ ordered newest first. **Load into generator** restores the complete player form;
 and saved entries can be exported again or deleted without affecting external
 copies. Clearing app data removes this YAML library along with other private data.
 
+The manifest-registered read-only `DocumentsProvider` makes an **Archipelago
+Companion** root available to SAF-compatible file managers. **Saved YAMLs**
+contains the reusable YAML library; **Generated seeds** contains one folder per
+seed with its source YAML, room ZIP, and player patches. Files can be opened or
+copied, but external write and delete modes are rejected. The provider resolves
+stable document IDs through the stores and canonical seed-history directories;
+it does not expose cached base ROMs, website credentials, or room controls.
+
 **Game worlds** shows the bundled games and imports additional trusted `.apworld` files into
 `filesDir/offline_generator/worlds`. Installation rejects absolute/traversal
 paths, oversized entries and expansions, malformed layouts, duplicate games,

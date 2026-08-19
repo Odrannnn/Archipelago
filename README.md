@@ -98,6 +98,12 @@ their registered APWorld handler without app-specific patch code. Self-connectin
 games which produce no player patch can still generate, save, and host their seed
 ZIP. Their player-specific companion invitations carry the selected slot, player
 name, and game without a ROM patch payload.
+
+SAF-compatible file managers show an **Archipelago Companion** storage root.
+Its read-only **Saved YAMLs** and **Generated seeds** folders allow app-private
+YAMLs, seed ZIPs, and player patches to be opened or copied without granting
+broad storage permission. Cached base ROMs, room credentials, and private
+hosting data are never exposed through this provider.
 Hosted `Ship of Harkinian` players are the exception to the generic launch limitation:
 the companion can select their slot and launch the Archipelago-enabled SoH Android
 port directly because that game owns its server connection and needs no emulator bridge.

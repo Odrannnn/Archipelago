@@ -407,7 +407,7 @@ class GeneratorActivity : Activity() {
             addView(CompanionUi.card(
                 this@GeneratorActivity,
                 "Saved YAML configurations",
-                "Remember reusable player settings or import an existing YAML file, then load it back later.",
+                "Remember or import reusable player settings. Saved YAMLs also appear read-only in compatible file managers.",
             ).apply {
                 addView(rememberYamlButton, matchWrapParams())
                 addView(importYamlButton, CompanionUi.insetTop(importYamlButton, this@GeneratorActivity, 4))
