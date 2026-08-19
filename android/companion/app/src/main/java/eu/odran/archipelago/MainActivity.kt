@@ -50,9 +50,7 @@ class MainActivity : Activity() {
     private lateinit var inviteStatus: TextView
     private lateinit var address: EditText
     private lateinit var password: EditText
-    private lateinit var dolphinGdbPort: EditText
     private lateinit var dolphinTelemetry: TextView
-    private lateinit var dolphinIniStatus: TextView
     private lateinit var joinedRoomContainer: LinearLayout
     private var retroArchButton: Button? = null
     private var renderedRoom: JoinedRoom? = null
@@ -96,7 +94,6 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val savedSettings = ServerSettings.load(this)
-        val savedDolphinSettings = DolphinSettings.load(this)
         status = TextView(this).apply {
             text = "Starting background bridge…"
             CompanionUi.styleBody(this)
@@ -141,25 +138,9 @@ class MainActivity : Activity() {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             textSize = 15f
         }
-        dolphinGdbPort = EditText(this).apply {
-            hint = "Dolphin GDB port"
-            setSingleLine(true)
-            setText(savedDolphinSettings.gdbPort.toString())
-            inputType = InputType.TYPE_CLASS_NUMBER
-            textSize = 15f
-        }
         dolphinTelemetry = TextView(this).apply {
             text = BridgeService.dolphinTelemetryText
             CompanionUi.styleMuted(this)
-        }
-        dolphinIniStatus = TextView(this).apply {
-            text = if (DolphinIniManager.linkedUri(this@MainActivity) == null) {
-                "Dolphin.ini is not linked yet."
-            } else {
-                "Dolphin.ini linked · the app can apply future port changes directly."
-            }
-            CompanionUi.styleMuted(this)
-            setPadding(0, CompanionUi.dp(this@MainActivity, 6), 0, 0)
         }
         val save = Button(this).apply {
             text = "Save and connect"
@@ -293,37 +274,17 @@ class MainActivity : Activity() {
             val dolphinFields = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 addView(dolphinTelemetry, CompanionUi.fullWidth())
-                addView(dolphinIniStatus, CompanionUi.fullWidth())
-                addView(dolphinGdbPort, CompanionUi.fullWidth())
-                addView(Button(this@MainActivity).apply {
-                    text = "Apply port to Dolphin.ini"
-                    CompanionUi.stylePrimary(this)
-                    setOnClickListener { applyDolphinSettings() }
-                }, CompanionUi.insetTop(dolphinGdbPort, this@MainActivity, 6))
-                addView(Button(this@MainActivity).apply {
-                    text = "Choose another Dolphin.ini"
-                    CompanionUi.styleQuiet(this)
-                    setOnClickListener { chooseDolphinIni() }
-                }, CompanionUi.insetTop(dolphinGdbPort, this@MainActivity, 4))
-                addView(Button(this@MainActivity).apply {
-                    text = "Disable Dolphin GDB"
-                    CompanionUi.styleSecondary(this)
-                    setOnClickListener { disableDolphinGdb() }
-                }, CompanionUi.insetTop(dolphinGdbPort, this@MainActivity, 4))
                 addView(TextView(this@MainActivity).apply {
-                    text = "Fully stop Dolphin emulation before applying. The first time, choose Dolphin Emulator " +
-                        "→ Config → Dolphin.ini in the system picker; Android remembers that access afterward. " +
-                        "Then launch the companion before starting the game. Dolphin pauses at boot until the " +
-                        "bridge connects. Disable Dolphin GDB to restore ordinary standalone launches. Stock " +
-                        "Dolphin exposes this unauthenticated port to the local network, so use it only on a " +
-                        "trusted network."
+                    text = "Install and run the Dolphin Archipelago fork. Its dedicated memory service starts " +
+                        "with emulation and accepts the companion automatically on localhost port " +
+                        "${DolphinSocketClient.DEFAULT_PORT}. No Dolphin.ini changes are required."
                     CompanionUi.styleMuted(this)
                     setPadding(0, CompanionUi.dp(this@MainActivity, 8), 0, 0)
                 }, CompanionUi.fullWidth())
             }
             addView(CompanionUi.card(this@MainActivity, "Dolphin GameCube backend").apply {
                 addView(
-                    CompanionUi.toggleButton(this@MainActivity, "Dolphin GDB settings", dolphinFields),
+                    CompanionUi.toggleButton(this@MainActivity, "Dolphin fork status", dolphinFields),
                     CompanionUi.fullWidth(),
                 )
                 addView(dolphinFields, CompanionUi.fullWidth())
@@ -347,9 +308,6 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (resultCode != RESULT_OK) {
-            if (requestCode == REQUEST_DOLPHIN_INI) {
-                dolphinIniStatus.text = "Dolphin.ini selection canceled · no configuration was changed."
-            }
             if (requestCode == REQUEST_PATCH_BASE_ROM) {
                 clearPendingRomPatch()
             }
@@ -381,7 +339,6 @@ class MainActivity : Activity() {
             REQUEST_PATCH_BASE_ROM -> acceptBaseRom(data.data!!)
             REQUEST_INVITE_APWORLD -> installRequiredInviteApWorld(data.data!!)
             REQUEST_PATCH_APWORLD -> installRequiredPatchApWorld(data.data!!)
-            REQUEST_DOLPHIN_INI -> applySelectedDolphinIni(data.data!!, data.flags)
             REQUEST_SELECT_PATCHED_ROM -> rememberExistingPatchedRom(data.data!!, data.flags)
             REQUEST_SAVE_PATCHED_ROM -> {
                 val export = pendingPatchedRom ?: return
@@ -416,90 +373,6 @@ class MainActivity : Activity() {
         )
         status.text = "Settings saved · reconnecting…"
         serverStatus.text = "⏳ Archipelago connecting"
-    }
-
-    private fun selectedDolphinPort(): Int? {
-        val port = dolphinGdbPort.text.toString().trim().toIntOrNull()
-        if (port == null || port !in 1..65535) {
-            dolphinGdbPort.error = "Enter a port between 1 and 65535"
-            return null
-        }
-        DolphinSettings.save(this, port)
-        return port
-    }
-
-    private fun applyDolphinSettings() {
-        val port = selectedDolphinPort() ?: return
-        if (DolphinIniManager.linkedUri(this) == null) {
-            chooseDolphinIni()
-            return
-        }
-        applyDolphinIni(port) { DolphinIniManager.applyLinked(this, port) }
-    }
-
-    private fun chooseDolphinIni() {
-        if (selectedDolphinPort() == null) return
-        dolphinIniStatus.text = "Choose Dolphin Emulator → Config → Dolphin.ini."
-        startActivityForResult(
-            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "*/*"
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-                addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-            },
-            REQUEST_DOLPHIN_INI,
-        )
-    }
-
-    private fun applySelectedDolphinIni(uri: Uri, resultFlags: Int) {
-        val port = selectedDolphinPort() ?: return
-        applyDolphinIni(port) {
-            DolphinIniManager.applySelected(this, uri, resultFlags, port)
-        }
-    }
-
-    private fun disableDolphinGdb() {
-        if (DolphinIniManager.linkedUri(this) == null) {
-            dolphinIniStatus.text = "Link Dolphin.ini before disabling GDB."
-            return
-        }
-        applyDolphinIni(DolphinIniManager.DISABLED_GDB_PORT) {
-            DolphinIniManager.applyLinked(this, DolphinIniManager.DISABLED_GDB_PORT)
-        }
-    }
-
-    private fun applyDolphinIni(port: Int, update: () -> DolphinIniApplyResult) {
-        dolphinIniStatus.text = if (port == DolphinIniManager.DISABLED_GDB_PORT) {
-            "Disabling Dolphin GDB…"
-        } else {
-            "Applying GDBPort = $port to Dolphin.ini…"
-        }
-        thread(name = "dolphin-ini-update") {
-            runCatching(update).onSuccess { result ->
-                runOnUiThread {
-                    startForegroundService(Intent(this, BridgeService::class.java))
-                    dolphinIniStatus.text = if (port == DolphinIniManager.DISABLED_GDB_PORT) {
-                        if (result.changed) {
-                            "Dolphin GDB disabled · fully restart Dolphin to restore normal launches."
-                        } else {
-                            "Dolphin GDB is already disabled."
-                        }
-                    } else if (result.changed) {
-                        "Dolphin.ini updated · GDBPort = $port. Start or restart emulation now."
-                    } else {
-                        "Dolphin.ini already has GDBPort = $port · ready to start emulation."
-                    }
-                }
-            }.onFailure { error ->
-                runOnUiThread {
-                    DolphinIniManager.forgetLinked(this)
-                    dolphinIniStatus.text =
-                        "Could not update Dolphin.ini: ${error.message ?: error.javaClass.simpleName}. " +
-                            "Select the file again to retry."
-                }
-            }
-        }
     }
 
     private fun rememberExistingPatchedRom(uri: Uri, flags: Int) {
@@ -1370,7 +1243,6 @@ class MainActivity : Activity() {
         private const val REQUEST_INVITE_APWORLD = 306
         private const val REQUEST_OPEN_PLAYER_PATCH = 307
         private const val REQUEST_PATCH_APWORLD = 308
-        private const val REQUEST_DOLPHIN_INI = 309
         private const val MAX_PATCH_BYTES = 32 * 1024 * 1024
         private const val MAX_ROM_BYTES = 32L * 1024 * 1024 + 512
     }

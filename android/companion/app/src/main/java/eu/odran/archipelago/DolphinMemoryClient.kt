@@ -6,8 +6,6 @@ import java.io.Closeable
 interface DolphinMemoryClient : Closeable {
     val port: Int
     val transportLabel: String
-    val reconnectable: Boolean
-    val usesConfiguredGdbPort: Boolean
 
     fun connect()
     fun hook()
@@ -20,5 +18,5 @@ interface DolphinMemoryClient : Closeable {
     fun writeByte(consoleAddress: Long, value: Int)
     fun gameId(): String
     fun isSocketConnected(): Boolean
-    fun takeTelemetrySnapshot(): DolphinGdbTelemetry
+    fun takeTelemetrySnapshot(): DolphinTelemetry
 }

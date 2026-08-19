@@ -18,8 +18,7 @@ import kotlin.concurrent.withLock
  * Client for the loopback raw-memory service built into Dolphin Archipelago.
  *
  * The service transfers unchanged MEM1/MEM2 bytes and accepts reconnects, so
- * this class can implement the same public operations as desktop DME without
- * GDB's emulation-thread scheduling or hexadecimal packet encoding.
+ * this class can implement the same public operations as desktop DME.
  */
 class DolphinSocketClient(
     private val host: String = DEFAULT_HOST,
@@ -27,8 +26,6 @@ class DolphinSocketClient(
     private val connectTimeoutMillis: Int = DEFAULT_CONNECT_TIMEOUT_MILLIS,
 ) : DolphinMemoryClient {
     override val transportLabel = "fast memory"
-    override val reconnectable = true
-    override val usesConfiguredGdbPort = false
 
     private val lock = ReentrantLock()
     @Volatile private var socket: Socket? = null
@@ -167,9 +164,9 @@ class DolphinSocketClient(
 
     override fun isSocketConnected(): Boolean = lock.withLock { isSocketOpen() }
 
-    override fun takeTelemetrySnapshot(): DolphinGdbTelemetry = lock.withLock {
+    override fun takeTelemetrySnapshot(): DolphinTelemetry = lock.withLock {
         val now = System.nanoTime()
-        DolphinGdbTelemetry(
+        DolphinTelemetry(
             connected = isSocketOpen(),
             logicallyHooked = logicallyHooked,
             intervalNanos = (now - intervalStartedNanos).coerceAtLeast(1L),

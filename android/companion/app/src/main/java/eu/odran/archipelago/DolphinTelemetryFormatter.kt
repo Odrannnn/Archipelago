@@ -8,7 +8,7 @@ internal data class DolphinTelemetryRates(
 )
 
 internal object DolphinTelemetryFormatter {
-    fun rates(snapshot: DolphinGdbTelemetry): DolphinTelemetryRates {
+    fun rates(snapshot: DolphinTelemetry): DolphinTelemetryRates {
         val seconds = snapshot.intervalNanos.toDouble() / NANOS_PER_SECOND
         val bytes = snapshot.intervalBytesRead + snapshot.intervalBytesWritten
         return DolphinTelemetryRates(
@@ -18,7 +18,7 @@ internal object DolphinTelemetryFormatter {
     }
 
     fun display(
-        snapshot: DolphinGdbTelemetry,
+        snapshot: DolphinTelemetry,
         gameId: String,
         transportLabel: String,
         port: Int,
@@ -56,7 +56,7 @@ internal object DolphinTelemetryFormatter {
         )
     }
 
-    fun logLine(snapshot: DolphinGdbTelemetry, gameId: String, transportLabel: String, port: Int): String {
+    fun logLine(snapshot: DolphinTelemetry, gameId: String, transportLabel: String, port: Int): String {
         val rates = rates(snapshot)
         return String.format(
             Locale.US,

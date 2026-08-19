@@ -5,43 +5,28 @@ The Android application ID and Kotlin namespace are both `eu.odran.archipelago`.
 ## Dolphin GameCube backend
 
 The companion includes an experimental generic Dolphin backend. It connects to
-stock Dolphin's built-in GDB Remote Serial Protocol server, keeps sole ownership
-of that debugger socket for the emulation session, and exposes its memory reads
-and writes to embedded APWorld clients under the upstream
+the dedicated loopback memory service in the Dolphin Archipelago Android fork
+on `127.0.0.1:55021` and exposes its memory reads and writes to embedded APWorld
+clients under the upstream
 `dolphin_memory_engine` Python module name. The compatibility module implements
 the desktop package's hook/status, raw and typed big-endian memory access,
 pointer-following, and `MemWatch` surface without game-specific addresses in the
 transport.
 
-Set the companion's **Dolphin GDB port** to the same value as `GDBPort` under
-`[General]` in Dolphin's `Config/Dolphin.ini` (the default is `55020`). Start the
-companion before booting the game: Dolphin starts paused when GDB is enabled and
-the companion resumes it after completing the debugger handshake. If the
-debugger disconnects, stock Dolphin does not accept a replacement connection
-until emulation is restarted. RetroAchievements Hardcore mode disables the GDB
-server.
-
-GDB memory requests deliberately have no response deadline after the TCP
-connection is established. Dolphin services them from its emulation thread,
-which Android may suspend while the emulator is backgrounded or paused. The
-companion reports a slow request after two seconds but preserves the pending
-request and Dolphin's single debugger socket. Stopping the bridge, changing the
-port, or closing Dolphin still cancels a blocked request immediately.
-
-Dolphin's TCP GDB server has no authentication and binds to every network
-interface even though the companion itself connects through `127.0.0.1`. Enable
-it only on a trusted network. This transport is the shared foundation for
-GameCube clients; a world still needs its normal upstream client bundled or an
-Android runtime adapter before the companion can join a room for that game.
+The service starts and stops with emulation, accepts replacement companion
+connections after an app or emulator restart, and binds only to loopback. It
+transfers binary data directly without pausing the emulated CPU or requiring
+any `Dolphin.ini` setting. A world still needs its normal upstream client
+bundled or an Android runtime adapter before the companion can join a room for
+that game.
 
 The Dolphin settings card reports two-second transport samples: request rate,
 read/write throughput, average and maximum round-trip time, probe traffic, and
 failures. It also retains session-wide latency, failures, and peak sampled rate
 so a busy interval remains visible after returning from Dolphin. A compact
 sample is written to logcat under `ArchipelagoBridge` every ten seconds. These
-measurements cover the complete companion-to-Dolphin GDB round trip, including
-the time Dolphin takes to service the command on its emulation thread; no memory
-addresses or values are logged. Unavailable-port messages are rate-limited so a
+measurements cover the complete companion-to-Dolphin memory-service round trip;
+no memory addresses or values are logged. Unavailable-port messages are rate-limited so a
 long wait for Dolphin cannot overwrite the useful connection or failure event in
 logcat.
 
