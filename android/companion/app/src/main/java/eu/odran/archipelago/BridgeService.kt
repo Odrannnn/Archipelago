@@ -30,7 +30,7 @@ class BridgeService : Service() {
     )
 
     private data class ConnectedDolphin(
-        val client: DolphinGdbClient,
+        val client: DolphinMemoryClient,
         val gameId: String,
     )
 
@@ -41,7 +41,7 @@ class BridgeService : Service() {
     @Volatile private var stopping = false
     @Volatile private var activeBridge: MGBABridgeClient? = null
     @Volatile private var activeSniClient: SniMemoryClient? = null
-    @Volatile private var activeDolphinClient: DolphinGdbClient? = null
+    @Volatile private var activeDolphinClient: DolphinMemoryClient? = null
     @Volatile private var activeSession: RoomSession? = null
     @Volatile private var reconnectRequested = false
     private var lastConsoleServerDetails = ""
@@ -49,7 +49,7 @@ class BridgeService : Service() {
     override fun onCreate() {
         super.onCreate()
         restoreActiveRom()
-        dolphinTelemetryText = "Dolphin GDB is not connected."
+        dolphinTelemetryText = "Dolphin memory transport is not connected."
         createNotificationChannel()
         publish("Starting Archipelago bridge…")
         publishServerWaitingForRom()
@@ -102,7 +102,7 @@ class BridgeService : Service() {
         getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
         statusText = "Bridge service stopped"
         statusDetails = null
-        dolphinTelemetryText = "Dolphin GDB service stopped."
+        dolphinTelemetryText = "Dolphin memory service stopped."
         serverStatusText = "⏹️ Archipelago service stopped"
         serverStatusDetails = "Open the companion app to restart the bridge service."
         lastServerState = null
@@ -116,11 +116,11 @@ class BridgeService : Service() {
         var sniClient: SniMemoryClient? = null
         var sniRuntime: PythonSniRuntime? = null
         var sniGame: DetectedGameInfo? = null
-        var dolphinClient: DolphinGdbClient? = null
+        var dolphinClient: DolphinMemoryClient? = null
         var dolphinPort: Int? = null
         var dolphinGameId: String? = null
         var dolphinAttempt: Future<Result<ConnectedDolphin>>? = null
-        var pendingDolphinClient: DolphinGdbClient? = null
+        var pendingDolphinClient: DolphinMemoryClient? = null
         var pendingDolphinPort: Int? = null
         var dolphinProbe: Future<Result<String>>? = null
         var dolphinProbeStartedAt = 0L
@@ -144,6 +144,7 @@ class BridgeService : Service() {
         var dolphinPeakRequestRate = 0.0
         var dolphinPeakBandwidth = 0.0
         var lastDolphinUnavailableLog = 0L
+        var nextDolphinUseFastTransport = true
         var sniMemoryAttached = false
         var sniResetGeneration: Long? = null
         var serverPaused = false
@@ -153,8 +154,8 @@ class BridgeService : Service() {
             publish(
                 "Waiting for an Archipelago emulator bridge…",
                 "SNES games prefer the custom SNES9x bridge on TCP 127.0.0.1:${Snes9xBridgeClient.DEFAULT_PORT}; " +
-                    "RetroArch nightly Network Commands remain available as a fallback. Dolphin's generic GDB " +
-                    "backend connects to Dolphin on the configured localhost port.",
+                    "RetroArch nightly Network Commands remain available as a fallback. Dolphin Archipelago " +
+                    "uses its fast localhost memory service; stock Dolphin GDB remains a fallback.",
             )
             while (running && !Thread.currentThread().isInterrupted) {
                 val now = System.currentTimeMillis()
@@ -247,8 +248,9 @@ class BridgeService : Service() {
                 }
 
                 val configuredDolphinPort = DolphinSettings.load(this).gdbPort
-                if ((dolphinClient != null && dolphinPort != configuredDolphinPort) ||
-                    (pendingDolphinClient != null && pendingDolphinPort != configuredDolphinPort)
+                if ((dolphinClient?.usesConfiguredGdbPort == true && dolphinPort != configuredDolphinPort) ||
+                    (pendingDolphinClient?.usesConfiguredGdbPort == true &&
+                        pendingDolphinPort != configuredDolphinPort)
                 ) {
                     val connected = dolphinClient
                     val pending = pendingDolphinClient
@@ -269,6 +271,7 @@ class BridgeService : Service() {
                     dolphinProbeStartedAt = 0L
                     dolphinProbeSlowPublished = false
                     nextDolphinAttempt = 0L
+                    nextDolphinUseFastTransport = true
                     dolphinTelemetryText = "Dolphin GDB port changed · restart the running game before reconnecting."
                     if (activeRuntime == null) {
                         publish(
@@ -294,7 +297,8 @@ class BridgeService : Service() {
                     result.onSuccess { connection ->
                         val connected = connection.client
                         try {
-                            check(attemptedPort == DolphinSettings.load(this).gdbPort) {
+                            check(!connected.usesConfiguredGdbPort ||
+                                attemptedPort == DolphinSettings.load(this).gdbPort) {
                                 "Dolphin GDB port changed during connection"
                             }
                             DolphinMemoryEngineBridge.attach(this, connected)
@@ -310,40 +314,56 @@ class BridgeService : Service() {
                             dolphinPeakRequestRate = 0.0
                             dolphinPeakBandwidth = 0.0
                             lastDolphinUnavailableLog = 0L
+                            nextDolphinUseFastTransport = true
                             dolphinTelemetryText =
-                                "Connected · ${gameId.ifBlank { "unknown game" }} · collecting a live performance sample…"
+                                "Connected via ${connected.transportLabel} · " +
+                                    "${gameId.ifBlank { "unknown game" }} · collecting a live performance sample…"
                             if (activeRuntime == null) {
-                                publishDolphinReady(gameId, checkNotNull(attemptedPort))
+                                publishDolphinReady(gameId, connected)
                             }
-                            Log.i(TAG, "Dolphin GDB transport connected on port $attemptedPort for $gameId")
+                            Log.i(
+                                TAG,
+                                "Dolphin ${connected.transportLabel} transport connected on port " +
+                                    "$attemptedPort for $gameId",
+                            )
                         } catch (error: Exception) {
                             connected.close()
                             if (activeDolphinClient === connected) activeDolphinClient = null
                             nextDolphinAttempt = now + TimeUnit.SECONDS.toMillis(1)
-                            dolphinTelemetryText =
-                                "Dolphin accepted the debugger but setup failed · restart emulation to retry."
-                            Log.w(TAG, "Dolphin GDB setup failed after connection", error)
+                            dolphinTelemetryText = "Dolphin memory transport setup failed · retrying."
+                            Log.w(TAG, "Dolphin memory setup failed after connection", error)
                         }
                     }.onFailure { error ->
                         candidate?.close()
                         if (activeDolphinClient === candidate) activeDolphinClient = null
-                        nextDolphinAttempt = now + TimeUnit.SECONDS.toMillis(1)
-                        dolphinTelemetryText = "Waiting for Dolphin GDB on 127.0.0.1:$configuredDolphinPort…"
+                        val fastTransportFailed = candidate?.usesConfiguredGdbPort == false
+                        nextDolphinUseFastTransport = !fastTransportFailed
+                        nextDolphinAttempt = if (fastTransportFailed) now else now + TimeUnit.SECONDS.toMillis(1)
+                        dolphinTelemetryText = if (fastTransportFailed) {
+                            "Fast Dolphin memory is unavailable · trying stock GDB fallback…"
+                        } else {
+                            "Waiting for Dolphin memory on localhost…"
+                        }
                         if (lastDolphinUnavailableLog == 0L ||
                             now - lastDolphinUnavailableLog >= DOLPHIN_UNAVAILABLE_LOG_INTERVAL_MILLIS
                         ) {
-                            Log.d(TAG, "Dolphin GDB is not ready: ${error.message}")
+                            Log.d(TAG, "Dolphin memory transport is not ready: ${error.message}")
                             lastDolphinUnavailableLog = now
                         }
                     }
                 }
 
                 if (dolphinClient == null && dolphinAttempt == null && now >= nextDolphinAttempt) {
-                    val candidate = DolphinGdbClient(port = configuredDolphinPort)
+                    val candidate: DolphinMemoryClient = if (nextDolphinUseFastTransport) {
+                        DolphinSocketClient()
+                    } else {
+                        DolphinGdbClient(port = configuredDolphinPort)
+                    }
                     pendingDolphinClient = candidate
-                    pendingDolphinPort = configuredDolphinPort
+                    pendingDolphinPort = candidate.port
                     activeDolphinClient = candidate
-                    dolphinTelemetryText = "Waiting for Dolphin GDB on 127.0.0.1:$configuredDolphinPort…"
+                    dolphinTelemetryText =
+                        "Waiting for Dolphin ${candidate.transportLabel} on 127.0.0.1:${candidate.port}…"
                     dolphinAttempt = dolphinExecutor.submit<Result<ConnectedDolphin>> {
                         runCatching {
                             candidate.connect()
@@ -376,7 +396,7 @@ class BridgeService : Service() {
                                         "Connected · ${gameId.ifBlank { "unknown game" }} · game identity updated."
                                     }
                                 if (activeRuntime == null) {
-                                    publishDolphinReady(gameId, checkNotNull(dolphinPort))
+                                    publishDolphinReady(gameId, checkNotNull(probedDolphin))
                                 }
                             }
                         }
@@ -392,30 +412,42 @@ class BridgeService : Service() {
                                 dolphinGameId = null
                                 nextDolphinAttempt = now + TimeUnit.SECONDS.toMillis(1)
                                 lastDolphinUnavailableLog = now
-                                dolphinTelemetryText =
+                                val canReconnect = probedDolphin?.reconnectable == true
+                                val transportLabel = probedDolphin?.transportLabel ?: "memory"
+                                dolphinTelemetryText = if (canReconnect) {
+                                    "Dolphin $transportLabel disconnected · reconnecting.\n" +
+                                        "Last live sample:\n$lastTelemetry"
+                                } else {
                                     "Dolphin GDB disconnected · restart the game to reopen its debugger.\n" +
                                         "Last live sample:\n$lastTelemetry"
-                                if (activeRuntime == null) {
-                                    publish(
-                                        "Dolphin GDB disconnected · restart the game",
-                                        "Dolphin closed its debugger transport. Stock Dolphin cannot accept another " +
-                                            "debugger until emulation restarts.",
-                                    )
                                 }
-                                Log.w(TAG, "Dolphin GDB transport disconnected", error)
+                                if (activeRuntime == null) {
+                                    if (canReconnect) {
+                                        publish(
+                                            "Dolphin memory transport disconnected · reconnecting",
+                                            "The custom Dolphin service accepts replacement connections automatically.",
+                                        )
+                                    } else {
+                                        publish(
+                                            "Dolphin GDB disconnected · restart the game",
+                                            "Stock Dolphin cannot accept another debugger until emulation restarts.",
+                                        )
+                                    }
+                                }
+                                Log.w(TAG, "Dolphin $transportLabel transport disconnected", error)
                             } else {
                                 nextDolphinProbe = now + TimeUnit.SECONDS.toMillis(1)
                                 dolphinTelemetryText =
-                                    "Dolphin GDB connected · game memory is temporarily unavailable.\n" +
+                                    "Dolphin ${probedDolphin.transportLabel} connected · " +
+                                        "game memory is temporarily unavailable.\n" +
                                         (error.message ?: error.javaClass.simpleName)
                                 if (activeRuntime == null) {
                                     publish(
                                         "Dolphin connected · waiting for readable game memory",
-                                        "The debugger socket is still open; the companion will retry without " +
-                                            "sacrificing Dolphin's single connection.",
+                                        "The memory socket remains open and the companion will retry.",
                                     )
                                 }
-                                Log.d(TAG, "Dolphin GDB probe could not read game memory: ${error.message}")
+                                Log.d(TAG, "Dolphin memory probe could not read game memory: ${error.message}")
                             }
                         }
                     }
@@ -437,16 +469,17 @@ class BridgeService : Service() {
                     dolphinProbeSlowPublished = true
                     val gameId = dolphinGameId.orEmpty()
                     dolphinTelemetryText =
-                        "Dolphin GDB connected · waiting for the emulator to resume…\n" +
-                            "The active request remains pending; its only debugger socket is still preserved."
+                        "Dolphin ${connectedDolphin?.transportLabel ?: "memory"} connected · " +
+                            "waiting for the emulator to resume…\n" +
+                            "The active request remains pending and its socket is preserved."
                     if (activeRuntime == null) {
                         publish(
                             "Dolphin connected · emulator response paused",
-                            "The current GDB request is waiting without a deadline. This is normal while Dolphin is " +
+                            "The current memory request is waiting without a deadline. This is normal while Dolphin is " +
                                 "backgrounded, paused, or busy loading; returning to the game will resume it.",
                         )
                     }
-                    Log.i(TAG, "Dolphin GDB response pending for $gameId; preserving the debugger socket")
+                    Log.i(TAG, "Dolphin memory response pending for $gameId; preserving the socket")
                 }
 
                 val measuredDolphin = dolphinClient
@@ -461,6 +494,7 @@ class BridgeService : Service() {
                     dolphinTelemetryText = DolphinTelemetryFormatter.display(
                         snapshot,
                         dolphinGameId.orEmpty(),
+                        measuredDolphin.transportLabel,
                         measuredPort,
                         dolphinPeakRequestRate,
                         dolphinPeakBandwidth,
@@ -468,7 +502,12 @@ class BridgeService : Service() {
                     if (now >= nextDolphinTelemetryLog) {
                         Log.i(
                             TAG,
-                            DolphinTelemetryFormatter.logLine(snapshot, dolphinGameId.orEmpty(), measuredPort),
+                            DolphinTelemetryFormatter.logLine(
+                                snapshot,
+                                dolphinGameId.orEmpty(),
+                                measuredDolphin.transportLabel,
+                                measuredPort,
+                            ),
                         )
                         nextDolphinTelemetryLog = now + DOLPHIN_TELEMETRY_LOG_INTERVAL_MILLIS
                     }
@@ -766,17 +805,16 @@ class BridgeService : Service() {
             if (activeDolphinClient === dolphinClient || activeDolphinClient === pendingDolphinClient) {
                 activeDolphinClient = null
             }
-            if (!stopping) dolphinTelemetryText = "Dolphin GDB is not connected."
+            if (!stopping) dolphinTelemetryText = "Dolphin memory transport is not connected."
             running = false
         }
     }
 
-    private fun publishDolphinReady(gameId: String, port: Int) {
+    private fun publishDolphinReady(gameId: String, client: DolphinMemoryClient) {
         val title = gameId.ifBlank { "game not identified" }
         publish(
-            "Dolphin connected · $title · generic memory backend ready",
-            "Connected to Dolphin's GDB server on 127.0.0.1:$port. Waiting for a compatible GameCube " +
-                "Archipelago client. Dolphin's stock GDB server is unauthenticated and binds to every network interface.",
+            "Dolphin connected · $title · ${client.transportLabel} backend ready",
+            "Connected on 127.0.0.1:${client.port}. Waiting for a compatible GameCube Archipelago client.",
         )
     }
 
@@ -944,7 +982,7 @@ class BridgeService : Service() {
             private set
 
         @Volatile
-        var dolphinTelemetryText: String = "Dolphin GDB is not connected."
+        var dolphinTelemetryText: String = "Dolphin memory transport is not connected."
             private set
 
         @Volatile

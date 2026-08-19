@@ -119,6 +119,7 @@ class DolphinGdbClientTest {
                 val display = DolphinTelemetryFormatter.display(
                     telemetry,
                     "GZLE99",
+                    "GDB",
                     server.port,
                     peakRequestsPerSecond = 12.5,
                     peakKibibytesPerSecond = 3.25,

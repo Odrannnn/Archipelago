@@ -2,7 +2,6 @@ package eu.odran.archipelago
 
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
-import java.io.Closeable
 import java.io.EOFException
 import java.io.IOException
 import java.net.InetAddress
@@ -50,9 +49,12 @@ data class DolphinGdbTelemetry(
  */
 class DolphinGdbClient(
     private val host: String = DEFAULT_HOST,
-    private val port: Int = DEFAULT_PORT,
+    override val port: Int = DEFAULT_PORT,
     private val connectTimeoutMillis: Int = DEFAULT_CONNECT_TIMEOUT_MILLIS,
-) : Closeable {
+) : DolphinMemoryClient {
+    override val transportLabel = "GDB"
+    override val reconnectable = false
+    override val usesConfiguredGdbPort = true
     private val lock = ReentrantLock()
     @Volatile
     private var socket: Socket? = null
@@ -84,7 +86,7 @@ class DolphinGdbClient(
     }
 
     /** Connects to Dolphin, consumes its initial stop state, and resumes emulation. */
-    fun connect() = lock.withLock {
+    override fun connect() = lock.withLock {
         if (isSocketOpen()) {
             logicallyHooked = true
             probeLocked()
@@ -126,7 +128,7 @@ class DolphinGdbClient(
     }
 
     /** Memory Engine-compatible hook which reuses the single persistent socket. */
-    fun hook() = lock.withLock {
+    override fun hook() = lock.withLock {
         if (!isSocketOpen()) {
             connect()
         } else {
@@ -139,27 +141,27 @@ class DolphinGdbClient(
      * Memory Engine-compatible logical detach. Closing the TCP socket here would
      * permanently disable Dolphin's GDB listener until the game is restarted.
      */
-    fun unHook() = lock.withLock {
+    override fun unHook() = lock.withLock {
         logicallyHooked = false
     }
 
-    fun isHooked(): Boolean = lock.withLock {
+    override fun isHooked(): Boolean = lock.withLock {
         if (!logicallyHooked || !isSocketOpen()) return@withLock false
         // readBytesLocked already closes on a real transport failure. A temporary
         // guest-memory error is not permission to sacrifice Dolphin's one socket.
         runCatching { probeLocked() }.isSuccess
     }
 
-    fun assertHooked() {
+    override fun assertHooked() {
         if (!isHooked()) throw IllegalStateException("not hooked")
     }
 
-    fun readBytes(consoleAddress: Long, size: Int): ByteArray = lock.withLock {
+    override fun readBytes(consoleAddress: Long, size: Int): ByteArray = lock.withLock {
         requireHookedLocked()
         readBytesLocked(consoleAddress, size)
     }
 
-    fun writeBytes(consoleAddress: Long, data: ByteArray) = lock.withLock {
+    override fun writeBytes(consoleAddress: Long, data: ByteArray) = lock.withLock {
         requireHookedLocked()
         validateRange(consoleAddress, data.size)
         var offset = 0
@@ -182,15 +184,15 @@ class DolphinGdbClient(
         }
     }
 
-    fun readByte(consoleAddress: Long): Int = readBytes(consoleAddress, 1)[0].toInt() and 0xFF
+    override fun readByte(consoleAddress: Long): Int = readBytes(consoleAddress, 1)[0].toInt() and 0xFF
 
-    fun writeByte(consoleAddress: Long, value: Int) {
+    override fun writeByte(consoleAddress: Long, value: Int) {
         require(value in 0..0xFF) { "Byte value out of range: $value" }
         writeBytes(consoleAddress, byteArrayOf(value.toByte()))
     }
 
     /** Six-byte GameCube/Wii disc ID, or an empty string before a title is ready. */
-    fun gameId(): String = lock.withLock {
+    override fun gameId(): String = lock.withLock {
         check(isSocketOpen()) { "Dolphin GDB socket is closed" }
         readBytesLocked(GAME_ID_ADDRESS, GAME_ID_LENGTH)
             .takeWhile { it != 0.toByte() }
@@ -198,10 +200,10 @@ class DolphinGdbClient(
             .toString(StandardCharsets.US_ASCII)
     }
 
-    fun isSocketConnected(): Boolean = lock.withLock { isSocketOpen() }
+    override fun isSocketConnected(): Boolean = lock.withLock { isSocketOpen() }
 
     /** Returns one measurement interval and resets only its counters. */
-    fun takeTelemetrySnapshot(): DolphinGdbTelemetry = lock.withLock {
+    override fun takeTelemetrySnapshot(): DolphinGdbTelemetry = lock.withLock {
         val now = System.nanoTime()
         DolphinGdbTelemetry(
             connected = isSocketOpen(),

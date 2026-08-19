@@ -20,6 +20,7 @@ internal object DolphinTelemetryFormatter {
     fun display(
         snapshot: DolphinGdbTelemetry,
         gameId: String,
+        transportLabel: String,
         port: Int,
         peakRequestsPerSecond: Double,
         peakKibibytesPerSecond: Double,
@@ -29,11 +30,12 @@ internal object DolphinTelemetryFormatter {
         val sessionAverageMillis = averageMillis(snapshot.sessionWaitNanos, snapshot.sessionRequests)
         return String.format(
             Locale.US,
-            "Connected · %s · 127.0.0.1:%d\n" +
+            "Connected · %s · %s · 127.0.0.1:%d\n" +
                 "Live %.1f req/s · %.2f KiB/s · avg %.2f ms · max %.2f ms\n" +
                 "Sample reads %d (%s) · writes %d (%s) · probes %d · failures %d\n" +
                 "Session %d requests · avg %.2f ms · max %.2f ms · peak %.1f req/s / %.2f KiB/s · failures %d",
             gameId.ifBlank { "unknown game" },
+            transportLabel,
             port,
             rates.requestsPerSecond,
             rates.kibibytesPerSecond,
@@ -54,12 +56,13 @@ internal object DolphinTelemetryFormatter {
         )
     }
 
-    fun logLine(snapshot: DolphinGdbTelemetry, gameId: String, port: Int): String {
+    fun logLine(snapshot: DolphinGdbTelemetry, gameId: String, transportLabel: String, port: Int): String {
         val rates = rates(snapshot)
         return String.format(
             Locale.US,
-            "Dolphin GDB telemetry game=%s port=%d requests=%d rate=%.1f/s read=%dB write=%dB " +
+            "Dolphin telemetry transport=%s game=%s port=%d requests=%d rate=%.1f/s read=%dB write=%dB " +
                 "avg=%.2fms max=%.2fms failures=%d session_requests=%d session_failures=%d",
+            transportLabel,
             gameId.ifBlank { "unknown" },
             port,
             snapshot.intervalRequests,

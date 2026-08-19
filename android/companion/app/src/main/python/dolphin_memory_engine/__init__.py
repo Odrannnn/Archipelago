@@ -1,4 +1,4 @@
-"""Dolphin Memory Engine-compatible API backed by Android's Dolphin GDB transport.
+"""Dolphin Memory Engine-compatible API backed by Android memory transports.
 
 The public surface mirrors ``dolphin-memory-engine`` so upstream Archipelago
 clients can import it unchanged. The foreground Android bridge service installs
@@ -33,7 +33,7 @@ def configure_backend(backend: Any | None) -> None:
 
 def _require_backend() -> Any:
     if _backend is None:
-        raise RuntimeError("Dolphin GDB backend is unavailable")
+        raise RuntimeError("Dolphin memory backend is unavailable")
     return _backend
 
 
@@ -138,7 +138,7 @@ def write_double(console_address: int, value: float) -> None:
 
 
 def _valid_console_address(address: int) -> bool:
-    # MEM1 plus Wii MEM2. The GDB transport performs the authoritative check.
+    # MEM1 plus Wii MEM2. The active transport performs the authoritative check.
     return 0x80000000 <= address < 0x81800000 or 0x90000000 <= address < 0x94000000
 
 
