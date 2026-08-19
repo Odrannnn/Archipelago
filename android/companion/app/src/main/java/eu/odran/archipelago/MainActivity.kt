@@ -941,7 +941,6 @@ class MainActivity : Activity() {
         thread(name = "shared-invite-rom-input") {
             runCatching {
                 if (requirements.streaming) {
-                    contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     OfflineGenerator.validateRomInputDocument(this, session.patchBytes, input.key, uri)
                     pendingRomInputUris[input.key] = uri
                     null

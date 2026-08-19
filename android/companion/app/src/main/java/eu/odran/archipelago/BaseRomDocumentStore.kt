@@ -13,10 +13,18 @@ object BaseRomDocumentStore {
             .getString(key(game, inputKey), null)?.let(Uri::parse)
 
     fun store(context: Context, game: String, inputKey: String, uri: Uri) {
-        context.contentResolver.takePersistableUriPermission(
-            uri,
-            android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
-        )
+        // ACTION_OPEN_DOCUMENT normally provides a persistable grant, but some
+        // OEM and third-party file providers only provide a temporary read
+        // grant. That must not turn a successfully validated/patched ISO into a
+        // ROM validation failure. In that case the user simply chooses it again
+        // for the next seed.
+        val persisted = runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
+        }.isSuccess
+        if (!persisted) return
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
             .edit().putString(key(game, inputKey), uri.toString()).apply()
     }

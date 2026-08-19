@@ -1805,7 +1805,6 @@ class GeneratorActivity : Activity() {
         thread(name = "offline-rom-input") {
             runCatching {
                 if (requirements.streaming) {
-                    contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     OfflineGenerator.validateRomInputDocument(this, selectedPatch.readBytes(), input.key, uri)
                     pendingRomInputUris[input.key] = uri
                 } else {
