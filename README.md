@@ -80,7 +80,8 @@ With a built-in or imported compatible game world, on the phone it can:
 
 - create and edit per-player YAML documents with an independent game choice;
 - remember named YAML configurations privately, load them back later, or import
-  previously exported `.yaml` and `.yml` files;
+  previously exported `.yaml` and `.yml` files, with each player's name and game
+  shown in the saved library;
 - generate single-player, same-game multiplayer, or mixed-game multiworld seeds offline;
 - retain seed history, settings, ZIPs, and player-specific APWorld patches;
 - ask for every clean ROM input declared by the selected APWorld and let that

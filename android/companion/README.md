@@ -136,8 +136,10 @@ registered by their selected APWorld.
 The generator can remember named YAML configurations in app-private storage,
 ordered newest first. **Load into generator** restores the complete player form;
 **Import YAML file** validates and remembers an existing `.yaml` or `.yml` file,
-and saved entries can be exported again or deleted without affecting external
-copies. Clearing app data removes this YAML library along with other private data.
+and every library entry identifies each saved player and game. Older entries are
+backfilled from their YAML after generator startup. Saved entries can be exported
+again or deleted without affecting external copies. Clearing app data removes
+this YAML library along with other private data.
 
 The manifest-registered read-only `DocumentsProvider` makes an **Archipelago
 Companion** root available to SAF-compatible file managers. **Saved YAMLs**

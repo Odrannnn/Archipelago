@@ -94,6 +94,7 @@ class GeneratorActivity : Activity() {
     private var historyEntryCount = 0
     private var savedYamlEntryCount = 0
     private var generatorReady = false
+    private var savedYamlMetadataRefreshInProgress = false
     private var pendingRomRequirements: RomRequirements? = null
     private val pendingRomInputs = linkedMapOf<String, ByteArray>()
 
@@ -491,6 +492,7 @@ class GeneratorActivity : Activity() {
                         rememberYamlButton.isEnabled = generatorReady
                         importYamlButton.isEnabled = generatorReady
                         renderSavedYamls()
+                        backfillSavedYamlMetadata()
                         val imported = startup.catalog.count { it.source == "imported" }
                         val bundled = startup.catalog.count { it.source == "bundled" }
                         status.text = if (startup.forms.isEmpty()) {
@@ -1044,8 +1046,8 @@ class GeneratorActivity : Activity() {
             status.text = "The player YAML is empty."
             return
         }
-        val suggestedName = playerForms.joinToString(" + ") { player ->
-            player.name.ifBlank { player.game }
+        val suggestedName = savedYamlPlayers(playerForms).joinToString(" + ") { player ->
+            "${player.name} · ${player.game}"
         }.take(100).ifBlank { "Player settings" }
         val nameEditor = EditText(this).apply {
             hint = "Configuration name"
@@ -1067,8 +1069,8 @@ class GeneratorActivity : Activity() {
         status.text = "Validating and saving YAML…"
         thread(name = "offline-player-yaml-store") {
             runCatching {
-                parseFormsAndSchemas(yaml)
-                SavedYamlStore.save(this, name, yaml)
+                val (forms, _) = parseFormsAndSchemas(yaml)
+                SavedYamlStore.save(this, name, yaml, savedYamlPlayers(forms))
             }.onSuccess { entry -> runOnUiThread {
                 renderSavedYamls()
                 status.text = "Remembered ${entry.name}."
@@ -1110,7 +1112,7 @@ class GeneratorActivity : Activity() {
                     .toString()
                 require('\u0000' !in yaml) { "The selected file is not a text YAML file." }
                 val (forms, schemas) = parseFormsAndSchemas(yaml)
-                val entry = SavedYamlStore.save(this, yamlDisplayName(uri), yaml)
+                val entry = SavedYamlStore.save(this, yamlDisplayName(uri), yaml, savedYamlPlayers(forms))
                 ImportedYamlState(entry, yaml, forms, schemas)
             }.onSuccess { imported -> runOnUiThread {
                 applyLoadedYaml(imported.yaml, imported.forms, imported.schemas)
@@ -1168,6 +1170,36 @@ class GeneratorActivity : Activity() {
         advancedYamlDirty = false
     }
 
+    private fun savedYamlPlayers(forms: List<PlayerFormData>): List<SavedYamlPlayer> =
+        forms.mapIndexed { index, player ->
+            SavedYamlPlayer(
+                name = player.name.ifBlank { "Player ${index + 1}" },
+                game = player.game,
+            )
+        }
+
+    private fun backfillSavedYamlMetadata() {
+        if (!generatorReady || savedYamlMetadataRefreshInProgress) return
+        val missingEntries = SavedYamlStore.list(this).filter { it.players.isEmpty() }
+        if (missingEntries.isEmpty()) return
+        savedYamlMetadataRefreshInProgress = true
+        thread(name = "offline-player-yaml-metadata-backfill") {
+            var changed = false
+            missingEntries.forEach { entry ->
+                runCatching {
+                    val yaml = SavedYamlStore.read(this, entry.id)
+                    val forms = OfflineGenerator.playerFormsFromYaml(this, yaml)
+                    require(forms.isNotEmpty()) { "The saved YAML has no players." }
+                    SavedYamlStore.updatePlayers(this, entry.id, savedYamlPlayers(forms))
+                }.onSuccess { updated -> changed = changed || updated }
+            }
+            runOnUiThread {
+                savedYamlMetadataRefreshInProgress = false
+                if (changed) renderSavedYamls()
+            }
+        }
+    }
+
     private fun renderSavedYamls() = preserveScrollPosition {
         savedYamlsContainer.removeAllViews()
         val entries = SavedYamlStore.list(this)
@@ -1196,6 +1228,14 @@ class GeneratorActivity : Activity() {
                     text = "Saved $saved · ${size.coerceAtLeast(1)} KiB"
                     CompanionUi.styleMuted(this)
                 }, CompanionUi.insetTop(this, this@GeneratorActivity, 2))
+                addView(TextView(this@GeneratorActivity).apply {
+                    text = if (entry.players.isEmpty()) {
+                        "Player and game details will be added after this YAML is validated."
+                    } else {
+                        entry.players.joinToString("\n") { player -> "${player.name} · ${player.game}" }
+                    }
+                    CompanionUi.styleBody(this)
+                }, CompanionUi.insetTop(this, this@GeneratorActivity, 6))
                 addView(Button(this@GeneratorActivity).apply {
                     text = "Load into generator"
                     CompanionUi.stylePrimary(this)

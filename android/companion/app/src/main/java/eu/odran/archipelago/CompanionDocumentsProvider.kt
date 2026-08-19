@@ -178,6 +178,8 @@ class CompanionDocumentsProvider : DocumentsProvider() {
             mimeType = YAML_MIME_TYPE,
             lastModified = entry.createdAt,
             size = file.length(),
+            summary = entry.players.takeIf { it.isNotEmpty() }
+                ?.joinToString { player -> "${player.name} · ${player.game}" },
             file = file,
         )
     }

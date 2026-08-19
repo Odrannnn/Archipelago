@@ -40,7 +40,8 @@ game-specific Archipelago logic. No memory port is exposed to the LAN.
   APWorld. This supports multi-ROM handlers such as Oracle of Seasons cross-item
   mode without adding game or filename branches to the companion.
 - The seed generator keeps named YAML configurations in app-private storage and
-  can validate, remember, and reload existing `.yaml` or `.yml` files.
+  can validate, remember, and reload existing `.yaml` or `.yml` files while
+  displaying every saved player's name and game.
 - A read-only Storage Access Framework provider exposes saved YAMLs and generated
   seed artifacts to compatible file managers without exposing cached ROMs or
   requesting broad storage access.

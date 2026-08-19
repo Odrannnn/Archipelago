@@ -6,11 +6,17 @@ import org.json.JSONObject
 import java.io.File
 import java.util.UUID
 
+data class SavedYamlPlayer(
+    val name: String,
+    val game: String,
+)
+
 data class SavedYamlEntry(
     val id: String,
     val name: String,
     val createdAt: Long,
     val byteCount: Int,
+    val players: List<SavedYamlPlayer> = emptyList(),
 )
 
 internal fun orderedSavedYamlEntries(entries: List<SavedYamlEntry>): List<SavedYamlEntry> =
@@ -18,7 +24,7 @@ internal fun orderedSavedYamlEntries(entries: List<SavedYamlEntry>): List<SavedY
 
 /** Stores reusable player YAML configurations in app-private files. */
 object SavedYamlStore {
-    private const val INDEX_VERSION = 1
+    private const val INDEX_VERSION = 2
     const val MAX_YAML_BYTES = 2 * 1024 * 1024
     private val lock = Any()
     private val idPattern = Regex("[0-9]+_[a-f0-9]{8}")
@@ -27,8 +33,14 @@ object SavedYamlStore {
         orderedSavedYamlEntries(readIndex(context).filter { yamlFile(context, it.id).isFile })
     }
 
-    fun save(context: Context, name: String, yaml: String): SavedYamlEntry = synchronized(lock) {
+    fun save(
+        context: Context,
+        name: String,
+        yaml: String,
+        players: List<SavedYamlPlayer>,
+    ): SavedYamlEntry = synchronized(lock) {
         val cleanName = validateName(name)
+        val cleanPlayers = validatePlayers(players)
         val bytes = yaml.toByteArray(Charsets.UTF_8)
         require(bytes.isNotEmpty()) { "The player YAML is empty." }
         require(bytes.size <= MAX_YAML_BYTES) {
@@ -37,7 +49,7 @@ object SavedYamlStore {
 
         val createdAt = System.currentTimeMillis()
         val id = "${createdAt}_${UUID.randomUUID().toString().take(8)}"
-        val entry = SavedYamlEntry(id, cleanName, createdAt, bytes.size)
+        val entry = SavedYamlEntry(id, cleanName, createdAt, bytes.size, cleanPlayers)
         val file = yamlFile(context, id)
         file.writeBytes(bytes)
         runCatching { writeIndex(context, readIndex(context) + entry) }
@@ -81,12 +93,40 @@ object SavedYamlStore {
         }
     }
 
+    fun updatePlayers(context: Context, id: String, players: List<SavedYamlPlayer>): Boolean = synchronized(lock) {
+        if (!idPattern.matches(id)) return false
+        val entries = readIndex(context)
+        val index = entries.indexOfFirst { it.id == id }
+        if (index < 0) return false
+        val updated = entries.toMutableList().apply {
+            this[index] = this[index].copy(players = validatePlayers(players))
+        }
+        writeIndex(context, updated)
+        CompanionDocumentsProvider.notifySavedYamlsChanged(context)
+        true
+    }
+
     private fun validateName(name: String): String {
         val cleanName = name.trim()
         require(cleanName.isNotEmpty()) { "Enter a name for the saved YAML." }
         require(cleanName.length <= 100) { "The saved YAML name is too long." }
         require(cleanName.none { it.isISOControl() }) { "The saved YAML name contains invalid characters." }
         return cleanName
+    }
+
+    private fun validatePlayers(players: List<SavedYamlPlayer>): List<SavedYamlPlayer> {
+        require(players.isNotEmpty()) { "The saved YAML has no players." }
+        return players.map { player ->
+            val name = player.name.trim()
+            val game = player.game.trim()
+            require(name.isNotEmpty() && name.length <= 100 && name.none { it.isISOControl() }) {
+                "The saved YAML contains an invalid player name."
+            }
+            require(game.isNotEmpty() && game.length <= 200 && game.none { it.isISOControl() }) {
+                "The saved YAML contains an invalid game name."
+            }
+            SavedYamlPlayer(name, game)
+        }
     }
 
     private fun storageRoot(context: Context) = File(context.filesDir, "saved_yamls").apply { mkdirs() }
@@ -98,27 +138,52 @@ object SavedYamlStore {
     private fun readIndex(context: Context): List<SavedYamlEntry> = runCatching {
         val file = indexFile(context)
         if (!file.isFile) return@runCatching emptyList()
-        val root = JSONObject(file.readText(Charsets.UTF_8))
-        require(root.optInt("version") == INDEX_VERSION) { "Unsupported saved YAML index version." }
+        decodeIndex(file.readText(Charsets.UTF_8))
+    }.getOrDefault(emptyList())
+
+    private fun decodeIndex(encoded: String): List<SavedYamlEntry> {
+        val root = JSONObject(encoded)
+        require(root.optInt("version") in 1..INDEX_VERSION) { "Unsupported saved YAML index version." }
         val entries = root.getJSONArray("entries")
-        List(entries.length()) { index ->
+        return List(entries.length()) { index ->
             val item = entries.getJSONObject(index)
             SavedYamlEntry(
                 id = item.getString("id"),
                 name = item.getString("name"),
                 createdAt = item.getLong("created_at"),
                 byteCount = item.getInt("byte_count"),
+                players = item.optJSONArray("players")?.let { players ->
+                    List(players.length()) { playerIndex ->
+                        val player = players.getJSONObject(playerIndex)
+                        SavedYamlPlayer(
+                            name = player.getString("name"),
+                            game = player.getString("game"),
+                        )
+                    }
+                }.orEmpty(),
             ).also { entry ->
                 require(idPattern.matches(entry.id)) { "Invalid saved YAML entry." }
                 validateName(entry.name)
                 require(entry.createdAt > 0 && entry.byteCount in 1..MAX_YAML_BYTES) {
                     "Invalid saved YAML metadata."
                 }
+                if (entry.players.isNotEmpty()) validatePlayers(entry.players)
             }
         }.distinctBy { it.id }
-    }.getOrDefault(emptyList())
+    }
 
     private fun writeIndex(context: Context, entries: List<SavedYamlEntry>) {
+        val encoded = encodeIndex(entries)
+        val target = indexFile(context)
+        val temporary = File(target.parentFile, "${target.name}.tmp")
+        temporary.writeText(encoded, Charsets.UTF_8)
+        if (!temporary.renameTo(target)) {
+            temporary.copyTo(target, overwrite = true)
+            temporary.delete()
+        }
+    }
+
+    private fun encodeIndex(entries: List<SavedYamlEntry>): String {
         val root = JSONObject().apply {
             put("version", INDEX_VERSION)
             put("entries", JSONArray().apply {
@@ -128,16 +193,18 @@ object SavedYamlStore {
                         put("name", entry.name)
                         put("created_at", entry.createdAt)
                         put("byte_count", entry.byteCount)
+                        put("players", JSONArray().apply {
+                            entry.players.forEach { player ->
+                                put(JSONObject().apply {
+                                    put("name", player.name)
+                                    put("game", player.game)
+                                })
+                            }
+                        })
                     })
                 }
             })
         }
-        val target = indexFile(context)
-        val temporary = File(target.parentFile, "${target.name}.tmp")
-        temporary.writeText(root.toString(2), Charsets.UTF_8)
-        if (!temporary.renameTo(target)) {
-            temporary.copyTo(target, overwrite = true)
-            temporary.delete()
-        }
+        return root.toString(2)
     }
 }
