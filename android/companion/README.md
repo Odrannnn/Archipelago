@@ -21,6 +21,13 @@ debugger disconnects, stock Dolphin does not accept a replacement connection
 until emulation is restarted. RetroAchievements Hardcore mode disables the GDB
 server.
 
+GDB memory requests deliberately have no response deadline after the TCP
+connection is established. Dolphin services them from its emulation thread,
+which Android may suspend while the emulator is backgrounded or paused. The
+companion reports a slow request after two seconds but preserves the pending
+request and Dolphin's single debugger socket. Stopping the bridge, changing the
+port, or closing Dolphin still cancels a blocked request immediately.
+
 Dolphin's TCP GDB server has no authentication and binds to every network
 interface even though the companion itself connects through `127.0.0.1`. Enable
 it only on a trusted network. This transport is the shared foundation for
@@ -34,7 +41,9 @@ so a busy interval remains visible after returning from Dolphin. A compact
 sample is written to logcat under `ArchipelagoBridge` every ten seconds. These
 measurements cover the complete companion-to-Dolphin GDB round trip, including
 the time Dolphin takes to service the command on its emulation thread; no memory
-addresses or values are logged.
+addresses or values are logged. Unavailable-port messages are rate-limited so a
+long wait for Dolphin cannot overwrite the useful connection or failure event in
+logcat.
 
 The application connects either to the custom mGBA libretro core at
 `127.0.0.1:43056` or the custom SNES9x core at `127.0.0.1:43057`. RetroArch

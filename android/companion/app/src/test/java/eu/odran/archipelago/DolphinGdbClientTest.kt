@@ -55,6 +55,45 @@ class DolphinGdbClientTest {
     }
 
     @Test
+    fun activeMemoryRequestSurvivesAResponseLongerThanTheFormerTimeout() {
+        FakeGdbServer(delayedReadAddress = 0x8030_0000, readDelayMillis = 2_250).use { server ->
+            DolphinGdbClient(port = server.port).use { client ->
+                client.connect()
+
+                assertArrayEquals(byteArrayOf(0), client.readBytes(0x8030_0000, 1))
+                assertTrue(client.isSocketConnected())
+                assertEquals("GZLE99", client.gameId())
+            }
+
+            assertEquals(1, server.connectionCount.get())
+            server.assertHealthy()
+        }
+    }
+
+    @Test
+    fun blockedActiveMemoryRequestCanBeCancelled() {
+        FakeGdbServer(stalledReadAddress = 0x8030_0000).use { server ->
+            val client = DolphinGdbClient(port = server.port)
+            val reader = Executors.newSingleThreadExecutor()
+            try {
+                client.connect()
+                val result = reader.submit<Result<ByteArray>> {
+                    runCatching { client.readBytes(0x8030_0000, 1) }
+                }
+                assertTrue(server.awaitStalledRead())
+
+                client.close()
+
+                assertTrue(result.get(1, TimeUnit.SECONDS).isFailure)
+                server.assertHealthy()
+            } finally {
+                client.close()
+                reader.shutdownNow()
+            }
+        }
+    }
+
+    @Test
     fun resumesDolphinAndExchangesChunkedMemory() {
         FakeGdbServer().use { server ->
             val payload = ByteArray(2_050) { (it and 0xFF).toByte() }
@@ -146,6 +185,9 @@ class DolphinGdbClientTest {
         private val rejectedAddress: Long? = null,
         private val acceptDelayMillis: Long = 0,
         private val stallInitialReply: Boolean = false,
+        private val delayedReadAddress: Long? = null,
+        private val readDelayMillis: Long = 0,
+        private val stalledReadAddress: Long? = null,
     ) : Closeable {
         private val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
         private val executor = Executors.newSingleThreadExecutor()
@@ -154,6 +196,7 @@ class DolphinGdbClientTest {
         val requests: MutableList<String> = Collections.synchronizedList(mutableListOf())
         val connectionCount = AtomicInteger()
         private val firstRequest = CountDownLatch(1)
+        private val stalledReadRequest = CountDownLatch(1)
         val port: Int get() = server.localPort
 
         init {
@@ -167,6 +210,8 @@ class DolphinGdbClientTest {
         }
 
         fun awaitFirstRequest(): Boolean = firstRequest.await(2, TimeUnit.SECONDS)
+
+        fun awaitStalledRead(): Boolean = stalledReadRequest.await(2, TimeUnit.SECONDS)
 
         override fun close() {
             server.close()
@@ -204,6 +249,13 @@ class DolphinGdbClientTest {
             val (addressText, sizeText) = payload.drop(1).split(',', limit = 2)
             val address = addressText.toLong(16)
             val size = sizeText.toInt(16)
+            if (address == stalledReadAddress) {
+                stalledReadRequest.countDown()
+                return
+            }
+            if (address == delayedReadAddress && readDelayMillis > 0) {
+                Thread.sleep(readDelayMillis)
+            }
             if (address == rejectedAddress) {
                 reply(output, "E01")
                 return

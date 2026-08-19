@@ -52,7 +52,6 @@ class DolphinGdbClient(
     private val host: String = DEFAULT_HOST,
     private val port: Int = DEFAULT_PORT,
     private val connectTimeoutMillis: Int = DEFAULT_CONNECT_TIMEOUT_MILLIS,
-    private val ioTimeoutMillis: Int = DEFAULT_IO_TIMEOUT_MILLIS,
 ) : Closeable {
     private val lock = ReentrantLock()
     @Volatile
@@ -82,7 +81,6 @@ class DolphinGdbClient(
     init {
         require(port in 1..65535) { "Invalid Dolphin GDB port: $port" }
         require(connectTimeoutMillis > 0) { "Connect timeout must be positive" }
-        require(ioTimeoutMillis > 0) { "I/O timeout must be positive" }
     }
 
     /** Connects to Dolphin, consumes its initial stop state, and resumes emulation. */
@@ -115,7 +113,12 @@ class DolphinGdbClient(
             sendWithoutReplyLocked("c")
             logicallyHooked = true
             probeLocked()
-            candidate.soTimeout = ioTimeoutMillis
+            // Dolphin services GDB commands from its emulation thread. Android may
+            // suspend that thread while Dolphin is backgrounded or during a long
+            // load, so a response deadline would turn a temporary pause into a
+            // permanent disconnect from Dolphin's single-use debugger listener.
+            // close() remains able to cancel a blocked transaction by closing the
+            // socket before acquiring the protocol lock.
         } catch (error: Exception) {
             closeLocked()
             throw error
@@ -142,7 +145,9 @@ class DolphinGdbClient(
 
     fun isHooked(): Boolean = lock.withLock {
         if (!logicallyHooked || !isSocketOpen()) return@withLock false
-        runCatching { probeLocked() }.onFailure { closeLocked() }.isSuccess
+        // readBytesLocked already closes on a real transport failure. A temporary
+        // guest-memory error is not permission to sacrifice Dolphin's one socket.
+        runCatching { probeLocked() }.isSuccess
     }
 
     fun assertHooked() {
@@ -423,7 +428,6 @@ class DolphinGdbClient(
         const val DEFAULT_HOST = "127.0.0.1"
         const val DEFAULT_PORT = 55020
         private const val DEFAULT_CONNECT_TIMEOUT_MILLIS = 1_000
-        private const val DEFAULT_IO_TIMEOUT_MILLIS = 2_000
         private const val MAX_TRANSFER_BYTES = 1_024
         private const val MAX_CONSOLE_ADDRESS = 0xFFFF_FFFFL
         private const val GAME_ID_ADDRESS = 0x8000_0000L
