@@ -133,6 +133,12 @@ its game list from the combined world registry. Each document's options remain
 independently editable before generation. Every player receives the patch format
 registered by their selected APWorld.
 
+The generator can remember named YAML configurations in app-private storage,
+ordered newest first. **Load into generator** restores the complete player form;
+**Import YAML file** validates and remembers an existing `.yaml` or `.yml` file,
+and saved entries can be exported again or deleted without affecting external
+copies. Clearing app data removes this YAML library along with other private data.
+
 **Game worlds** shows the bundled games and imports additional trusted `.apworld` files into
 `filesDir/offline_generator/worlds`. Installation rejects absolute/traversal
 paths, oversized entries and expansions, malformed layouts, duplicate games,

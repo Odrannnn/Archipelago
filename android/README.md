@@ -39,6 +39,8 @@ game-specific Archipelago logic. No memory port is exposed to the LAN.
 - ROM patching discovers every checksum-validated user file declared by an
   APWorld. This supports multi-ROM handlers such as Oracle of Seasons cross-item
   mode without adding game or filename branches to the companion.
+- The seed generator keeps named YAML configurations in app-private storage and
+  can validate, remember, and reload existing `.yaml` or `.yml` files.
 - Player-specific `.apinvite` files can omit the patch for self-connecting games.
   Ship of Harkinian invites retain the selected slot, player name, and game so
   the recipient can resolve the room and use the direct SoH launch action.

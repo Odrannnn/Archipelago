@@ -79,6 +79,8 @@ The companion embeds Python 3.12 and the Archipelago 0.6.8 generation core.
 With a built-in or imported compatible game world, on the phone it can:
 
 - create and edit per-player YAML documents with an independent game choice;
+- remember named YAML configurations privately, load them back later, or import
+  previously exported `.yaml` and `.yml` files;
 - generate single-player, same-game multiplayer, or mixed-game multiworld seeds offline;
 - retain seed history, settings, ZIPs, and player-specific APWorld patches;
 - ask for every clean ROM input declared by the selected APWorld and let that

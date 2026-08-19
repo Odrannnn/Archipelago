@@ -7,6 +7,7 @@ import android.content.Intent
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
@@ -27,6 +28,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 import java.io.File
+import java.io.InputStream
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -38,6 +42,13 @@ private data class GeneratorStartupState(
     val schemas: Map<String, GameOptionSchema>,
     val catalog: List<WorldCapability>,
     val draft: GeneratorDraft?,
+)
+
+private data class ImportedYamlState(
+    val entry: SavedYamlEntry,
+    val yaml: String,
+    val forms: List<PlayerFormData>,
+    val schemas: Map<String, GameOptionSchema>,
 )
 
 /** Creates player YAMLs, generates seeds, and patches a user-supplied ROM entirely offline. */
@@ -57,6 +68,10 @@ class GeneratorActivity : Activity() {
     private lateinit var patchesContainer: LinearLayout
     private lateinit var historyContainer: LinearLayout
     private lateinit var historyToggleButton: Button
+    private lateinit var savedYamlsContainer: LinearLayout
+    private lateinit var savedYamlsToggleButton: Button
+    private lateinit var rememberYamlButton: Button
+    private lateinit var importYamlButton: Button
     private lateinit var status: TextView
     private lateinit var webHostClient: ArchipelagoWebHostClient
 
@@ -77,6 +92,8 @@ class GeneratorActivity : Activity() {
     private var advancedYamlDirty = false
     private var draftReady = false
     private var historyEntryCount = 0
+    private var savedYamlEntryCount = 0
+    private var generatorReady = false
     private var pendingRomRequirements: RomRequirements? = null
     private val pendingRomInputs = linkedMapOf<String, ByteArray>()
 
@@ -142,6 +159,24 @@ class GeneratorActivity : Activity() {
                 }
             }
         }
+        savedYamlsContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        savedYamlsToggleButton = Button(this).apply {
+            text = "Show saved YAMLs"
+            CompanionUi.styleQuiet(this)
+            setOnClickListener {
+                preserveScrollPosition {
+                    savedYamlsContainer.visibility = if (savedYamlsContainer.visibility == View.VISIBLE) {
+                        View.GONE
+                    } else {
+                        View.VISIBLE
+                    }
+                    updateSavedYamlsToggleLabel()
+                }
+            }
+        }
 
         val addPlayerButton = Button(this).apply {
             text = "Add player"
@@ -178,6 +213,18 @@ class GeneratorActivity : Activity() {
             text = "Save player YAML"
             CompanionUi.styleQuiet(this)
             setOnClickListener { exportPlayerYaml() }
+        }
+        rememberYamlButton = Button(this).apply {
+            text = "Remember current YAML"
+            CompanionUi.styleSecondary(this)
+            isEnabled = false
+            setOnClickListener { rememberCurrentYaml() }
+        }
+        importYamlButton = Button(this).apply {
+            text = "Import YAML file"
+            CompanionUi.styleQuiet(this)
+            isEnabled = false
+            setOnClickListener { openYamlPicker() }
         }
         val applyYamlButton = Button(this).apply {
             text = "Apply YAML to form"
@@ -359,6 +406,17 @@ class GeneratorActivity : Activity() {
 
             addView(CompanionUi.card(
                 this@GeneratorActivity,
+                "Saved YAML configurations",
+                "Remember reusable player settings or import an existing YAML file, then load it back later.",
+            ).apply {
+                addView(rememberYamlButton, matchWrapParams())
+                addView(importYamlButton, CompanionUi.insetTop(importYamlButton, this@GeneratorActivity, 4))
+                addView(savedYamlsToggleButton, CompanionUi.insetTop(savedYamlsToggleButton, this@GeneratorActivity, 4))
+                addView(savedYamlsContainer, matchWrapParams())
+            }, CompanionUi.cardParams(this@GeneratorActivity))
+
+            addView(CompanionUi.card(
+                this@GeneratorActivity,
                 "Generate and play",
                 "Generation and ROM patching work offline. Hosting requires an internet connection.",
             ).apply {
@@ -386,6 +444,7 @@ class GeneratorActivity : Activity() {
         }
         SystemBarInsets.apply(window, screenScrollView)
         setContentView(screenScrollView)
+        renderSavedYamls()
         renderHistory()
 
         val savedDraft = GeneratorDraftStore.load(this)
@@ -428,6 +487,10 @@ class GeneratorActivity : Activity() {
                         }
                         yamlEditor.isEnabled = startup.forms.isNotEmpty()
                         generateButton.isEnabled = startup.forms.isNotEmpty()
+                        generatorReady = startup.forms.isNotEmpty()
+                        rememberYamlButton.isEnabled = generatorReady
+                        importYamlButton.isEnabled = generatorReady
+                        renderSavedYamls()
                         val imported = startup.catalog.count { it.source == "imported" }
                         val bundled = startup.catalog.count { it.source == "bundled" }
                         status.text = if (startup.forms.isEmpty()) {
@@ -949,19 +1012,276 @@ class GeneratorActivity : Activity() {
         onLoaded: (List<PlayerFormData>, Map<String, GameOptionSchema>) -> Unit,
     ) {
         thread(name = "offline-player-yaml-import") {
-            runCatching {
-                val forms = OfflineGenerator.playerFormsFromYaml(this, yaml)
-                require(forms.isNotEmpty()) { "Add at least one player document" }
-                val schemas = forms.map { it.game }.distinct().associateWith {
-                    OfflineGenerator.optionSchema(this, it)
-                }
-                forms to schemas
-            }.onSuccess { (forms, schemas) -> runOnUiThread { onLoaded(forms, schemas) } }
+            runCatching { parseFormsAndSchemas(yaml) }
+                .onSuccess { (forms, schemas) -> runOnUiThread { onLoaded(forms, schemas) } }
                 .onFailure {
                     runOnUiThread { generateButton.isEnabled = playerForms.isNotEmpty() }
                     showError("Could not apply player YAML", it)
                 }
         }
+    }
+
+    private fun rememberCurrentYaml() {
+        if (playerForms.isEmpty()) {
+            status.text = "Add at least one player before saving a YAML configuration."
+            return
+        }
+        if (advancedYamlDirty) {
+            promptForSavedYamlName(yamlEditor.text.toString())
+            return
+        }
+        val snapshot = OfflineGenerator.encodePlayerForms(playerForms)
+        status.text = "Preparing player YAML to remember…"
+        thread(name = "offline-player-yaml-remember") {
+            runCatching { OfflineGenerator.yamlFromPlayerForms(this, snapshot) }
+                .onSuccess { yaml -> runOnUiThread { promptForSavedYamlName(yaml) } }
+                .onFailure { showError("Could not prepare player YAML", it) }
+        }
+    }
+
+    private fun promptForSavedYamlName(yaml: String) {
+        if (yaml.isBlank()) {
+            status.text = "The player YAML is empty."
+            return
+        }
+        val suggestedName = playerForms.joinToString(" + ") { player ->
+            player.name.ifBlank { player.game }
+        }.take(100).ifBlank { "Player settings" }
+        val nameEditor = EditText(this).apply {
+            hint = "Configuration name"
+            setSingleLine(true)
+            setText(suggestedName)
+            selectAll()
+        }
+        status.text = "YAML ready · choose a name to remember it."
+        AlertDialog.Builder(this)
+            .setTitle("Remember this YAML")
+            .setMessage("The YAML will be kept privately by the companion until you delete it or clear app data.")
+            .setView(nameEditor)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Remember") { _, _ -> rememberYaml(nameEditor.text.toString(), yaml) }
+            .show()
+    }
+
+    private fun rememberYaml(name: String, yaml: String) {
+        status.text = "Validating and saving YAML…"
+        thread(name = "offline-player-yaml-store") {
+            runCatching {
+                parseFormsAndSchemas(yaml)
+                SavedYamlStore.save(this, name, yaml)
+            }.onSuccess { entry -> runOnUiThread {
+                renderSavedYamls()
+                status.text = "Remembered ${entry.name}."
+            } }.onFailure { showError("Could not remember player YAML", it) }
+        }
+    }
+
+    private fun openYamlPicker() {
+        startActivityForResult(
+            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "*/*"
+                putExtra(
+                    Intent.EXTRA_MIME_TYPES,
+                    arrayOf("application/yaml", "application/x-yaml", "text/yaml", "text/x-yaml", "text/plain"),
+                )
+            },
+            REQUEST_IMPORT_YAML,
+        )
+    }
+
+    private fun importYaml(uri: Uri) {
+        historySettingsLoaded = true
+        generateButton.isEnabled = false
+        status.text = "Reading and validating player YAML…"
+        thread(name = "offline-player-yaml-file-import") {
+            runCatching {
+                val bytes = contentResolver.openInputStream(uri)?.use {
+                    it.readAtMost(SavedYamlStore.MAX_YAML_BYTES + 1)
+                } ?: error("Could not open the selected YAML file.")
+                require(bytes.isNotEmpty()) { "The selected YAML file is empty." }
+                require(bytes.size <= SavedYamlStore.MAX_YAML_BYTES) {
+                    "The selected YAML is larger than ${SavedYamlStore.MAX_YAML_BYTES / 1024} KiB."
+                }
+                val yaml = Charsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes))
+                    .toString()
+                require('\u0000' !in yaml) { "The selected file is not a text YAML file." }
+                val (forms, schemas) = parseFormsAndSchemas(yaml)
+                val entry = SavedYamlStore.save(this, yamlDisplayName(uri), yaml)
+                ImportedYamlState(entry, yaml, forms, schemas)
+            }.onSuccess { imported -> runOnUiThread {
+                applyLoadedYaml(imported.yaml, imported.forms, imported.schemas)
+                renderSavedYamls()
+                status.text = "Imported, remembered, and loaded ${imported.entry.name}."
+            } }.onFailure { error ->
+                runOnUiThread { generateButton.isEnabled = playerForms.isNotEmpty() }
+                showError("Could not import player YAML", error)
+            }
+        }
+    }
+
+    private fun loadSavedYaml(entry: SavedYamlEntry) {
+        historySettingsLoaded = true
+        generateButton.isEnabled = false
+        status.text = "Loading ${entry.name}…"
+        thread(name = "offline-player-yaml-library-load") {
+            runCatching {
+                val yaml = SavedYamlStore.read(this, entry.id)
+                val (forms, schemas) = parseFormsAndSchemas(yaml)
+                Triple(yaml, forms, schemas)
+            }.onSuccess { (yaml, forms, schemas) -> runOnUiThread {
+                applyLoadedYaml(yaml, forms, schemas)
+                status.text = "Loaded ${entry.name} · ${forms.size} player${if (forms.size == 1) "" else "s"}."
+            } }.onFailure { error ->
+                runOnUiThread { generateButton.isEnabled = playerForms.isNotEmpty() }
+                showError("Could not load ${entry.name}", error)
+            }
+        }
+    }
+
+    private fun parseFormsAndSchemas(
+        yaml: String,
+    ): Pair<List<PlayerFormData>, Map<String, GameOptionSchema>> {
+        val forms = OfflineGenerator.playerFormsFromYaml(this, yaml)
+        require(forms.isNotEmpty()) { "Add at least one player document." }
+        val schemas = forms.map { it.game }.distinct().associateWith {
+            OfflineGenerator.optionSchema(this, it)
+        }
+        return forms to schemas
+    }
+
+    private fun applyLoadedYaml(
+        yaml: String,
+        forms: List<PlayerFormData>,
+        schemas: Map<String, GameOptionSchema>,
+    ) {
+        applyPlayerForms(forms, schemas, 0)
+        historySettingsLoaded = true
+        seedEditor.setText("")
+        renderingAdvancedYaml = true
+        yamlEditor.setText(yaml)
+        yamlEditor.setSelection(0)
+        renderingAdvancedYaml = false
+        advancedYamlDirty = false
+    }
+
+    private fun renderSavedYamls() = preserveScrollPosition {
+        savedYamlsContainer.removeAllViews()
+        val entries = SavedYamlStore.list(this)
+        savedYamlEntryCount = entries.size
+        updateSavedYamlsToggleLabel()
+        if (entries.isEmpty()) {
+            savedYamlsContainer.addView(TextView(this).apply {
+                text = "No YAML configurations remembered yet."
+                CompanionUi.styleMuted(this)
+                setPadding(0, CompanionUi.dp(this@GeneratorActivity, 8), 0, 0)
+            }, matchWrapParams())
+            return@preserveScrollPosition
+        }
+        entries.forEachIndexed { index, entry ->
+            val panel = CompanionUi.panel(this).apply {
+                addView(TextView(this@GeneratorActivity).apply {
+                    text = entry.name
+                    textSize = 17f
+                    setTextColor(CompanionUi.text)
+                    setTypeface(typeface, Typeface.BOLD)
+                }, matchWrapParams())
+                addView(TextView(this@GeneratorActivity).apply {
+                    val saved = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                        .format(Date(entry.createdAt))
+                    val size = (entry.byteCount + 1023) / 1024
+                    text = "Saved $saved · ${size.coerceAtLeast(1)} KiB"
+                    CompanionUi.styleMuted(this)
+                }, CompanionUi.insetTop(this, this@GeneratorActivity, 2))
+                addView(Button(this@GeneratorActivity).apply {
+                    text = "Load into generator"
+                    CompanionUi.stylePrimary(this)
+                    isEnabled = generatorReady
+                    setOnClickListener { loadSavedYaml(entry) }
+                }, CompanionUi.insetTop(this, this@GeneratorActivity, 8))
+                addView(Button(this@GeneratorActivity).apply {
+                    text = "Save a copy to device"
+                    CompanionUi.styleQuiet(this)
+                    setOnClickListener {
+                        runCatching { SavedYamlStore.read(this@GeneratorActivity, entry.id) }
+                            .onSuccess { yaml -> beginExport(yamlExportName(entry.name), yaml.toByteArray()) }
+                            .onFailure { showError("Could not read ${entry.name}", it) }
+                    }
+                }, CompanionUi.insetTop(this, this@GeneratorActivity, 4))
+                addView(Button(this@GeneratorActivity).apply {
+                    text = "Delete saved YAML"
+                    CompanionUi.styleDanger(this)
+                    setOnClickListener { confirmDeleteSavedYaml(entry) }
+                }, CompanionUi.insetTop(this, this@GeneratorActivity, 4))
+            }
+            savedYamlsContainer.addView(
+                panel,
+                CompanionUi.insetTop(panel, this, if (index == 0) 8 else 10),
+            )
+        }
+    }
+
+    private fun updateSavedYamlsToggleLabel() {
+        val noun = if (savedYamlEntryCount == 1) "saved YAML" else "saved YAMLs"
+        savedYamlsToggleButton.text = if (savedYamlsContainer.visibility == View.VISIBLE) {
+            "Hide $savedYamlEntryCount $noun"
+        } else {
+            "Show $savedYamlEntryCount $noun"
+        }
+    }
+
+    private fun confirmDeleteSavedYaml(entry: SavedYamlEntry) {
+        AlertDialog.Builder(this)
+            .setTitle("Delete saved YAML?")
+            .setMessage("Delete ${entry.name} from the companion? Exported copies on your device are not affected.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Delete") { _, _ ->
+                runCatching { SavedYamlStore.delete(this, entry.id) }
+                    .onSuccess { deleted ->
+                        if (deleted) {
+                            renderSavedYamls()
+                            status.text = "Deleted ${entry.name}."
+                        } else {
+                            status.text = "Could not delete ${entry.name}."
+                        }
+                    }
+                    .onFailure { showError("Could not delete ${entry.name}", it) }
+            }
+            .show()
+    }
+
+    private fun yamlDisplayName(uri: Uri): String {
+        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (column >= 0 && cursor.moveToFirst()) {
+                cursor.getString(column)
+                    ?.filterNot { it.isISOControl() }
+                    ?.trim()
+                    ?.take(100)
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { return it }
+            }
+        }
+        return "Imported YAML"
+    }
+
+    private fun yamlExportName(name: String): String {
+        val safeName = name.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim().ifBlank { "Players" }
+        return if (safeName.endsWith(".yaml", true) || safeName.endsWith(".yml", true)) safeName else "$safeName.yaml"
+    }
+
+    private fun InputStream.readAtMost(maxBytes: Int): ByteArray {
+        val output = java.io.ByteArrayOutputStream(minOf(maxBytes, 64 * 1024))
+        val buffer = ByteArray(16 * 1024)
+        while (output.size() < maxBytes) {
+            val read = read(buffer, 0, minOf(buffer.size, maxBytes - output.size()))
+            if (read <= 0) break
+            output.write(buffer, 0, read)
+        }
+        return output.toByteArray()
     }
 
     private fun exportPlayerYaml() {
@@ -1497,6 +1817,7 @@ class GeneratorActivity : Activity() {
         }
         when (requestCode) {
             REQUEST_BASE_ROM -> acceptBaseRom(data.data!!)
+            REQUEST_IMPORT_YAML -> importYaml(data.data!!)
             REQUEST_EXPORT -> {
                 val export = pendingExport ?: return
                 val destination = data.data!!
@@ -1575,5 +1896,6 @@ class GeneratorActivity : Activity() {
     companion object {
         private const val REQUEST_BASE_ROM = 201
         private const val REQUEST_EXPORT = 202
+        private const val REQUEST_IMPORT_YAML = 203
     }
 }
