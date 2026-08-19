@@ -1,5 +1,9 @@
 # Android companion: emulator Archipelago runtime
 
+For the complete project history, product requirements, repository map,
+component architecture, release procedure, and continuation checklist, see
+[PROJECT_HANDOFF.md](PROJECT_HANDOFF.md).
+
 The Android application ID and Kotlin namespace are both `eu.odran.archipelago`.
 
 ## Dolphin GameCube backend
