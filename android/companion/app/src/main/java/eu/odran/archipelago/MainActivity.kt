@@ -305,12 +305,18 @@ class MainActivity : Activity() {
                     CompanionUi.styleQuiet(this)
                     setOnClickListener { chooseDolphinIni() }
                 }, CompanionUi.insetTop(dolphinGdbPort, this@MainActivity, 4))
+                addView(Button(this@MainActivity).apply {
+                    text = "Disable Dolphin GDB"
+                    CompanionUi.styleSecondary(this)
+                    setOnClickListener { disableDolphinGdb() }
+                }, CompanionUi.insetTop(dolphinGdbPort, this@MainActivity, 4))
                 addView(TextView(this@MainActivity).apply {
                     text = "Fully stop Dolphin emulation before applying. The first time, choose Dolphin Emulator " +
                         "→ Config → Dolphin.ini in the system picker; Android remembers that access afterward. " +
                         "Then launch the companion before starting the game. Dolphin pauses at boot until the " +
-                        "bridge connects. Stock Dolphin exposes this unauthenticated port to the local network, " +
-                        "so use it only on a trusted network."
+                        "bridge connects. Disable Dolphin GDB to restore ordinary standalone launches. Stock " +
+                        "Dolphin exposes this unauthenticated port to the local network, so use it only on a " +
+                        "trusted network."
                     CompanionUi.styleMuted(this)
                     setPadding(0, CompanionUi.dp(this@MainActivity, 8), 0, 0)
                 }, CompanionUi.fullWidth())
@@ -453,13 +459,33 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun disableDolphinGdb() {
+        if (DolphinIniManager.linkedUri(this) == null) {
+            dolphinIniStatus.text = "Link Dolphin.ini before disabling GDB."
+            return
+        }
+        applyDolphinIni(DolphinIniManager.DISABLED_GDB_PORT) {
+            DolphinIniManager.applyLinked(this, DolphinIniManager.DISABLED_GDB_PORT)
+        }
+    }
+
     private fun applyDolphinIni(port: Int, update: () -> DolphinIniApplyResult) {
-        dolphinIniStatus.text = "Applying GDBPort = $port to Dolphin.ini…"
+        dolphinIniStatus.text = if (port == DolphinIniManager.DISABLED_GDB_PORT) {
+            "Disabling Dolphin GDB…"
+        } else {
+            "Applying GDBPort = $port to Dolphin.ini…"
+        }
         thread(name = "dolphin-ini-update") {
             runCatching(update).onSuccess { result ->
                 runOnUiThread {
                     startForegroundService(Intent(this, BridgeService::class.java))
-                    dolphinIniStatus.text = if (result.changed) {
+                    dolphinIniStatus.text = if (port == DolphinIniManager.DISABLED_GDB_PORT) {
+                        if (result.changed) {
+                            "Dolphin GDB disabled · fully restart Dolphin to restore normal launches."
+                        } else {
+                            "Dolphin GDB is already disabled."
+                        }
+                    } else if (result.changed) {
                         "Dolphin.ini updated · GDBPort = $port. Start or restart emulation now."
                     } else {
                         "Dolphin.ini already has GDBPort = $port · ready to start emulation."

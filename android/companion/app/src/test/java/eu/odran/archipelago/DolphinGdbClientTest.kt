@@ -14,12 +14,46 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.nio.charset.StandardCharsets
 import java.util.Collections
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 class DolphinGdbClientTest {
+    @Test
+    fun waitsForDolphinsSingleStartupConnectionWithoutTimingOut() {
+        FakeGdbServer(acceptDelayMillis = 2_250).use { server ->
+            DolphinGdbClient(port = server.port).use { client ->
+                client.connect()
+                assertTrue(client.isHooked())
+            }
+
+            assertEquals(1, server.connectionCount.get())
+            server.assertHealthy()
+        }
+    }
+
+    @Test
+    fun blockedStartupHandshakeCanBeCancelled() {
+        FakeGdbServer(stallInitialReply = true).use { server ->
+            val client = DolphinGdbClient(port = server.port)
+            val connector = Executors.newSingleThreadExecutor()
+            try {
+                val result = connector.submit<Result<Unit>> { runCatching { client.connect() } }
+                assertTrue(server.awaitFirstRequest())
+
+                client.close()
+
+                assertTrue(result.get(1, TimeUnit.SECONDS).isFailure)
+                server.assertHealthy()
+            } finally {
+                client.close()
+                connector.shutdownNow()
+            }
+        }
+    }
+
     @Test
     fun resumesDolphinAndExchangesChunkedMemory() {
         FakeGdbServer().use { server ->
@@ -110,6 +144,8 @@ class DolphinGdbClientTest {
 
     private class FakeGdbServer(
         private val rejectedAddress: Long? = null,
+        private val acceptDelayMillis: Long = 0,
+        private val stallInitialReply: Boolean = false,
     ) : Closeable {
         private val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
         private val executor = Executors.newSingleThreadExecutor()
@@ -117,6 +153,7 @@ class DolphinGdbClientTest {
         private val result = executor.submit { serve() }
         val requests: MutableList<String> = Collections.synchronizedList(mutableListOf())
         val connectionCount = AtomicInteger()
+        private val firstRequest = CountDownLatch(1)
         val port: Int get() = server.localPort
 
         init {
@@ -129,12 +166,15 @@ class DolphinGdbClientTest {
             result.get(2, TimeUnit.SECONDS)
         }
 
+        fun awaitFirstRequest(): Boolean = firstRequest.await(2, TimeUnit.SECONDS)
+
         override fun close() {
             server.close()
             executor.shutdownNow()
         }
 
         private fun serve() {
+            if (acceptDelayMillis > 0) Thread.sleep(acceptDelayMillis)
             server.accept().use { socket ->
                 connectionCount.incrementAndGet()
                 val input = BufferedInputStream(socket.getInputStream())
@@ -142,6 +182,11 @@ class DolphinGdbClientTest {
                 while (!socket.isClosed) {
                     val payload = readRequest(input) ?: return
                     requests.add(payload)
+                    firstRequest.countDown()
+                    if (stallInitialReply && payload == "?") {
+                        while (input.read() >= 0) Unit
+                        return
+                    }
                     output.write('+'.code)
                     output.flush()
                     when {

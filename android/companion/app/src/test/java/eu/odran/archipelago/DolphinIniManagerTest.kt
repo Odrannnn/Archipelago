@@ -7,6 +7,19 @@ import org.junit.Test
 
 class DolphinIniManagerTest {
     @Test
+    fun disablesGdbUsingDolphinsUpstreamSentinel() {
+        val original = "[General]\nGDBPort = 55020\n"
+
+        val update = DolphinIniManager.updateGdbPort(
+            original,
+            DolphinIniManager.DISABLED_GDB_PORT,
+        )
+
+        assertEquals(55020, update.previousPort)
+        assertEquals("[General]\nGDBPort = -1\n", update.content)
+    }
+
+    @Test
     fun replacesExistingPortAndPreservesFormattingAndComment() {
         val original = "[General]\r\nGDBPort = -1 ; debugger\r\n[Core]\r\nCPUThread = True\r\n"
 

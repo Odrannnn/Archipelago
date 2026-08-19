@@ -55,6 +55,7 @@ class DolphinGdbClient(
     private val ioTimeoutMillis: Int = DEFAULT_IO_TIMEOUT_MILLIS,
 ) : Closeable {
     private val lock = ReentrantLock()
+    @Volatile
     private var socket: Socket? = null
     private var input: BufferedInputStream? = null
     private var output: BufferedOutputStream? = null
@@ -93,15 +94,17 @@ class DolphinGdbClient(
         }
         closeLocked()
         val candidate = Socket()
+        socket = candidate
         try {
             candidate.connect(InetSocketAddress(InetAddress.getByName(host), port), connectTimeoutMillis)
             candidate.tcpNoDelay = true
-            candidate.soTimeout = ioTimeoutMillis
+            // Dolphin pauses before accepting its one debugger. Desktop GDB keeps this
+            // startup connection alive, so do not abandon it and poison Dolphin's backlog.
+            candidate.soTimeout = 0
         } catch (error: IOException) {
-            runCatching { candidate.close() }
+            closeLocked()
             throw IOException("Could not connect to Dolphin GDB at $host:$port", error)
         }
-        socket = candidate
         input = BufferedInputStream(candidate.getInputStream())
         output = BufferedOutputStream(candidate.getOutputStream())
         try {
@@ -112,6 +115,7 @@ class DolphinGdbClient(
             sendWithoutReplyLocked("c")
             logicallyHooked = true
             probeLocked()
+            candidate.soTimeout = ioTimeoutMillis
         } catch (error: Exception) {
             closeLocked()
             throw error
@@ -228,7 +232,15 @@ class DolphinGdbClient(
         }
     }
 
-    override fun close() = lock.withLock { closeLocked() }
+    override fun close() {
+        // Closing a socket is thread-safe and interrupts a blocking read. Do it before
+        // taking the protocol lock so an indefinite startup handshake remains cancellable.
+        val candidate = socket
+        runCatching { candidate?.close() }
+        lock.withLock {
+            if (socket === candidate) closeLocked()
+        }
+    }
 
     private fun readBytesLocked(consoleAddress: Long, size: Int): ByteArray {
         validateRange(consoleAddress, size)

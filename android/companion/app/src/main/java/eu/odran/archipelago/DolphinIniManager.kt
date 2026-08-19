@@ -25,6 +25,7 @@ data class DolphinIniApplyResult(
 
 /** Manages the one Dolphin.ini document explicitly granted through Android's file picker. */
 object DolphinIniManager {
+    const val DISABLED_GDB_PORT = -1
     private const val PREFS = "dolphin_bridge"
     private const val DOCUMENT_URI = "dolphin_ini_uri"
     private const val MAX_INI_BYTES = 2 * 1024 * 1024
@@ -73,7 +74,9 @@ object DolphinIniManager {
     }
 
     internal fun updateGdbPort(content: String, port: Int): DolphinIniUpdate {
-        require(port in 1..65535) { "Dolphin GDB port must be between 1 and 65535" }
+        require(port == DISABLED_GDB_PORT || port in 1..65535) {
+            "Dolphin GDB port must be -1 (disabled) or between 1 and 65535"
+        }
         val newline = if (content.contains("\r\n")) "\r\n" else "\n"
         val normalized = content.replace("\r\n", "\n").replace('\r', '\n')
         val hadTrailingNewline = normalized.endsWith('\n')
