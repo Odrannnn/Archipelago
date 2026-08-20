@@ -291,19 +291,33 @@ class DownloadsUpdatesActivity : Activity() {
                 views.action.isEnabled = !busy
             } else {
                 val hasTree = RetroArchCoreStore.selectedTree(this) != null
-                val installed = coreStates[component]
-                views.status.text = when {
-                    !hasTree -> "RetroArch cores folder permission required · available ${asset.version}"
-                    installed?.matchesAvailable == true ->
+                val installed = coreStates[component] ?: InstalledCoreState()
+                val relation = installed.relationTo(asset.version)
+                views.status.text = if (!hasTree) {
+                    "RetroArch cores folder permission required · available ${asset.version}"
+                } else when (relation) {
+                    CoreReleaseRelation.VERIFIED_CURRENT ->
                         "Installed ${installed.installedFileName} · verified and up to date"
-                    installed?.installedFileName != null ->
-                        "Installed ${installed.installedFileName} · ${asset.version} update available"
-                    else -> "Not installed · available ${asset.version} · ${formatBytes(asset.byteCount)}"
+                    CoreReleaseRelation.CURRENT_VERSION_DIFFERENT_BUILD ->
+                        "Installed ${installed.installedVersion} · latest version label, but this file differs " +
+                            "from the published build"
+                    CoreReleaseRelation.UPDATE_AVAILABLE ->
+                        "Installed ${installed.installedVersion ?: installed.installedFileName} · " +
+                            "${asset.version} update available"
+                    CoreReleaseRelation.NEWER_THAN_RELEASE ->
+                        "Installed ${installed.installedVersion ?: installed.installedFileName} · " +
+                            "newer than published ${asset.version}"
+                    CoreReleaseRelation.NOT_INSTALLED ->
+                        "Not installed · available ${asset.version} · ${formatBytes(asset.byteCount)}"
                 }
-                views.action.text = when {
-                    !hasTree -> "Choose cores folder"
-                    installed?.matchesAvailable == true -> "Reinstall"
-                    else -> "Download and install"
+                views.action.text = if (!hasTree) {
+                    "Choose cores folder"
+                } else when (relation) {
+                    CoreReleaseRelation.VERIFIED_CURRENT -> "Reinstall"
+                    CoreReleaseRelation.CURRENT_VERSION_DIFFERENT_BUILD -> "Replace with published build"
+                    CoreReleaseRelation.NEWER_THAN_RELEASE -> "Install published build"
+                    CoreReleaseRelation.NOT_INSTALLED,
+                    CoreReleaseRelation.UPDATE_AVAILABLE -> "Download and install"
                 }
                 views.action.isEnabled = !busy
             }

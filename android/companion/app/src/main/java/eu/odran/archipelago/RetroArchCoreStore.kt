@@ -10,9 +10,28 @@ import java.security.MessageDigest
 
 internal data class InstalledCoreState(
     val installedFileName: String? = null,
+    val installedVersion: String? = null,
     val installedSha256: String? = null,
+    val sameVersionAsAvailable: Boolean = false,
     val matchesAvailable: Boolean = false,
 )
+
+internal enum class CoreReleaseRelation {
+    NOT_INSTALLED,
+    VERIFIED_CURRENT,
+    CURRENT_VERSION_DIFFERENT_BUILD,
+    UPDATE_AVAILABLE,
+    NEWER_THAN_RELEASE,
+}
+
+internal fun InstalledCoreState.relationTo(availableVersion: String): CoreReleaseRelation = when {
+    installedFileName == null -> CoreReleaseRelation.NOT_INSTALLED
+    matchesAvailable -> CoreReleaseRelation.VERIFIED_CURRENT
+    sameVersionAsAvailable -> CoreReleaseRelation.CURRENT_VERSION_DIFFERENT_BUILD
+    installedVersion != null && ComponentVersion.isNewer(availableVersion, installedVersion) ->
+        CoreReleaseRelation.UPDATE_AVAILABLE
+    else -> CoreReleaseRelation.NEWER_THAN_RELEASE
+}
 
 /** Read/write access to RetroArch's private core directory through its SAF provider. */
 internal object RetroArchCoreStore {
@@ -78,14 +97,23 @@ internal object RetroArchCoreStore {
         val tree = selectedTree(context) ?: return InstalledCoreState()
         val entries = children(context, tree)
         val exact = entries.firstOrNull { it.displayName == asset.fileName }
-        val installed = exact ?: entries.firstOrNull {
-            asset.component.coreFamilyPattern?.matches(it.displayName) == true
-        }
+        val installed = exact ?: entries
+            .filter { asset.component.coreFamilyPattern?.matches(it.displayName) == true }
+            .maxWithOrNull { left, right ->
+                ComponentVersion.compare(
+                    asset.component.versionFrom(left.displayName).orEmpty(),
+                    asset.component.versionFrom(right.displayName).orEmpty(),
+                )
+            }
+        val installedVersion = installed?.let { asset.component.versionFrom(it.displayName) }
         val digest = installed?.let { sha256(context, it.uri) }
         return InstalledCoreState(
-            installed?.displayName,
-            digest,
-            exact != null && digest.equals(asset.sha256, ignoreCase = true),
+            installedFileName = installed?.displayName,
+            installedVersion = installedVersion,
+            installedSha256 = digest,
+            sameVersionAsAvailable = installedVersion == asset.version,
+            matchesAvailable = installedVersion == asset.version &&
+                digest.equals(asset.sha256, ignoreCase = true),
         )
     }
 

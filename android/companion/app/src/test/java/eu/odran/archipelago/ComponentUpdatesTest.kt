@@ -80,6 +80,42 @@ class ComponentUpdatesTest {
         assertFalse(ComponentVersion.isNewer("2603-49", "2603-50"))
     }
 
+    @Test
+    fun `same core version with different digest is not called an update`() {
+        val installed = InstalledCoreState(
+            installedFileName = "mgba_apbridge_v9_libretro_android.so",
+            installedVersion = "v9",
+            installedSha256 = "f".repeat(64),
+            sameVersionAsAvailable = true,
+            matchesAvailable = false,
+        )
+
+        assertEquals(
+            CoreReleaseRelation.CURRENT_VERSION_DIFFERENT_BUILD,
+            installed.relationTo("v9"),
+        )
+    }
+
+    @Test
+    fun `older and verified core relations remain distinct`() {
+        assertEquals(
+            CoreReleaseRelation.UPDATE_AVAILABLE,
+            InstalledCoreState(
+                installedFileName = "mgba_apbridge_v8_libretro_android.so",
+                installedVersion = "v8",
+            ).relationTo("v9"),
+        )
+        assertEquals(
+            CoreReleaseRelation.VERIFIED_CURRENT,
+            InstalledCoreState(
+                installedFileName = "mgba_apbridge_v9_libretro_android.so",
+                installedVersion = "v9",
+                sameVersionAsAvailable = true,
+                matchesAvailable = true,
+            ).relationTo("v9"),
+        )
+    }
+
     private fun release(
         tag: String,
         prerelease: Boolean,
