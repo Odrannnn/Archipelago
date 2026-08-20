@@ -150,6 +150,12 @@ class BridgeService : Service() {
         var lastDolphinUnavailableLog = 0L
         var sniMemoryAttached = false
         var sniResetGeneration: Long? = null
+        var sniProbeHealthy = false
+        var retroArchFailuresObserved = 0L
+        val retroArchFailureGate = TransportFailureGate(
+            RETROARCH_CONSECUTIVE_FAILURE_LIMIT,
+            RETROARCH_OUTAGE_LIMIT_MILLIS,
+        )
         var serverPaused = false
         var snesPaused = false
 
@@ -223,6 +229,9 @@ class BridgeService : Service() {
                                     sniClient = null
                                     sniMemoryAttached = false
                                     sniResetGeneration = null
+                                    sniProbeHealthy = false
+                                    retroArchFailuresObserved = 0L
+                                    retroArchFailureGate.reset()
                                     publish("SNES emulator bridge paused from the client console")
                                 }
                                 "emulator_connect" -> {
@@ -234,6 +243,9 @@ class BridgeService : Service() {
                                     sniClient = null
                                     sniMemoryAttached = false
                                     sniResetGeneration = null
+                                    sniProbeHealthy = false
+                                    retroArchFailuresObserved = 0L
+                                    retroArchFailureGate.reset()
                                     nextSniAttempt = 0L
                                 }
                                 "stop" -> {
@@ -570,6 +582,12 @@ class BridgeService : Service() {
                         sniClient = candidate
                         activeSniClient = candidate
                         sniResetGeneration = status.resetGeneration
+                        sniProbeHealthy = true
+                        retroArchFailuresObserved = (candidate as? RetroArchNetworkClient)
+                            ?.metricsSnapshot()
+                            ?.unrecoveredFailures
+                            ?: 0L
+                        retroArchFailureGate.reset()
                         nextSnesPromotionAttempt = now + TimeUnit.SECONDS.toMillis(2)
                         nextSniProbe = 0L
                         publish("${status.description} connected · inspecting SNI-compatible ROM…")
@@ -596,6 +614,9 @@ class BridgeService : Service() {
                         sniClient = promoted
                         activeSniClient = promoted
                         sniResetGeneration = status.resetGeneration
+                        sniProbeHealthy = true
+                        retroArchFailuresObserved = 0L
+                        retroArchFailureGate.reset()
                         sniMemoryAttached = false
                         nextSniProbe = 0L
                         fallback?.close()
@@ -612,6 +633,7 @@ class BridgeService : Service() {
                 if (connectedSni != null && currentSniRuntime != null && now >= nextSniProbe) {
                     try {
                         val status = connectedSni.checkStatus()
+                        val recoveredRetroArch = connectedSni is RetroArchNetworkClient && !sniProbeHealthy
                         val generation = status.resetGeneration
                         if (
                             generation != null && sniResetGeneration != null &&
@@ -627,11 +649,20 @@ class BridgeService : Service() {
                             )
                         }
                         sniResetGeneration = generation
-                        sniGame = if (sniGame?.let(currentSniRuntime::validateActive) == true) {
+                        val detectedSniGame = if (sniGame?.let(currentSniRuntime::validateActive) == true) {
                             sniGame
                         } else {
                             currentSniRuntime.probe()
                         }
+                        if (connectedSni is RetroArchNetworkClient) {
+                            val failures = connectedSni.metricsSnapshot().unrecoveredFailures
+                            if (failures > retroArchFailuresObserved) {
+                                retroArchFailuresObserved = failures
+                                error("RetroArch memory commands failed while validating the active ROM")
+                            }
+                            retroArchFailuresObserved = failures
+                        }
+                        sniGame = detectedSniGame
                         if (sniGame == null) {
                             sniMemoryAttached = false
                         } else if (!sniMemoryAttached) {
@@ -639,16 +670,47 @@ class BridgeService : Service() {
                             sniMemoryAttached = true
                             Log.i(TAG, "SNES SNI memory validated and attached")
                         }
+                        sniProbeHealthy = true
+                        retroArchFailureGate.reset()
+                        if (recoveredRetroArch) {
+                            Log.i(
+                                TAG,
+                                "RetroArch Network Commands recovered without rebuilding the SNI runtime · " +
+                                    connectedSni.metricsSnapshot(),
+                            )
+                        }
                         nextSniProbe = now + TimeUnit.SECONDS.toMillis(1)
                     } catch (error: Exception) {
-                        currentSniRuntime.detach(connectedSni)
-                        sniMemoryAttached = false
-                        sniResetGeneration = null
-                        connectedSni.close()
-                        if (activeSniClient === connectedSni) activeSniClient = null
-                        sniClient = null
-                        nextSniAttempt = now + TimeUnit.SECONDS.toMillis(1)
-                        Log.w(TAG, "SNES memory bridge paused", error)
+                        val failedAt = System.currentTimeMillis()
+                        if (connectedSni is RetroArchNetworkClient) {
+                            retroArchFailuresObserved = connectedSni.metricsSnapshot().unrecoveredFailures
+                        }
+                        val keepRuntime = connectedSni is RetroArchNetworkClient &&
+                            !connectedSni.isClosed &&
+                            !retroArchFailureGate.recordFailure(failedAt)
+                        sniProbeHealthy = false
+                        if (keepRuntime) {
+                            nextSniProbe = failedAt + RETROARCH_PROBE_RETRY_MILLIS
+                            Log.w(
+                                TAG,
+                                "RetroArch Network Commands transient failure " +
+                                    "${retroArchFailureGate.consecutiveFailures}/" +
+                                    "$RETROARCH_CONSECUTIVE_FAILURE_LIMIT; preserving SNI runtime · " +
+                                    connectedSni.metricsSnapshot(),
+                                error,
+                            )
+                        } else {
+                            retroArchFailureGate.reset()
+                            currentSniRuntime.detach(connectedSni)
+                            sniMemoryAttached = false
+                            sniResetGeneration = null
+                            connectedSni.close()
+                            if (activeSniClient === connectedSni) activeSniClient = null
+                            sniClient = null
+                            retroArchFailuresObserved = 0L
+                            nextSniAttempt = failedAt + TimeUnit.SECONDS.toMillis(1)
+                            Log.w(TAG, "SNES memory bridge paused after sustained transport failure", error)
+                        }
                     }
                 }
 
@@ -726,7 +788,7 @@ class BridgeService : Service() {
                 if (detected != null && runtime != null) {
                     val emulatorAvailable = when (activeTransport) {
                         EmulatorTransport.MGBA -> mgbaBridge != null
-                        EmulatorTransport.SNI -> sniClient != null
+                        EmulatorTransport.SNI -> sniClient != null && sniProbeHealthy
                         EmulatorTransport.DOLPHIN -> dolphinClient != null
                         null -> false
                     }
@@ -992,6 +1054,9 @@ class BridgeService : Service() {
         private const val DOLPHIN_TELEMETRY_LOG_INTERVAL_MILLIS = 10_000L
         private const val DOLPHIN_SLOW_RESPONSE_MILLIS = 2_000L
         private const val DOLPHIN_UNAVAILABLE_LOG_INTERVAL_MILLIS = 30_000L
+        private const val RETROARCH_CONSECUTIVE_FAILURE_LIMIT = 3
+        private const val RETROARCH_OUTAGE_LIMIT_MILLIS = 5_000L
+        private const val RETROARCH_PROBE_RETRY_MILLIS = 1_000L
         const val ACTION_RECONNECT = "eu.odran.archipelago.RECONNECT_BRIDGE"
 
         @Volatile
