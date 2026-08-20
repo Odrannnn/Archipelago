@@ -57,11 +57,17 @@ The persistent notification exposes an explicit Stop action.
 
 **Downloads and updates** in the main screen's hamburger menu checks the
 `Odrannnn/Archipelago` and `Odrannnn/PopTracker-Android` GitHub releases for the
-custom Dolphin APK, PopTracker APK, mGBA bridge core, and SNES9x bridge core.
+companion's own release APK, custom Dolphin APK, PopTracker APK, mGBA bridge
+core, and SNES9x bridge core.
 Release metadata is cached for 24 hours and can be refreshed manually. Every
 asset must match GitHub's published SHA-256 digest before it is used. APKs are
 also checked for the expected package, version, and—when updating an installed
 copy—signing identity before Android's package installer opens.
+
+Release builds can update the companion in place from the same screen while
+preserving app data. Debug builds intentionally do not offer the release APK as
+a self-update because Android cannot replace a debug-signed package with a
+differently signed release package.
 
 The custom cores can be installed directly after the user grants persistent
 read/write SAF access to RetroArch's own `cores` directory. The companion hashes

@@ -16,6 +16,13 @@ internal enum class ManagedComponent(
     val alternatePackageName: String? = null,
     val coreFamilyPattern: Regex? = null,
 ) {
+    COMPANION(
+        "companion",
+        "Archipelago Companion",
+        ComponentKind.APK,
+        Regex("^Archipelago-Companion-(.+)-arm64-v8a-release\\.apk$"),
+        "eu.odran.archipelago",
+    ),
     DOLPHIN(
         "dolphin",
         "Dolphin Archipelago",
@@ -103,6 +110,7 @@ internal data class ComponentAsset(
 internal object ComponentReleaseParser {
     fun parse(companionReleases: String, popTrackerReleases: String): List<ComponentAsset> = buildList {
         val companion = JSONArray(companionReleases)
+        addFirstMatch(companion, ManagedComponent.COMPANION, allowPrerelease = false)?.let(::add)
         addFirstMatch(companion, ManagedComponent.DOLPHIN, allowPrerelease = false)?.let(::add)
         addFirstMatch(companion, ManagedComponent.MGBA_CORE, allowPrerelease = false)?.let(::add)
         addFirstMatch(companion, ManagedComponent.SNES9X_CORE, allowPrerelease = false)?.let(::add)
@@ -202,7 +210,9 @@ internal class ComponentReleaseClient(private val context: Context) {
         val checkedAt = preferences.getLong(KEY_CHECKED_AT, 0L)
         return runCatching { ComponentReleaseParser.decode(value) }
             .getOrNull()
-            ?.takeIf { it.isNotEmpty() }
+            ?.takeIf { assets ->
+                assets.map { it.component }.toSet() == ManagedComponent.entries.toSet()
+            }
             ?.let { ComponentCatalogResult(it, checkedAt, cached = true) }
     }
 

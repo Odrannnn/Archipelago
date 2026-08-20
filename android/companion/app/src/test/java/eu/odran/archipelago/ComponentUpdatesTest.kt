@@ -13,6 +13,7 @@ class ComponentUpdatesTest {
         val companion = JSONArray().put(release(
             "android-v1.0.0",
             prerelease = false,
+            asset("Archipelago-Companion-1.0.0-arm64-v8a-release.apk", 'e', 40_000_000),
             asset("Dolphin-Archipelago-2603-49-arm64-v8a-x86_64-release.apk", 'a', 20_000_000),
             asset("mgba_apbridge_v9_libretro_android.so", 'b', 6_000_000),
             asset("snes9x_apbridge_v1_libretro_android.so", 'c', 3_000_000),
@@ -27,6 +28,7 @@ class ComponentUpdatesTest {
             .associateBy { it.component }
 
         assertEquals(ManagedComponent.entries.toSet(), assets.keys)
+        assertEquals("1.0.0", assets.getValue(ManagedComponent.COMPANION).version)
         assertEquals("2603-49", assets.getValue(ManagedComponent.DOLPHIN).version)
         assertEquals("0.35.4-android.1", assets.getValue(ManagedComponent.POPTRACKER).version)
         assertEquals("v9", assets.getValue(ManagedComponent.MGBA_CORE).version)

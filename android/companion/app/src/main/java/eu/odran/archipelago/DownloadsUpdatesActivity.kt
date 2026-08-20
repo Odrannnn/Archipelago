@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.os.Bundle
 import android.widget.Button
 import android.widget.LinearLayout
@@ -58,7 +59,7 @@ class DownloadsUpdatesActivity : Activity() {
                 CompanionUi.pageTitle(
                     this@DownloadsUpdatesActivity,
                     "Downloads and updates",
-                    "Install the companion's emulator, tracker, and custom core components.",
+                    "Update the companion and install its emulator, tracker, and custom core components.",
                 ),
                 CompanionUi.fullWidth(),
             )
@@ -193,6 +194,11 @@ class DownloadsUpdatesActivity : Activity() {
 
     private fun componentAction(component: ManagedComponent) {
         val asset = assets[component] ?: return
+        if (component == ManagedComponent.COMPANION && isDebugBuild) {
+            operationStatus.text =
+                "This debug build cannot replace itself with the differently signed GitHub release build."
+            return
+        }
         if (component.kind == ComponentKind.CORE && RetroArchCoreStore.selectedTree(this) == null) {
             chooseCoreFolder()
             return
@@ -272,7 +278,11 @@ class DownloadsUpdatesActivity : Activity() {
             }
             if (component.kind == ComponentKind.APK) {
                 val installed = apkStates[component]
+                val debugSelfUpdate = component == ManagedComponent.COMPANION && isDebugBuild
                 views.status.text = when {
+                    debugSelfUpdate ->
+                        "Installed debug build ${installed?.versionName.orEmpty()} · published release " +
+                            "${asset.version}. Self-update is available from release builds."
                     installed == null -> "Not installed · available ${asset.version} · ${formatBytes(asset.byteCount)}"
                     installed.alternateBuild ->
                         "Installed debug build ${installed.versionName}. Release ${asset.version} will install alongside it."
@@ -283,12 +293,13 @@ class DownloadsUpdatesActivity : Activity() {
                     else -> "Installed ${installed.versionName} · newer than published ${asset.version}"
                 }
                 views.action.text = when {
+                    debugSelfUpdate -> "Release builds only"
                     installed == null || installed.alternateBuild -> "Download and install"
                     installed.versionName == asset.version -> "Reinstall"
                     ComponentVersion.isNewer(asset.version, installed.versionName) -> "Download update"
                     else -> "Install published build"
                 }
-                views.action.isEnabled = !busy
+                views.action.isEnabled = !busy && !debugSelfUpdate
             } else {
                 val hasTree = RetroArchCoreStore.selectedTree(this) != null
                 val installed = coreStates[component] ?: InstalledCoreState()
@@ -360,6 +371,8 @@ class DownloadsUpdatesActivity : Activity() {
     }
 
     private fun componentDescription(component: ManagedComponent): String = when (component) {
+        ManagedComponent.COMPANION ->
+            "The signed release build of this app. Android preserves app data during an in-place update."
         ManagedComponent.DOLPHIN ->
             "Custom Dolphin build with the loopback memory socket required for GameCube live sync."
         ManagedComponent.POPTRACKER ->
@@ -375,6 +388,9 @@ class DownloadsUpdatesActivity : Activity() {
         bytes >= 1024L -> String.format(Locale.getDefault(), "%.1f KB", bytes / 1024.0)
         else -> "$bytes B"
     }
+
+    private val isDebugBuild: Boolean
+        get() = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
 
     companion object {
         private const val REQUEST_CORE_TREE = 701
