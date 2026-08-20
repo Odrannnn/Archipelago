@@ -66,6 +66,73 @@ class OfflineGeneratorRuntimeTest(unittest.TestCase):
             OFFLINE_GENERATOR._retry_fill_failures(run_attempt, "123")
         self.assertEqual(1, attempts)
 
+    def test_repeated_equivalent_fill_failures_stop_with_diagnostics(self) -> None:
+        attempts = 0
+
+        def run_attempt(candidate_seed: str):
+            nonlocal attempts
+            attempts += 1
+            return {
+                "seed": int(candidate_seed),
+                "fill_error": f"No more spots to place {attempts} items. Remaining locations are invalid.",
+            }
+
+        with self.assertRaisesRegex(RuntimeError, "Blast Shield Randomization") as raised:
+            OFFLINE_GENERATOR._retry_fill_failures(
+                run_attempt,
+                "1000",
+                ["Player1 (Metroid Prime) · Blast Shield Randomization = high (default: none)"],
+            )
+
+        self.assertEqual(OFFLINE_GENERATOR.MAX_REPEATED_FILL_FAILURES, attempts)
+        self.assertIn("20× No more spots", str(raised.exception))
+        self.assertIn("did not alter your YAML", str(raised.exception))
+
+    def test_varied_fill_failures_stop_at_total_attempt_limit(self) -> None:
+        attempts = 0
+
+        def run_attempt(candidate_seed: str):
+            nonlocal attempts
+            attempts += 1
+            return {
+                "seed": int(candidate_seed),
+                "fill_error": f"Unique failure pattern {chr(0x400 + attempts)}",
+            }
+
+        with self.assertRaisesRegex(RuntimeError, "None detected"):
+            OFFLINE_GENERATOR._retry_fill_failures(run_attempt, "2000")
+
+        self.assertEqual(OFFLINE_GENERATOR.MAX_FILL_ATTEMPTS, attempts)
+
+    def test_non_default_settings_are_described_without_game_specific_rules(self) -> None:
+        class HardMode:
+            default = False
+            display_name = "Hard Mode"
+
+        class OptionData:
+            type_hints = {"hard_mode": HardMode}
+
+        class ExampleWorld:
+            options_dataclass = OptionData
+
+        class Registry:
+            world_types = {"Example Game": ExampleWorld}
+
+        yaml = ModuleType("yaml")
+        yaml.safe_load_all = lambda _text: iter([{
+            "name": "Tester",
+            "game": "Example Game",
+            "Example Game": {"hard_mode": True},
+        }])
+        with patch.dict(sys.modules, {"yaml": yaml}):
+            with patch.object(OFFLINE_GENERATOR, "_form_option_value", lambda _option, value: value):
+                descriptions = OFFLINE_GENERATOR._non_default_option_descriptions("ignored", Registry)
+
+        self.assertEqual(
+            ['Tester (Example Game) · Hard Mode = true (default: false)'],
+            descriptions,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

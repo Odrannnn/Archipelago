@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import pkgutil
+import re
 import shutil
 import sys
 import tempfile
@@ -24,6 +25,8 @@ MGBA_ROM_EXTENSIONS = frozenset({".gb", ".gbc", ".gba"})
 SNES_ROM_EXTENSIONS = frozenset({".sfc", ".smc"})
 ANDROID_ROM_EXTENSIONS = MGBA_ROM_EXTENSIONS | SNES_ROM_EXTENSIONS
 CUSTOM_PATCH_EXTENSIONS = frozenset({".aptww"})
+MAX_FILL_ATTEMPTS = 50
+MAX_REPEATED_FILL_FAILURES = 20
 
 
 def _world_load_failure(package_name: str, game: str, error: Exception) -> str:
@@ -481,22 +484,126 @@ def world_catalog(work_directory: str) -> str:
     return json.dumps({"worlds": result, "failures": worlds.failed_world_loads})
 
 
-def _retry_fill_failures(run_attempt, initial_seed: str):
-    """Repeat only attempts explicitly reported as Archipelago fill failures."""
+def _fill_error_summary(error) -> str:
+    lines = [line.strip() for line in str(error).splitlines() if line.strip()]
+    return lines[0] if lines else "Unspecified fill failure"
+
+
+def _fill_error_fingerprint(error) -> str:
+    """Group equivalent fill failures whose incidental numeric counts differ."""
+    summary = _fill_error_summary(error).lower()
+    summary = re.sub(r"0x[0-9a-f]+", "{number}", summary)
+    summary = re.sub(r"\b\d+\b", "{number}", summary)
+    return re.sub(r"\s+", " ", summary).strip()
+
+
+def _diagnostic_value(value, maximum: int = 120) -> str:
+    try:
+        rendered = json.dumps(_json_value(value), ensure_ascii=False, sort_keys=True)
+    except Exception:
+        rendered = str(value)
+    if len(rendered) > maximum:
+        return rendered[:maximum - 1] + "…"
+    return rendered
+
+
+def _non_default_option_descriptions(yaml_text: str, registry) -> list[str]:
+    """Best-effort list of declared player settings which differ from APWorld defaults."""
+    import yaml
+
+    changed = []
+    try:
+        documents = list(yaml.safe_load_all(yaml_text))
+    except Exception:
+        return changed
+    for index, document in enumerate(documents, start=1):
+        if not isinstance(document, dict):
+            continue
+        game = str(document.get("game", "")).strip()
+        world = registry.world_types.get(game)
+        supplied = document.get(game, {})
+        if world is None or not isinstance(supplied, dict):
+            continue
+        player = str(document.get("name") or f"Player {index}")
+        for key, value in supplied.items():
+            option = world.options_dataclass.type_hints.get(key)
+            if option is None:
+                changed.append(f"{player} ({game}) · {key} = {_diagnostic_value(value)} (custom option)")
+                continue
+            normalized = _form_option_value(option, value)
+            default = _form_option_value(option, option.default)
+            if normalized == default:
+                continue
+            label = getattr(option, "display_name", None) or str(key).replace("_", " ").title()
+            changed.append(
+                f"{player} ({game}) · {label} = {_diagnostic_value(normalized)} "
+                f"(default: {_diagnostic_value(default)})"
+            )
+    return changed
+
+
+def _fill_failure_diagnostic(attempts: int, failures: dict[str, dict], changed_settings: list[str]) -> str:
+    ranked = sorted(failures.values(), key=lambda failure: (-failure["count"], failure["summary"]))
+    lines = [
+        f"Generation appears incompatible with the selected settings after {attempts} attempts.",
+        "Archipelago repeatedly rejected item placement; further automatic retries are unlikely to help.",
+        "",
+        "Repeated fill failures:",
+    ]
+    for failure in ranked[:3]:
+        lines.append(f"• {failure['count']}× {failure['summary']}")
+    if len(ranked) > 3:
+        lines.append(f"• {len(ranked) - 3} other failure pattern(s)")
+    lines.extend(("", "Settings differing from their APWorld defaults:"))
+    if changed_settings:
+        lines.extend(f"• {setting}" for setting in changed_settings[:12])
+        if len(changed_settings) > 12:
+            lines.append(f"• …and {len(changed_settings) - 12} more changed setting(s)")
+        lines.extend((
+            "",
+            "Reset likely related settings toward their defaults, or change Accessibility to Minimal if unreachable "
+            "optional locations are acceptable.",
+        ))
+    else:
+        lines.extend((
+            "• None detected",
+            "",
+            "This is likely an APWorld logic or Archipelago-version compatibility problem rather than device performance.",
+        ))
+    lines.append("The Companion did not alter your YAML.")
+    return "\n".join(lines)
+
+
+def _retry_fill_failures(run_attempt, initial_seed: str, changed_settings: list[str] | None = None):
+    """Retry stochastic fill failures while stopping probable deterministic conflicts."""
     candidate_seed = initial_seed.strip()
     attempts = 0
-    while True:
+    failures = {}
+    while attempts < MAX_FILL_ATTEMPTS:
         attempts += 1
         outcome = run_attempt(candidate_seed)
         fill_error = outcome.get("fill_error")
         if fill_error is None:
             return outcome, attempts
-        error_summary = str(fill_error).splitlines()[0] if str(fill_error) else "unspecified fill failure"
+        error_summary = _fill_error_summary(fill_error)
+        fingerprint = _fill_error_fingerprint(fill_error)
+        failure = failures.setdefault(fingerprint, {"count": 0, "summary": error_summary})
+        failure["count"] += 1
+        repeated = failure["count"] >= MAX_REPEATED_FILL_FAILURES
+        exhausted = attempts >= MAX_FILL_ATTEMPTS
+        if repeated or exhausted:
+            raise RuntimeError(_fill_failure_diagnostic(
+                attempts,
+                failures,
+                list(changed_settings or []),
+            ))
         logging.warning(
             "Seed %s failed during item placement on attempt %d; retrying with a new seed: %s",
             outcome["seed"], attempts, error_summary,
         )
         candidate_seed = str(int(outcome["seed"]) + 1)
+
+    raise AssertionError("Fill retry loop exited without a result or diagnostic")
 
 
 def generate(yaml_text: str, work_directory: str, seed: str = "") -> str:
@@ -512,7 +619,7 @@ def generate(yaml_text: str, work_directory: str, seed: str = "") -> str:
     player_file = players / "Player.yaml"
     player_file.write_text(yaml_text, encoding="utf-8")
 
-    _load_worlds(work_directory)
+    _, registry = _load_worlds(work_directory)
     import Generate
 
     base_arguments = [
@@ -542,7 +649,8 @@ def generate(yaml_text: str, work_directory: str, seed: str = "") -> str:
             return {"seed": numeric_seed, "fill_error": str(error)}
         return {"seed": numeric_seed, "players": player_names}
 
-    outcome, attempts = _retry_fill_failures(run_attempt, seed)
+    changed_settings = _non_default_option_descriptions(yaml_text, registry)
+    outcome, attempts = _retry_fill_failures(run_attempt, seed, changed_settings)
     numeric_seed = outcome["seed"]
     player_names = outcome["players"]
 

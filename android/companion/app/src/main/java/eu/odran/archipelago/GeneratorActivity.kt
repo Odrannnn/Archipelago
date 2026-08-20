@@ -1399,7 +1399,8 @@ class GeneratorActivity : Activity() {
         generateButton.isEnabled = false
         exportSeedButton.isEnabled = false
         patchButton.isEnabled = false
-        status.text = "Generating ${playerForms.size}-player seed… item-placement failures retry automatically."
+        status.text = "Generating ${playerForms.size}-player seed… item-placement failures retry automatically; " +
+            "repeated failures stop with diagnostics."
         val seed = seedEditor.text.toString()
         thread(name = "offline-seed-generation") {
             runCatching {
