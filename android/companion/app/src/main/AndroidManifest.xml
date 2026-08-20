@@ -67,6 +67,9 @@
         <activity
             android:name=".BackupRestoreActivity"
             android:exported="false" />
+        <activity
+            android:name=".DolphinSocketActivity"
+            android:exported="false" />
         <provider
             android:name=".InviteFileProvider"
             android:authorities="${applicationId}.files"

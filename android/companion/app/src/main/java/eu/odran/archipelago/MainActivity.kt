@@ -12,11 +12,15 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
 import android.text.InputType
+import android.view.Gravity
+import android.view.Menu
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.widget.PopupMenu
 import android.widget.ScrollView
 import android.widget.TextView
 import java.io.ByteArrayOutputStream
@@ -50,7 +54,6 @@ class MainActivity : Activity() {
     private lateinit var inviteStatus: TextView
     private lateinit var address: EditText
     private lateinit var password: EditText
-    private lateinit var dolphinTelemetry: TextView
     private lateinit var joinedRoomContainer: LinearLayout
     private var retroArchButton: Button? = null
     private var renderedRoom: JoinedRoom? = null
@@ -76,7 +79,6 @@ class MainActivity : Activity() {
                 status.text = BridgeService.statusText
                 serverStatus.text = BridgeService.serverStatusText
             }
-            dolphinTelemetry.text = BridgeService.dolphinTelemetryText
             renderedRoom?.let { room ->
                 retroArchButton?.text = if (RetroArchLauncher.isRunningRom(
                         room.gameName,
@@ -140,10 +142,6 @@ class MainActivity : Activity() {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             textSize = 15f
         }
-        dolphinTelemetry = TextView(this).apply {
-            text = BridgeService.dolphinTelemetryText
-            CompanionUi.styleMuted(this)
-        }
         val save = Button(this).apply {
             text = "Save and connect"
             CompanionUi.stylePrimary(this)
@@ -200,27 +198,13 @@ class MainActivity : Activity() {
                 startActivity(Intent(this@MainActivity, HostedRoomsActivity::class.java))
             }
         }
-        val backupRestore = Button(this).apply {
-            text = "Backup and restore"
-            CompanionUi.styleSecondary(this)
-            setOnClickListener {
-                startActivity(Intent(this@MainActivity, BackupRestoreActivity::class.java))
-            }
-        }
         inviteStatus = TextView(this).apply {
             CompanionUi.styleMuted(this)
             setPadding(0, CompanionUi.dp(this@MainActivity, 8), 0, 0)
         }
         joinedRoomContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val content = CompanionUi.screen(this).apply {
-            addView(
-                CompanionUi.pageTitle(
-                    this@MainActivity,
-                    "Archipelago Companion",
-                    "Play, generate, host, and launch supported multiworlds from your phone.",
-                ),
-                CompanionUi.fullWidth(),
-            )
+            addView(mainHeader(), CompanionUi.fullWidth())
 
             addView(CompanionUi.card(this@MainActivity, "Connection status").apply {
                 addView(status, CompanionUi.fullWidth())
@@ -259,14 +243,6 @@ class MainActivity : Activity() {
                 addView(hostedRooms, CompanionUi.insetTop(hostedRooms, this@MainActivity, 6))
             }, CompanionUi.cardParams(this@MainActivity))
 
-            addView(CompanionUi.card(
-                this@MainActivity,
-                "Data and storage",
-                "Export or restore your cached ROMs, seeds, APWorlds, rooms, saved YAMLs, and settings.",
-            ).apply {
-                addView(backupRestore, CompanionUi.fullWidth())
-            }, CompanionUi.cardParams(this@MainActivity))
-
             val connectionFields = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 addView(address, CompanionUi.fullWidth())
@@ -288,24 +264,6 @@ class MainActivity : Activity() {
                 addView(connectionFields, CompanionUi.fullWidth())
             }, CompanionUi.cardParams(this@MainActivity))
 
-            val dolphinFields = LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                addView(dolphinTelemetry, CompanionUi.fullWidth())
-                addView(TextView(this@MainActivity).apply {
-                    text = "Install and run the Dolphin Archipelago fork. Its dedicated memory service starts " +
-                        "with emulation and accepts the companion automatically on localhost port " +
-                        "${DolphinSocketClient.DEFAULT_PORT}. No Dolphin.ini changes are required."
-                    CompanionUi.styleMuted(this)
-                    setPadding(0, CompanionUi.dp(this@MainActivity, 8), 0, 0)
-                }, CompanionUi.fullWidth())
-            }
-            addView(CompanionUi.card(this@MainActivity, "Dolphin GameCube backend").apply {
-                addView(
-                    CompanionUi.toggleButton(this@MainActivity, "Dolphin fork status", dolphinFields),
-                    CompanionUi.fullWidth(),
-                )
-                addView(dolphinFields, CompanionUi.fullWidth())
-            }, CompanionUi.cardParams(this@MainActivity))
         }
         val scrollView = ScrollView(this).apply { addView(content) }
         SystemBarInsets.apply(window, scrollView)
@@ -319,6 +277,58 @@ class MainActivity : Activity() {
         }
         startForegroundService(Intent(this, BridgeService::class.java))
         handleInvite(intent)
+    }
+
+    private fun mainHeader(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.TOP
+        val menuButton = ImageButton(this@MainActivity).apply {
+            contentDescription = "Open app menu"
+            setImageResource(R.drawable.ic_menu)
+            setColorFilter(CompanionUi.text)
+            setPadding(
+                CompanionUi.dp(this@MainActivity, 12),
+                CompanionUi.dp(this@MainActivity, 12),
+                CompanionUi.dp(this@MainActivity, 12),
+                CompanionUi.dp(this@MainActivity, 12),
+            )
+            val attributes = obtainStyledAttributes(
+                intArrayOf(android.R.attr.selectableItemBackgroundBorderless),
+            )
+            background = attributes.getDrawable(0)
+            attributes.recycle()
+            setOnClickListener(::showAppMenu)
+        }
+        addView(menuButton, LinearLayout.LayoutParams(
+            CompanionUi.dp(this@MainActivity, 48),
+            CompanionUi.dp(this@MainActivity, 48),
+        ).apply { marginEnd = CompanionUi.dp(this@MainActivity, 4) })
+        addView(
+            CompanionUi.pageTitle(
+                this@MainActivity,
+                "Archipelago Companion",
+                "Play, generate, host, and launch supported multiworlds from your phone.",
+            ),
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+        )
+    }
+
+    private fun showAppMenu(anchor: View) {
+        PopupMenu(this, anchor).apply {
+            menu.add(Menu.NONE, MENU_DOLPHIN_SOCKET, 0, "Dolphin socket")
+            menu.add(Menu.NONE, MENU_BACKUP_RESTORE, 1, "Backup and restore")
+            setOnMenuItemClickListener { item ->
+                when (item.itemId) {
+                    MENU_DOLPHIN_SOCKET -> DolphinSocketActivity::class.java
+                    MENU_BACKUP_RESTORE -> BackupRestoreActivity::class.java
+                    else -> null
+                }?.let { destination ->
+                    startActivity(Intent(this@MainActivity, destination))
+                    true
+                } ?: false
+            }
+            show()
+        }
     }
 
     @Deprecated("Uses the platform file picker result API available to android.app.Activity")
@@ -1319,6 +1329,8 @@ class MainActivity : Activity() {
         private const val REQUEST_OPEN_PLAYER_PATCH = 307
         private const val REQUEST_PATCH_APWORLD = 308
         private const val REQUEST_SAVE_STREAMING_ROM = 309
+        private const val MENU_DOLPHIN_SOCKET = 401
+        private const val MENU_BACKUP_RESTORE = 402
         private const val MAX_PATCH_BYTES = 32 * 1024 * 1024
         private const val MAX_ROM_BYTES = 32L * 1024 * 1024 + 512
     }

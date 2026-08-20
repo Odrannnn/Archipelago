@@ -33,7 +33,7 @@ ISO randomized with the matching Wind Waker randomizer build in the Dolphin
 Archipelago fork; the companion reads the embedded slot name and connects it to
 the configured room automatically.
 
-The Dolphin settings card reports two-second transport samples: request rate,
+**Dolphin socket** in the main screen's hamburger menu reports two-second transport samples: request rate,
 read/write throughput, average and maximum round-trip time, probe traffic, and
 failures. It also retains session-wide latency, failures, and peak sampled rate
 so a busy interval remains visible after returning from Dolphin. A compact
@@ -191,7 +191,7 @@ copied, but external write and delete modes are rejected. The provider resolves
 stable document IDs through the stores and canonical seed-history directories;
 it does not expose cached base ROMs, website credentials, or room controls.
 
-**Backup and restore** in the main screen's Data and storage card exports a
+**Backup and restore** in the main screen's hamburger menu exports a
 versioned `.apbackup` ZIP through Android's system file picker. It contains all
 portable app-owned state: cached base and patched ROMs, generated seeds,
 imported APWorlds, saved YAMLs, joined/hosted rooms, drafts, server settings,
