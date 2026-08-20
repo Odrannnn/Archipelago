@@ -163,6 +163,7 @@ class BridgeService : Service() {
         var sniMemoryAttached = false
         var sniResetGeneration: Long? = null
         var sniProbeHealthy = false
+        var sniEverValidated = false
         var retroArchFailuresObserved = 0L
         val retroArchFailureGate = TransportFailureGate(
             RETROARCH_CONSECUTIVE_FAILURE_LIMIT,
@@ -595,7 +596,10 @@ class BridgeService : Service() {
                         sniClient = candidate
                         activeSniClient = candidate
                         sniResetGeneration = status.resetGeneration
-                        sniProbeHealthy = true
+                        // A transport handshake only proves that Network Commands is
+                        // listening. Do not expose it to the room until a live ROM probe
+                        // succeeds; this also lets a replacement socket enter recovery.
+                        sniProbeHealthy = false
                         retroArchFailuresObserved = (candidate as? RetroArchNetworkClient)
                             ?.metricsSnapshot()
                             ?.unrecoveredFailures
@@ -617,7 +621,8 @@ class BridgeService : Service() {
                 if (connectedSni != null && currentSniRuntime != null && now >= nextSniProbe) {
                     try {
                         val status = connectedSni.checkStatus()
-                        val recoveredRetroArch = connectedSni is RetroArchNetworkClient && !sniProbeHealthy
+                        val recoveredRetroArch = connectedSni is RetroArchNetworkClient &&
+                            !sniProbeHealthy && sniEverValidated
                         val generation = status.resetGeneration
                         if (
                             generation != null && sniResetGeneration != null &&
@@ -655,8 +660,32 @@ class BridgeService : Service() {
                             Log.i(TAG, "SNES SNI memory validated and attached")
                         }
                         sniProbeHealthy = true
+                        sniEverValidated = true
                         retroArchFailureGate.reset()
                         if (recoveredRetroArch) {
+                            val recoveredGame = sniGame
+                            publish(
+                                if (recoveredGame == null) {
+                                    "${status.description} recovered · inspecting SNI-compatible ROM…"
+                                } else {
+                                    "${status.description} recovered · ${recoveredGame.game} · live bridge client"
+                                },
+                            )
+                            if (RoomRecoveryPolicy.shouldRebuildSession(
+                                    serverPaused = serverPaused,
+                                    sessionPresent = session != null,
+                                    displayedState = lastServerState,
+                                )
+                            ) {
+                                val staleSession = session
+                                staleSession?.close()
+                                if (activeSession === staleSession) activeSession = null
+                                session = null
+                                sessionSettings = null
+                                nextSessionAttempt = 0L
+                                roomReconnectBackoff.reset()
+                                Log.i(TAG, "Rebuilding stale Archipelago room state after SNI recovery")
+                            }
                             Log.i(
                                 TAG,
                                 "RetroArch Network Commands recovered without rebuilding the SNI runtime · " +
@@ -843,6 +872,20 @@ class BridgeService : Service() {
                                 "${error.javaClass.simpleName}: ${error.message.orEmpty()}. Use /connect to retry."
                         ClientConsoleStore.append("error", message)
                         publishServerState(RoomConnectionState.DISCONNECTED, message)
+                    }
+
+                    val connectedSession = session
+                    val connectedSlot = connectedSession?.connectedSlot
+                    if (connectedSession != null && RoomRecoveryPolicy.shouldRepublishConnected(
+                            sessionClosed = connectedSession.isClosed,
+                            connectedSlot = connectedSlot,
+                            displayedState = lastServerState,
+                        )
+                    ) {
+                        publishServerState(
+                            RoomConnectionState.CONNECTED,
+                            "Archipelago authenticated · ${detected.game} · slot $connectedSlot",
+                        )
                     }
 
                     session?.connectedSlot?.let { connectedSlot ->

@@ -57,6 +57,56 @@ class RoomReconnectPolicyTest {
         assertRetryDelay(backoff, 5_000)
     }
 
+    @Test
+    fun `emulator recovery rebuilds stale room state`() {
+        assertTrue(
+            RoomRecoveryPolicy.shouldRebuildSession(
+                serverPaused = false,
+                sessionPresent = true,
+                displayedState = RoomConnectionState.DISCONNECTED,
+            ),
+        )
+        assertFalse(
+            RoomRecoveryPolicy.shouldRebuildSession(
+                serverPaused = true,
+                sessionPresent = true,
+                displayedState = RoomConnectionState.DISCONNECTED,
+            ),
+        )
+        assertFalse(
+            RoomRecoveryPolicy.shouldRebuildSession(
+                serverPaused = false,
+                sessionPresent = true,
+                displayedState = RoomConnectionState.CONNECTED,
+            ),
+        )
+    }
+
+    @Test
+    fun `live authenticated session repairs stale displayed state`() {
+        assertTrue(
+            RoomRecoveryPolicy.shouldRepublishConnected(
+                sessionClosed = false,
+                connectedSlot = 1,
+                displayedState = RoomConnectionState.DISCONNECTED,
+            ),
+        )
+        assertFalse(
+            RoomRecoveryPolicy.shouldRepublishConnected(
+                sessionClosed = true,
+                connectedSlot = 1,
+                displayedState = RoomConnectionState.DISCONNECTED,
+            ),
+        )
+        assertFalse(
+            RoomRecoveryPolicy.shouldRepublishConnected(
+                sessionClosed = false,
+                connectedSlot = null,
+                displayedState = RoomConnectionState.DISCONNECTED,
+            ),
+        )
+    }
+
     private fun assertRetryDelay(backoff: RoomReconnectBackoff, expected: Long) {
         val now = 100_000L
         val next = backoff.nextAttemptAfterFailure(now)

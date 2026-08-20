@@ -20,6 +20,21 @@ internal object RoomReconnectPolicy {
             now >= nextAttempt
 }
 
+/** Repairs room/UI state after an emulator transport returns without overriding an intentional pause. */
+internal object RoomRecoveryPolicy {
+    fun shouldRebuildSession(
+        serverPaused: Boolean,
+        sessionPresent: Boolean,
+        displayedState: RoomConnectionState?,
+    ): Boolean = !serverPaused && sessionPresent && displayedState != RoomConnectionState.CONNECTED
+
+    fun shouldRepublishConnected(
+        sessionClosed: Boolean,
+        connectedSlot: Int?,
+        displayedState: RoomConnectionState?,
+    ): Boolean = !sessionClosed && connectedSlot != null && displayedState != RoomConnectionState.CONNECTED
+}
+
 /** Shared bounded exponential backoff for transient room transport failures. */
 internal class RoomReconnectBackoff(
     private val initialDelayMillis: Long = 5_000L,

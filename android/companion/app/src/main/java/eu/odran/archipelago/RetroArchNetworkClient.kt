@@ -6,6 +6,10 @@ import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
 
 internal data class RetroArchNetworkMetrics(
@@ -32,6 +36,7 @@ class RetroArchNetworkClient internal constructor(
     private val addressMapper: SniAddressMapper = LoRomSniAddressMapper,
     private val steadyCommandTimeoutMs: Int = COMMAND_TIMEOUT_MS,
     private val recoveryCommandTimeoutMs: Int = RECOVERY_COMMAND_TIMEOUT_MS,
+    private val socketReceiveTimeoutMs: Int? = null,
 ) : SniMemoryClient {
     @Volatile private var closed = false
     private val socketLock = Any()
@@ -46,11 +51,17 @@ class RetroArchNetworkClient internal constructor(
     private var unrecoveredFailures = 0L
     private var lastRttMs = 0.0
     private var maxRttMs = 0.0
+    private val deadlineExecutor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { task ->
+        Thread(task, "retroarch-command-deadline").apply { isDaemon = true }
+    }
 
     init {
         require(steadyCommandTimeoutMs > 0) { "RetroArch command timeout must be positive" }
         require(recoveryCommandTimeoutMs >= steadyCommandTimeoutMs) {
             "RetroArch recovery timeout must be at least the steady timeout"
+        }
+        require(socketReceiveTimeoutMs == null || socketReceiveTimeoutMs > 0) {
+            "RetroArch socket receive timeout must be positive"
         }
     }
 
@@ -201,24 +212,48 @@ class RetroArchNetworkClient internal constructor(
             check(!closed) { "RetroArch Network Commands client is closed" }
             socket
         }
-        activeSocket.soTimeout = if (recoveryCommandsRemaining > 0) {
+        val commandTimeoutMs = if (recoveryCommandsRemaining > 0) {
             recoveryCommandTimeoutMs
         } else {
             steadyCommandTimeoutMs
         }
+        activeSocket.soTimeout = socketReceiveTimeoutMs ?: commandTimeoutMs
         val buffer = ByteArray(MAX_PACKET_SIZE)
         val packet = DatagramPacket(buffer, buffer.size)
         val startedAt = System.nanoTime()
+        val requestFinished = AtomicBoolean(false)
+        val hardDeadlineExpired = AtomicBoolean(false)
+        val deadline = deadlineExecutor.schedule({
+            if (requestFinished.compareAndSet(false, true)) {
+                hardDeadlineExpired.set(true)
+                // Android's DatagramSocket SO_RCVTIMEO can remain blocked across an
+                // emulator/background transition even after a reply is queued. Closing
+                // this exact socket from an independent thread provides a real deadline.
+                synchronized(socketLock) {
+                    if (!closed && socket === activeSocket) activeSocket.close()
+                }
+            }
+        }, commandTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
         commandsSent++
         try {
             activeSocket.send(DatagramPacket(request, request.size))
             activeSocket.receive(packet)
+            if (!requestFinished.compareAndSet(false, true)) {
+                throw java.net.SocketTimeoutException("Hard request deadline expired")
+            }
         } catch (error: IOException) {
-            if (error is java.net.SocketTimeoutException) timeouts++ else transportFailures++
+            if (error is java.net.SocketTimeoutException || hardDeadlineExpired.get()) {
+                timeouts++
+            } else {
+                transportFailures++
+            }
             throw RetroArchTransportException(
                 "RetroArch did not answer on 127.0.0.1:$port. Use an Android nightly build and enable Settings > Network > Network Commands.",
                 error,
             )
+        } finally {
+            requestFinished.set(true)
+            deadline.cancel(false)
         }
         val rttMs = (System.nanoTime() - startedAt) / 1_000_000.0
         responsesReceived++
@@ -260,6 +295,7 @@ class RetroArchNetworkClient internal constructor(
         synchronized(socketLock) {
             socket.close()
         }
+        deadlineExecutor.shutdownNow()
     }
 
     companion object {

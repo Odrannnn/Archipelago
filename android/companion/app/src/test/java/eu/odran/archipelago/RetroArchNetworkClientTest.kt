@@ -187,6 +187,33 @@ class RetroArchNetworkClientTest {
     }
 
     @Test
+    fun hardDeadlineDoesNotDependOnDatagramSocketTimeout() = withServer { server, executor ->
+        val exchange = executor.submit(Callable {
+            List(4) { receive(server).packet.port }
+        })
+
+        val startedAt = System.nanoTime()
+        RetroArchNetworkClient(
+            port = server.localPort,
+            steadyCommandTimeoutMs = 80,
+            recoveryCommandTimeoutMs = 80,
+            socketReceiveTimeoutMs = 2_000,
+        ).use { client ->
+            assertThrows(IllegalStateException::class.java) { client.version() }
+            val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000
+
+            assertEquals(4, exchange.get(2, TimeUnit.SECONDS).distinct().size)
+            assertTrue("hard deadline took ${elapsedMs}ms", elapsedMs < 1_000)
+            val metrics = client.metricsSnapshot()
+            assertEquals(4L, metrics.commandsSent)
+            assertEquals(4L, metrics.timeouts)
+            assertEquals(3L, metrics.safeRetries)
+            assertEquals(4L, metrics.socketRotations)
+            assertEquals(1L, metrics.unrecoveredFailures)
+        }
+    }
+
+    @Test
     fun largeWritesAreSplitBelowRetroArchCommandBufferLimit() = withServer { server, executor ->
         val exchange = executor.submit(Callable {
             List(3) {
