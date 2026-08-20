@@ -133,7 +133,7 @@ lookups, error reporting, and buffered-write API. A transport loss clears the
 attached ROM/device state but preserves the server's received-item list so a
 reset game-side cursor can consume those items again after reattachment.
 `RetroArchNetworkClient` is the default Android replacement for SNI's desktop
-memory transport. It uses the stock SNES9x core through nightly Network Commands
+memory transport. It uses bsnes-mercury Performance through nightly Network Commands
 and hardens the UDP request/reply lifecycle against stale replies and temporary
 timeouts. `Snes9xBridgeClient` remains an optional fallback. Its custom core
 exposes mapper-independent FX Pak Pro ROM, SRAM, and WRAM domains directly,
@@ -278,8 +278,8 @@ uninstalling removes those copies. The app never bundles a ROM.
 
 After a supported patched ROM is saved, the companion offers to launch it directly in
 the installed 64-bit RetroArch package. The launch intent selects either the custom
-`mgba_apbridge_v9_libretro_android.so` core or the stock
-`snes9x_libretro_android.so` core and passes RetroArch's own standard
+`mgba_apbridge_v9_libretro_android.so` core or
+`bsnes_mercury_performance_libretro_android.so` and passes RetroArch's own standard
 `retroarch.cfg` path without creating or modifying the file, preserving controller
 mappings, overrides, and remaps. Each launch starts a fresh RetroArch task so a
 suspended video surface cannot leave the game running with audio but no picture.

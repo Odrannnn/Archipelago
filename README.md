@@ -153,7 +153,7 @@ across refreshes and can be restored from the **Hosted rooms** screen.
 ### Launch related Android apps
 
 - Launches saved patched ROMs in 64-bit RetroArch with either the custom mGBA
-  bridge core or the stock SNES9x core while retaining RetroArch's normal
+  bridge core or the bsnes-mercury Performance core while retaining RetroArch's normal
   configuration, controller mappings, overrides, and remaps.
 - Opens the PopTracker Android app with the imported room's game identifier,
   active server address, selected player name, and room password.
@@ -185,7 +185,7 @@ exposed to the LAN.
 - 64-bit RetroArch (`com.retroarch.aarch64`)
 - The custom mGBA Archipelago bridge core installed in RetroArch
 - For SNES games, an Android nightly with **Settings > Network > Network Commands**
-  enabled and the stock `snes9x_libretro_android.so` core installed
+  enabled and `bsnes_mercury_performance_libretro_android.so` installed
 - Optional: `snes9x_apbridge_v1_libretro_android.so` installed through
   RetroArch's **Install or Restore a Core** action for its mapper-independent bridge
 - A legally obtained clean ROM accepted by the selected game world

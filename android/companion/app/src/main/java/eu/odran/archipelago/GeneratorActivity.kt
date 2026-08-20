@@ -1950,7 +1950,7 @@ class GeneratorActivity : Activity() {
     private fun offerRetroArchLaunch(name: String, uri: Uri) {
         val snes = name.endsWith(".sfc", ignoreCase = true) || name.endsWith(".smc", ignoreCase = true)
         val coreDescription = if (snes) {
-            "the standard SNES9x core and Network Commands."
+            "the bsnes-mercury Performance core and Network Commands."
         } else {
             "the custom mGBA Archipelago core."
         }

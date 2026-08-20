@@ -17,7 +17,7 @@ object RetroArchLauncher {
     private const val PACKAGE_NAME = "com.retroarch.aarch64"
     private const val ACTIVITY_NAME = "com.retroarch.browser.retroactivity.RetroActivityFuture"
     private const val MGBA_CORE_FILE_NAME = "mgba_apbridge_v9_libretro_android.so"
-    internal const val SNES_CORE_FILE_NAME = "snes9x_libretro_android.so"
+    internal const val SNES_CORE_FILE_NAME = "bsnes_mercury_performance_libretro_android.so"
     private const val EXTERNAL_STORAGE_AUTHORITY = "com.android.externalstorage.documents"
     private const val DOWNLOADS_AUTHORITY = "com.android.providers.downloads.documents"
 

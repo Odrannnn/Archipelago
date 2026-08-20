@@ -27,9 +27,9 @@ class SniTransportPreferenceTest {
     }
 
     @Test
-    fun `direct SNES launch selects the stock core`() {
+    fun `direct SNES launch selects a Network Commands compatible core`() {
         assertEquals(
-            "snes9x_libretro_android.so",
+            "bsnes_mercury_performance_libretro_android.so",
             RetroArchLauncher.coreFileNameFor(snes = true),
         )
     }

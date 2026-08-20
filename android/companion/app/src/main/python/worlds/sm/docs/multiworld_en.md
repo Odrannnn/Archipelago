@@ -120,8 +120,8 @@ the lua you are using in your file explorer and copy the `socket.dll` to the bas
 ##### RetroArch 1.10.1 or newer
 
 > **Android companion:** use an Android nightly, enable **Network Commands** on
-> port 55355, and install the stock `snes9x_libretro_android.so` core. The
-> companion launches that core directly. The custom
+> port 55355, and install `bsnes_mercury_performance_libretro_android.so`. The
+> companion launches that Network Commands-compatible core directly. The custom
 > `snes9x_apbridge_v1_libretro_android.so` core is an optional fallback installed
 > through **Load Core > Install or Restore a Core**.
 

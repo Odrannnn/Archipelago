@@ -483,7 +483,7 @@ class MainActivity : Activity() {
         serverAddress: String? = null,
     ) {
         val coreDescription = if (RetroArchLauncher.isSnesRom(this, uri)) {
-            "the standard SNES9x core and Network Commands."
+            "the bsnes-mercury Performance core and Network Commands."
         } else {
             "the custom mGBA Archipelago core."
         }
