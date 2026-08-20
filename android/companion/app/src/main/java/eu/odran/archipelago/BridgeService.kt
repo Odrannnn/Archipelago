@@ -48,6 +48,7 @@ class BridgeService : Service() {
 
     private val executor = Executors.newSingleThreadExecutor()
     private val dolphinExecutor = Executors.newSingleThreadExecutor()
+    private val roomWakeExecutor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     @Volatile private var running = false
     @Volatile private var stopping = false
@@ -109,6 +110,7 @@ class BridgeService : Service() {
         activeSession = null
         executor.shutdownNow()
         dolphinExecutor.shutdownNow()
+        roomWakeExecutor.shutdownNow()
         mainHandler.removeCallbacksAndMessages(null)
         stopForeground(STOP_FOREGROUND_REMOVE)
         getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
@@ -146,6 +148,8 @@ class BridgeService : Service() {
         var activeGame: DetectedGameInfo? = null
         var session: RoomSession? = null
         var sessionSettings: ServerSettings? = null
+        var roomWakeAttempt: Future<Result<HostedRoom>>? = null
+        var roomWakeRoomId: String? = null
         var nextMgbaAttempt = 0L
         var nextSniAttempt = 0L
         var preferSnesFallback = false
@@ -193,6 +197,63 @@ class BridgeService : Service() {
                     sessionSettings = null
                     nextSessionAttempt = 0L
                     roomReconnectBackoff.reset()
+                }
+
+                val completedRoomWake = roomWakeAttempt
+                if (completedRoomWake != null && completedRoomWake.isDone) {
+                    roomWakeAttempt = null
+                    val attemptedRoomId = roomWakeRoomId
+                    roomWakeRoomId = null
+                    val wakeResult = runCatching { completedRoomWake.get() }
+                        .getOrElse { Result.failure(it) }
+                    wakeResult.onSuccess { resolvedRoom ->
+                        val selectedRoom = JoinedRoomStore.load(this)
+                        val currentSettings = ServerSettings.load(this)
+                        val stillSelected = attemptedRoomId != null &&
+                            selectedRoom?.roomId == attemptedRoomId &&
+                            HostedRoomReconnectPolicy.matchingRoom(
+                                currentSettings.address,
+                                selectedRoom,
+                            ) != null
+                        if (stillSelected && resolvedRoom.lastPort > 0) {
+                            JoinedRoomStore.save(this, resolvedRoom)
+                            val refreshedAddress = HostedRoomReconnectPolicy.serverAddress(
+                                resolvedRoom.lastPort,
+                            )
+                            ServerSettings.save(this, refreshedAddress, currentSettings.password)
+                            val oldSession = session
+                            oldSession?.close()
+                            if (activeSession === oldSession) activeSession = null
+                            session = null
+                            sessionSettings = null
+                            serverPaused = false
+                            nextSessionAttempt = 0L
+                            roomReconnectBackoff.reset()
+                            val message =
+                                "Website-hosted room awake · connecting to $refreshedAddress…"
+                            publishServerState(RoomConnectionState.CONNECTING, message)
+                            ClientConsoleStore.append("status", message)
+                            Log.i(TAG, "Refreshed website-hosted room $attemptedRoomId at $refreshedAddress")
+                        } else if (stillSelected) {
+                            val message = if (resolvedRoom.lastPort < 0) {
+                                "Website-hosted room reported a server error; retrying later"
+                            } else {
+                                "Website-hosted room is still starting; retrying later"
+                            }
+                            publishServerState(RoomConnectionState.DISCONNECTED, message)
+                            ClientConsoleStore.append("error", message)
+                        }
+                    }.onFailure { error ->
+                        if (attemptedRoomId != null &&
+                            JoinedRoomStore.load(this)?.roomId == attemptedRoomId
+                        ) {
+                            val message =
+                                "Could not wake website-hosted room · ${error.message ?: error.javaClass.simpleName}"
+                            publishServerState(RoomConnectionState.DISCONNECTED, message)
+                            ClientConsoleStore.append("error", message)
+                            Log.w(TAG, "Website-hosted room wake failed", error)
+                        }
+                    }
                 }
 
                 while (true) {
@@ -825,6 +886,29 @@ class BridgeService : Service() {
                         sessionSettings = null
                         if (retryAllowed) {
                             nextSessionAttempt = roomReconnectBackoff.nextAttemptAfterFailure(now)
+                            val selectedRoom = JoinedRoomStore.load(this)
+                            val wakeRoom = HostedRoomReconnectPolicy.matchingRoom(
+                                settings.address,
+                                selectedRoom,
+                            )
+                            if (wakeRoom != null && roomWakeAttempt == null &&
+                                HostedRoomReconnectPolicy.mayWake(
+                                    now,
+                                    lastHostedRoomWakeAttempt(wakeRoom.roomId),
+                                )
+                            ) {
+                                rememberHostedRoomWakeAttempt(wakeRoom.roomId, now)
+                                roomWakeRoomId = wakeRoom.roomId
+                                roomWakeAttempt = roomWakeExecutor.submit<Result<HostedRoom>> {
+                                    runCatching {
+                                        ArchipelagoWebHostClient(applicationContext)
+                                            .resolvePublicRoom(wakeRoom.roomId)
+                                    }
+                                }
+                                val message = "Waking website-hosted Archipelago room…"
+                                publishServerState(RoomConnectionState.CONNECTING, message)
+                                ClientConsoleStore.append("status", message)
+                            }
                         } else {
                             serverPaused = true
                             nextSessionAttempt = Long.MAX_VALUE
@@ -835,7 +919,7 @@ class BridgeService : Service() {
                             )
                         }
                     }
-                    if (RoomReconnectPolicy.mayStart(
+                    if (roomWakeAttempt == null && RoomReconnectPolicy.mayStart(
                             serverPaused = serverPaused,
                             settingsConfigured = settings.isConfigured,
                             sessionPresent = session != null,
@@ -924,6 +1008,7 @@ class BridgeService : Service() {
             runCatching { sniClient?.close() }
             runCatching { pendingDolphinClient?.close() }
             dolphinAttempt?.cancel(true)
+            roomWakeAttempt?.cancel(true)
             runCatching { dolphinClient?.close() }
             dolphinProbe?.cancel(true)
             if (activeBridge === mgbaBridge) activeBridge = null
@@ -1076,6 +1161,17 @@ class BridgeService : Service() {
         }.apply()
     }
 
+    private fun lastHostedRoomWakeAttempt(roomId: String): Long =
+        getSharedPreferences(HOSTED_ROOM_WAKE_PREFERENCES, MODE_PRIVATE)
+            .getLong(roomId, 0L)
+
+    private fun rememberHostedRoomWakeAttempt(roomId: String, now: Long) {
+        getSharedPreferences(HOSTED_ROOM_WAKE_PREFERENCES, MODE_PRIVATE)
+            .edit()
+            .putLong(roomId, now)
+            .apply()
+    }
+
     companion object {
         private const val CHANNEL_ID = "emulator_bridge"
         private const val TAG = "ArchipelagoBridge"
@@ -1085,6 +1181,7 @@ class BridgeService : Service() {
         private const val ACTIVE_ROM_GAME = "game"
         private const val ACTIVE_ROM_SLOT = "slot"
         private const val ACTIVE_ROM_SERVER = "server"
+        private const val HOSTED_ROOM_WAKE_PREFERENCES = "hosted_room_wake_attempts"
         private const val PATCHED_ROM_DESCRIPTION = "compatible patched Game Boy or SNES ROM"
         private const val DOLPHIN_TELEMETRY_INTERVAL_MILLIS = 2_000L
         private const val DOLPHIN_TELEMETRY_LOG_INTERVAL_MILLIS = 10_000L
