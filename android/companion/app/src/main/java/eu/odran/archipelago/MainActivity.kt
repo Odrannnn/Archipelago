@@ -315,10 +315,12 @@ class MainActivity : Activity() {
 
     private fun showAppMenu(anchor: View) {
         PopupMenu(this, anchor).apply {
-            menu.add(Menu.NONE, MENU_DOLPHIN_SOCKET, 0, "Dolphin socket")
-            menu.add(Menu.NONE, MENU_BACKUP_RESTORE, 1, "Backup and restore")
+            menu.add(Menu.NONE, MENU_DOWNLOADS_UPDATES, 0, "Downloads and updates")
+            menu.add(Menu.NONE, MENU_DOLPHIN_SOCKET, 1, "Dolphin socket")
+            menu.add(Menu.NONE, MENU_BACKUP_RESTORE, 2, "Backup and restore")
             setOnMenuItemClickListener { item ->
                 when (item.itemId) {
+                    MENU_DOWNLOADS_UPDATES -> DownloadsUpdatesActivity::class.java
                     MENU_DOLPHIN_SOCKET -> DolphinSocketActivity::class.java
                     MENU_BACKUP_RESTORE -> BackupRestoreActivity::class.java
                     else -> null
@@ -1329,6 +1331,7 @@ class MainActivity : Activity() {
         private const val REQUEST_OPEN_PLAYER_PATCH = 307
         private const val REQUEST_PATCH_APWORLD = 308
         private const val REQUEST_SAVE_STREAMING_ROM = 309
+        private const val MENU_DOWNLOADS_UPDATES = 400
         private const val MENU_DOLPHIN_SOCKET = 401
         private const val MENU_BACKUP_RESTORE = 402
         private const val MAX_PATCH_BYTES = 32 * 1024 * 1024

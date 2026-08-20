@@ -3,12 +3,15 @@
         <package android:name="com.dishii.soh" />
         <package android:name="com.retroarch.aarch64" />
         <package android:name="io.github.poptracker.android" />
+        <package android:name="eu.odran.dolphin.archipelago" />
+        <package android:name="eu.odran.dolphin.archipelago.debug" />
     </queries>
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:allowBackup="false"
@@ -69,6 +72,9 @@
             android:exported="false" />
         <activity
             android:name=".DolphinSocketActivity"
+            android:exported="false" />
+        <activity
+            android:name=".DownloadsUpdatesActivity"
             android:exported="false" />
         <provider
             android:name=".InviteFileProvider"

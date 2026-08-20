@@ -3,4 +3,7 @@
     <cache-path
         name="shared_invites"
         path="shared_invites/" />
+    <cache-path
+        name="component_updates"
+        path="component_updates/" />
 </paths>
