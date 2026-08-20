@@ -15,7 +15,12 @@ sys.modules["NetUtils"] = SimpleNamespace(
 )
 
 import dolphin_memory_engine as dme
-from android_dolphin_runtime import AndroidDolphinRuntime, DolphinGameAdapter
+from android_dolphin_runtime import (
+    AndroidDolphinContext,
+    AndroidDolphinRuntime,
+    DolphinGameAdapter,
+    WindWakerDolphinAdapter,
+)
 
 
 class Backend:
@@ -126,6 +131,35 @@ class AndroidDolphinRuntimeTest(unittest.TestCase):
         try:
             result = json.loads(runtime.probe("OTHER1"))
             self.assertFalse(result["matched"])
+        finally:
+            runtime.close()
+
+    def test_wind_waker_defers_chart_memory_reads_until_game_watcher(self) -> None:
+        adapter = WindWakerDolphinAdapter.__new__(WindWakerDolphinAdapter)
+        adapter.client = SimpleNamespace(
+            AP_VISITED_STAGE_NAMES_KEY_FORMAT="tww_visited_stage_names_%s",
+            check_ingame=lambda: True,
+        )
+        ctx = AndroidDolphinContext()
+        ctx.salvage_locations_map = {"stale": 1}
+
+        adapter.on_package(ctx, "Connected", {"slot_data": {}})
+        self.assertEqual({}, ctx.salvage_locations_map)
+
+        initialized = []
+        adapter._update_salvage_locations_map = lambda current: (
+            initialized.append(True),
+            setattr(current, "salvage_locations_map", {"ready": 1}),
+        )
+        ctx.slot = None
+        runtime = AndroidDolphinRuntime("unused", [adapter])
+        try:
+            runtime.adapter = adapter
+            runtime.ctx = ctx
+            tick = json.loads(runtime.tick(True))
+            self.assertEqual([True], initialized)
+            self.assertEqual({"ready": 1}, ctx.salvage_locations_map)
+            self.assertEqual("", tick["error"])
         finally:
             runtime.close()
 

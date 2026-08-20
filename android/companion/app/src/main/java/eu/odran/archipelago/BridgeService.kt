@@ -720,6 +720,12 @@ class BridgeService : Service() {
                 val detected = activeGame
                 val runtime = activeRuntime
                 if (detected != null && runtime != null) {
+                    val emulatorAvailable = when (activeTransport) {
+                        EmulatorTransport.MGBA -> mgbaBridge != null
+                        EmulatorTransport.SNI -> sniClient != null
+                        EmulatorTransport.DOLPHIN -> dolphinClient != null
+                        null -> false
+                    }
                     val settings = ServerSettings.load(this)
                     if (session != null && (session!!.isClosed || sessionSettings != settings)) {
                         val oldSession = session
@@ -728,7 +734,15 @@ class BridgeService : Service() {
                         session = null
                         sessionSettings = null
                     }
-                    if (!serverPaused && settings.isConfigured && session == null && now >= nextSessionAttempt) {
+                    if (RoomReconnectPolicy.mayStart(
+                            serverPaused = serverPaused,
+                            settingsConfigured = settings.isConfigured,
+                            sessionPresent = session != null,
+                            emulatorAvailable = emulatorAvailable,
+                            now = now,
+                            nextAttempt = nextSessionAttempt,
+                        )
+                    ) {
                         session = PythonArchipelagoSession(
                             settings,
                             runtime,
@@ -742,12 +756,6 @@ class BridgeService : Service() {
                         nextSessionAttempt = now + TimeUnit.SECONDS.toMillis(5)
                     }
 
-                    val emulatorAvailable = when (activeTransport) {
-                        EmulatorTransport.MGBA -> mgbaBridge != null
-                        EmulatorTransport.SNI -> sniClient != null
-                        EmulatorTransport.DOLPHIN -> dolphinClient != null
-                        null -> false
-                    }
                     try {
                         session?.tick(emulatorAvailable)
                     } catch (error: Exception) {

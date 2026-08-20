@@ -116,7 +116,11 @@ class WindWakerDolphinAdapter(DolphinGameAdapter):
 
     def on_package(self, ctx: AndroidDolphinContext, cmd: str, args: dict[str, Any]) -> None:
         if cmd == "Connected":
-            self._update_salvage_locations_map(ctx)
+            # Server packets must remain safe to process while Dolphin is detached. In
+            # particular, a room reconnect can complete after Android has suspended or
+            # closed Dolphin. Reading the chart table here would then turn a successful
+            # Archipelago handshake into a session failure/reconnect loop.
+            ctx.salvage_locations_map = {}
             death_link = bool(args.get("slot_data", {}).get("death_link", False))
             changed = death_link != ("DeathLink" in ctx.tags)
             if death_link:
@@ -154,6 +158,8 @@ class WindWakerDolphinAdapter(DolphinGameAdapter):
                 await ctx.send_msgs([self._visited_stage_message(ctx, stage_name)])
 
         ctx.update_visited_stages = update_visited_stages
+        if not ctx.salvage_locations_map:
+            self._update_salvage_locations_map(ctx)
         if not self.client.check_ingame():
             dme.write_bytes(
                 self.client.GIVE_ITEM_ARRAY_ADDR,
