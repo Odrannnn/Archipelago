@@ -58,6 +58,38 @@ class RetroArchNetworkClientTest {
     }
 
     @Test
+    fun safeReadSurvivesThreeConsecutiveLostReplies() = withServer { server, executor ->
+        val exchange = executor.submit(Callable {
+            val sourcePorts = mutableListOf<Int>()
+            repeat(4) { attempt ->
+                val request = receive(server)
+                sourcePorts += request.packet.port
+                if (attempt == 3) {
+                    respond(server, request.packet, "READ_CORE_MEMORY 1234 2a\n")
+                }
+            }
+            sourcePorts
+        })
+
+        RetroArchNetworkClient(
+            port = server.localPort,
+            addressMapper = SniAddressMapper { it },
+            steadyCommandTimeoutMs = 80,
+            recoveryCommandTimeoutMs = 80,
+        ).use { client ->
+            assertArrayEquals(byteArrayOf(0x2a), client.readSni(0x1234, 1))
+            val sourcePorts = exchange.get(2, TimeUnit.SECONDS)
+            assertEquals(4, sourcePorts.distinct().size)
+            val metrics = client.metricsSnapshot()
+            assertEquals(4L, metrics.commandsSent)
+            assertEquals(3L, metrics.timeouts)
+            assertEquals(3L, metrics.safeRetries)
+            assertEquals(3L, metrics.socketRotations)
+            assertEquals(0L, metrics.unrecoveredFailures)
+        }
+    }
+
+    @Test
     fun lateReplyToAbandonedSocketCannotPoisonRetry() = withServer { server, executor ->
         val exchange = executor.submit(Callable {
             val first = receive(server)

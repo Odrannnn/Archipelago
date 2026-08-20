@@ -77,6 +77,10 @@ class EmulatorLifecycle:
         self._tick_io_failed = True
         self.ctx.emulator_io_failures += 1
 
+    @property
+    def io_failed_this_tick(self) -> bool:
+        return self._tick_io_failed
+
     def end_tick(self) -> None:
         available = self._tick_transport_available and not self._tick_io_failed
         recovered = available and self._available is False

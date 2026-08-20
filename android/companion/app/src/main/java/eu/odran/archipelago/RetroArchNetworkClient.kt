@@ -265,9 +265,12 @@ class RetroArchNetworkClient internal constructor(
     companion object {
         const val DEFAULT_PORT = 55355
         private const val COMMAND_TIMEOUT_MS = 900
-        private const val RECOVERY_COMMAND_TIMEOUT_MS = 1_500
+        // Desktop SNI allows a memory request up to five seconds to complete. Four UDP
+        // attempts give Network Commands the same recovery window while rotating the
+        // socket after every lost or unusable response.
+        private const val RECOVERY_COMMAND_TIMEOUT_MS = 1_350
         private const val RECOVERY_COMMAND_COUNT = 2
-        private const val SAFE_QUERY_ATTEMPTS = 2
+        private const val SAFE_QUERY_ATTEMPTS = 4
         private const val MAX_COMMAND_PACKET_SIZE = 2_047
         private const val MAX_PACKET_SIZE = 65_507
         private const val MAX_READ_SIZE = 2_048

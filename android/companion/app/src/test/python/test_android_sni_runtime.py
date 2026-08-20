@@ -39,6 +39,19 @@ class FakeRegistry:
     game_handlers = {FakeSNIClient.game: FakeSNIClient()}
 
 
+class FailedValidationClient(FakeSNIClient):
+    async def validate_rom(self, ctx) -> bool:
+        ctx.rom = None
+        ctx.emulator_lifecycle.note_io_failure()
+        return False
+
+
+class ChangedRomClient(FakeSNIClient):
+    async def validate_rom(self, ctx) -> bool:
+        ctx.rom = b"different-rom"
+        return True
+
+
 worlds_module = ModuleType("worlds")
 auto_sni_module = ModuleType("worlds.AutoSNIClient")
 auto_sni_module.AutoSNIClientRegister = FakeRegistry
@@ -112,6 +125,34 @@ class AndroidSNIRegistryTest(unittest.TestCase):
 
             self.assertEqual([42, 42], backend.delivered)
             self.assertEqual(1, len(runtime.ctx.items_received))
+        finally:
+            runtime.close()
+
+    def test_transient_validation_io_failure_preserves_active_room(self) -> None:
+        runtime = AndroidSNIRuntime("unused", Backend())
+        try:
+            json.loads(runtime.probe())
+            runtime.handler = FailedValidationClient()
+
+            result = json.loads(runtime.tick(True))
+
+            self.assertFalse(result["disconnect"])
+            self.assertIn("temporarily unavailable", result["error"])
+            self.assertIsNotNone(runtime.ctx.client_handler)
+        finally:
+            runtime.close()
+
+    def test_successfully_read_changed_rom_still_rejects_active_room(self) -> None:
+        runtime = AndroidSNIRuntime("unused", Backend())
+        try:
+            json.loads(runtime.probe())
+            runtime.handler = ChangedRomClient()
+
+            result = json.loads(runtime.tick(True))
+
+            self.assertTrue(result["disconnect"])
+            self.assertIn("ROM change", result["error"])
+            self.assertIsNone(runtime.ctx.client_handler)
         finally:
             runtime.close()
 

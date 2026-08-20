@@ -203,6 +203,10 @@ class AndroidSNIRuntime:
                     if self.ctx.rom else ""
                 )
                 if not rom_validated or current_auth != self.ctx.auth:
+                    if self.ctx.emulator_lifecycle.io_failed_this_tick:
+                        raise RuntimeError(
+                            "SNI memory temporarily unavailable; preserving the active room"
+                        )
                     self.ctx.disconnect_requested = True
                     self.ctx.client_handler = None
                     self.ctx.rom = None
