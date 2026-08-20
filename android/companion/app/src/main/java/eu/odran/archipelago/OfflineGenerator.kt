@@ -40,6 +40,7 @@ data class WorldCapability(
 
 data class GenerationResult(
     val seed: String,
+    val attempts: Int,
     val players: List<String>,
     val files: List<GeneratedArtifact>,
     val patches: List<GeneratedArtifact>,
@@ -318,6 +319,7 @@ object OfflineGenerator {
         val players = root.getJSONArray("players")
         GenerationResult(
             seed = root.getString("seed"),
+            attempts = root.optInt("attempts", 1).coerceAtLeast(1),
             players = List(players.length()) { players.getString(it) },
             files = parseArtifacts("files"),
             patches = parseArtifacts("patches"),

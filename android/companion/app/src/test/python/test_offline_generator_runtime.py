@@ -38,6 +38,34 @@ class OfflineGeneratorRuntimeTest(unittest.TestCase):
             finally:
                 os.chdir(previous_directory)
 
+    def test_fill_failures_retry_with_new_seed_until_success(self) -> None:
+        candidates = []
+
+        def run_attempt(candidate_seed: str):
+            candidates.append(candidate_seed)
+            numeric_seed = 4100 if not candidate_seed else int(candidate_seed)
+            if len(candidates) < 3:
+                return {"seed": numeric_seed, "fill_error": "Unable to fill all locations"}
+            return {"seed": numeric_seed, "players": ["Player1"]}
+
+        outcome, attempts = OFFLINE_GENERATOR._retry_fill_failures(run_attempt, "")
+
+        self.assertEqual(["", "4101", "4102"], candidates)
+        self.assertEqual(3, attempts)
+        self.assertEqual(4102, outcome["seed"])
+
+    def test_non_fill_errors_are_not_retried(self) -> None:
+        attempts = 0
+
+        def run_attempt(_candidate_seed: str):
+            nonlocal attempts
+            attempts += 1
+            raise OSError("storage unavailable")
+
+        with self.assertRaisesRegex(OSError, "storage unavailable"):
+            OFFLINE_GENERATOR._retry_fill_failures(run_attempt, "123")
+        self.assertEqual(1, attempts)
+
 
 if __name__ == "__main__":
     unittest.main()

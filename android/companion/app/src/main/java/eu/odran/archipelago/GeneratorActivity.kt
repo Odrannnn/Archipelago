@@ -1399,20 +1399,21 @@ class GeneratorActivity : Activity() {
         generateButton.isEnabled = false
         exportSeedButton.isEnabled = false
         patchButton.isEnabled = false
-        status.text = "Generating ${playerForms.size}-player seed… this can take a minute."
+        status.text = "Generating ${playerForms.size}-player seed… item-placement failures retry automatically."
         val seed = seedEditor.text.toString()
         thread(name = "offline-seed-generation") {
             runCatching {
                 val yaml = OfflineGenerator.yamlFromPlayerForms(this, playersJson)
                 val result = OfflineGenerator.generate(this, yaml, seed)
-                SeedHistoryStore.add(this, result, yaml)
-            }.onSuccess { entry ->
+                SeedHistoryStore.add(this, result, yaml) to result.attempts
+            }.onSuccess { (entry, attempts) ->
                 runOnUiThread {
                     generateButton.isEnabled = true
                     openHistoryEntry(entry, loadSettings = false)
                     renderHistory()
                     val names = entry.files.joinToString("\n") { "• ${it.name}" }
-                    status.text = "Generation complete · seed ${entry.seed}\n" +
+                    val attemptSummary = if (attempts == 1) "" else " · $attempts attempts"
+                    status.text = "Generation complete · seed ${entry.seed}$attemptSummary\n" +
                         "Players: ${entry.players.joinToString()}\n$names"
                 }
             }.onFailure {

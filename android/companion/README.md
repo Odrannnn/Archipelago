@@ -197,6 +197,15 @@ its game list from the combined world registry. Each document's options remain
 independently editable before generation. Every player receives the patch format
 registered by their selected APWorld.
 
+Generation automatically retries when the Archipelago core raises `FillError`
+for an unsuccessful randomized item placement or an unbeatable generated
+layout. Each retry uses a different numeric seed; an explicitly entered seed is
+used for the first attempt and subsequent attempts increment it. The successful
+seed and total attempt count are shown when generation completes. Other errors,
+including invalid YAML or options, incompatible APWorlds, missing dependencies,
+storage failures, and output or patch failures, are not retried and retain their
+original diagnostic.
+
 The generator can remember named YAML configurations in app-private storage,
 ordered newest first. **Load into generator** restores the complete player form;
 **Import YAML file** validates and remembers an existing `.yaml` or `.yml` file,

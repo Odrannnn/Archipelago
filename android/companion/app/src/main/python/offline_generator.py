@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import inspect
 import json
+import logging
 import os
 import pkgutil
 import shutil
@@ -480,8 +481,26 @@ def world_catalog(work_directory: str) -> str:
     return json.dumps({"worlds": result, "failures": worlds.failed_world_loads})
 
 
+def _retry_fill_failures(run_attempt, initial_seed: str):
+    """Repeat only attempts explicitly reported as Archipelago fill failures."""
+    candidate_seed = initial_seed.strip()
+    attempts = 0
+    while True:
+        attempts += 1
+        outcome = run_attempt(candidate_seed)
+        fill_error = outcome.get("fill_error")
+        if fill_error is None:
+            return outcome, attempts
+        error_summary = str(fill_error).splitlines()[0] if str(fill_error) else "unspecified fill failure"
+        logging.warning(
+            "Seed %s failed during item placement on attempt %d; retrying with a new seed: %s",
+            outcome["seed"], attempts, error_summary,
+        )
+        candidate_seed = str(int(outcome["seed"]) + 1)
+
+
 def generate(yaml_text: str, work_directory: str, seed: str = "") -> str:
-    """Generate a seed and return JSON metadata for Kotlin."""
+    """Generate a seed, retrying randomized fill failures, and return metadata for Kotlin."""
     players, output = _prepare_runtime(work_directory)
     for old_file in players.iterdir():
         if old_file.is_file():
@@ -496,7 +515,7 @@ def generate(yaml_text: str, work_directory: str, seed: str = "") -> str:
     _load_worlds(work_directory)
     import Generate
 
-    arguments = [
+    base_arguments = [
         "--player_files_path", str(players),
         "--outputpath", str(output),
         "--weights_file_path", str(players / "_no_weights.yaml"),
@@ -504,14 +523,28 @@ def generate(yaml_text: str, work_directory: str, seed: str = "") -> str:
         "--multi", "1",
         "--spoiler", "0",
     ]
-    if seed.strip():
-        arguments.extend(("--seed", seed.strip()))
-    args = Generate.mystery_argparse(arguments)
-    args, numeric_seed = Generate.main(args)
-    player_names = [args.name[player] for player in range(1, args.multi + 1)]
     from Main import main as generate_multiworld
+    from Fill import FillError
 
-    generate_multiworld(args, numeric_seed)
+    def run_attempt(candidate_seed: str):
+        for old_file in output.iterdir():
+            if old_file.is_file():
+                old_file.unlink()
+        arguments = list(base_arguments)
+        if candidate_seed:
+            arguments.extend(("--seed", candidate_seed))
+        args = Generate.mystery_argparse(arguments)
+        args, numeric_seed = Generate.main(args)
+        player_names = [args.name[player] for player in range(1, args.multi + 1)]
+        try:
+            generate_multiworld(args, numeric_seed)
+        except FillError as error:
+            return {"seed": numeric_seed, "fill_error": str(error)}
+        return {"seed": numeric_seed, "players": player_names}
+
+    outcome, attempts = _retry_fill_failures(run_attempt, seed)
+    numeric_seed = outcome["seed"]
+    player_names = outcome["players"]
 
     from worlds.Files import AutoPatchRegister
     patch_endings = {ending.lower() for ending in AutoPatchRegister.file_endings} | CUSTOM_PATCH_EXTENSIONS
@@ -536,6 +569,7 @@ def generate(yaml_text: str, work_directory: str, seed: str = "") -> str:
         raise RuntimeError("Generation completed, but no hostable Archipelago seed ZIP was produced")
     return json.dumps({
         "seed": str(numeric_seed),
+        "attempts": attempts,
         "players": player_names,
         "files": files,
         "patches": patches,
