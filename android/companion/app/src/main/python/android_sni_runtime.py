@@ -166,14 +166,25 @@ class AndroidSNIRuntime:
             return False
         if self.ctx.snes_state != SNESState.SNES_ATTACHED:
             return False
+        self.ctx.emulator_lifecycle.begin_tick(True)
         try:
             self.ctx.rom = None
             valid = self._run(self.handler.validate_rom(self.ctx))
             current_auth = base64.b64encode(bytes(self.ctx.rom)).decode("ascii") if self.ctx.rom else ""
+            if self.ctx.emulator_lifecycle.io_failed_this_tick:
+                raise RuntimeError(
+                    "SNI memory temporarily unavailable; preserving the active game client"
+                )
             return bool(valid and self.ctx.game == game and current_auth == auth)
         except Exception as exc:
             self.last_error = f"{type(exc).__name__}: {exc}"
+            if self.ctx.emulator_lifecycle.io_failed_this_tick:
+                raise RuntimeError(
+                    "SNI memory temporarily unavailable; preserving the active game client"
+                ) from exc
             return False
+        finally:
+            self.ctx.emulator_lifecycle.end_tick()
 
     def process_packet(self, packet_json: str) -> None:
         if self.ctx is None or self.handler is None:

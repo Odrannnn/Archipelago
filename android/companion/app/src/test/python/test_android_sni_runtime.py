@@ -142,6 +142,30 @@ class AndroidSNIRegistryTest(unittest.TestCase):
         finally:
             runtime.close()
 
+    def test_active_probe_io_failure_preserves_registered_game_client(self) -> None:
+        runtime = AndroidSNIRuntime("unused", Backend())
+        try:
+            detected = json.loads(runtime.probe())
+            runtime.handler = FailedValidationClient()
+
+            with self.assertRaisesRegex(RuntimeError, "temporarily unavailable"):
+                runtime.validate_active(detected["game"], detected["auth"])
+
+            self.assertIsInstance(runtime.handler, FailedValidationClient)
+            self.assertIsNotNone(runtime.ctx.client_handler)
+        finally:
+            runtime.close()
+
+    def test_active_probe_successfully_read_changed_rom_returns_false(self) -> None:
+        runtime = AndroidSNIRuntime("unused", Backend())
+        try:
+            detected = json.loads(runtime.probe())
+            runtime.handler = ChangedRomClient()
+
+            self.assertFalse(runtime.validate_active(detected["game"], detected["auth"]))
+        finally:
+            runtime.close()
+
     def test_successfully_read_changed_rom_still_rejects_active_room(self) -> None:
         runtime = AndroidSNIRuntime("unused", Backend())
         try:
