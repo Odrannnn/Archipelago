@@ -31,6 +31,8 @@ class PythonArchipelagoSession(
     @Volatile private var slot: Int? = null
     @Volatile override var isClosed = false
         private set
+    @Volatile override var automaticRetryAllowed = true
+        private set
     private var currentAddress = settings.address
     private var triedSecureFallback = false
     private var lastRuntimeError = ""
@@ -42,6 +44,7 @@ class PythonArchipelagoSession(
 
     override fun connect() {
         isClosed = false
+        automaticRetryAllowed = true
         triedSecureFallback = settings.address.startsWith("wss://", ignoreCase = true)
         runtime.resetConnection()
         open(settings.address)
@@ -81,7 +84,15 @@ class PythonArchipelagoSession(
         }
         while (true) {
             val packet = packets.poll() ?: break
-            runtime.processPacket(packet)
+            val error = RoomPacketDispatcher.dispatch(runtime, packet)
+            if (error != null) {
+                val command = packet.optString("cmd", "unknown")
+                val message = "${romInfo.game} ignored a game-handler error while processing $command · " +
+                    "${error.javaClass.simpleName}: ${error.message.orEmpty()}"
+                Log.w(TAG, message, error)
+                ClientConsoleStore.append("error", message)
+                onStatus(message)
+            }
         }
         val result = runtime.tick(emulatorAvailable)
         ClientConsoleStore.append(result.console)
@@ -106,6 +117,7 @@ class PythonArchipelagoSession(
         }
         if (result.disconnect) {
             onStatus("${romInfo.game} client rejected this room or ROM")
+            automaticRetryAllowed = false
             close()
         }
     }
@@ -180,6 +192,7 @@ class PythonArchipelagoSession(
                     (0 until errors.length()).joinToString(", ") { errors.optString(it) }
                 onStatus(message)
                 onConnectionState(RoomConnectionState.DISCONNECTED, message)
+                automaticRetryAllowed = false
                 isClosed = true
                 webSocket.close(1000, "Login refused")
             }
@@ -229,8 +242,22 @@ class PythonArchipelagoSession(
     }
 
     companion object {
+        private const val TAG = "ArchipelagoSession"
         private const val DIAGNOSTIC_TAG = "ItemRecovery"
         private val HANDSHAKE_TIMEOUT_MS = TimeUnit.SECONDS.toMillis(15)
         private val DIAGNOSTIC_COMMANDS = setOf("Sync", "Connect", "LocationChecks", "StatusUpdate")
     }
+}
+
+internal object RoomPacketDispatcher {
+    fun dispatch(runtime: PythonGameRuntime, packet: JSONObject): Exception? =
+        guard { runtime.processPacket(packet) }
+
+    fun guard(action: () -> Unit): Exception? =
+        try {
+            action()
+            null
+        } catch (error: Exception) {
+            error
+        }
 }

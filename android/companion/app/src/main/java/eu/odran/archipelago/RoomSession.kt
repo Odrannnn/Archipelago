@@ -6,6 +6,8 @@ enum class RoomConnectionState { CONNECTING, CONNECTED, DISCONNECTED }
 interface RoomSession {
     val isClosed: Boolean
     val connectedSlot: Int?
+    val automaticRetryAllowed: Boolean
+        get() = true
     fun connect()
     fun tick(emulatorAvailable: Boolean = true)
     fun close()

@@ -140,6 +140,7 @@ class BridgeService : Service() {
         var nextGbaProbe = 0L
         var nextSniProbe = 0L
         var nextSessionAttempt = 0L
+        val roomReconnectBackoff = RoomReconnectBackoff()
         var nextDolphinAttempt = 0L
         var nextDolphinProbe = 0L
         var nextDolphinTelemetry = 0L
@@ -171,6 +172,7 @@ class BridgeService : Service() {
                     session = null
                     sessionSettings = null
                     nextSessionAttempt = 0L
+                    roomReconnectBackoff.reset()
                 }
 
                 while (true) {
@@ -198,6 +200,7 @@ class BridgeService : Service() {
                                     session = null
                                     sessionSettings = null
                                     nextSessionAttempt = 0L
+                                    roomReconnectBackoff.reset()
                                 }
                                 "disconnect" -> {
                                     serverPaused = true
@@ -698,6 +701,7 @@ class BridgeService : Service() {
                     activeRuntime = desired?.runtime
                     activeGame = desired?.game
                     nextSessionAttempt = 0L
+                    roomReconnectBackoff.reset()
                     serverPaused = false
 
                     activeGameName = desired?.game?.game
@@ -727,12 +731,33 @@ class BridgeService : Service() {
                         null -> false
                     }
                     val settings = ServerSettings.load(this)
-                    if (session != null && (session!!.isClosed || sessionSettings != settings)) {
+                    if (session != null && sessionSettings != settings) {
                         val oldSession = session
                         oldSession?.close()
                         if (activeSession === oldSession) activeSession = null
                         session = null
                         sessionSettings = null
+                        serverPaused = false
+                        nextSessionAttempt = 0L
+                        roomReconnectBackoff.reset()
+                    } else if (session?.isClosed == true) {
+                        val oldSession = session
+                        val retryAllowed = oldSession?.automaticRetryAllowed == true
+                        oldSession?.close()
+                        if (activeSession === oldSession) activeSession = null
+                        session = null
+                        sessionSettings = null
+                        if (retryAllowed) {
+                            nextSessionAttempt = roomReconnectBackoff.nextAttemptAfterFailure(now)
+                        } else {
+                            serverPaused = true
+                            nextSessionAttempt = Long.MAX_VALUE
+                            publishServerState(
+                                RoomConnectionState.DISCONNECTED,
+                                "Automatic room reconnect paused after the client rejected the login or ROM. " +
+                                    "Use /connect or save new room settings to retry.",
+                            )
+                        }
                     }
                     if (RoomReconnectPolicy.mayStart(
                             serverPaused = serverPaused,
@@ -753,22 +778,28 @@ class BridgeService : Service() {
                         sessionSettings = settings
                         activeSession = session
                         session?.connect()
-                        nextSessionAttempt = now + TimeUnit.SECONDS.toMillis(5)
                     }
 
                     try {
                         session?.tick(emulatorAvailable)
                     } catch (error: Exception) {
-                        Log.w(TAG, "Archipelago session tick failed; reconnecting room", error)
+                        Log.e(TAG, "Archipelago client failed; automatic room reconnect paused", error)
                         val oldSession = session
                         oldSession?.close()
                         if (activeSession === oldSession) activeSession = null
                         session = null
                         sessionSettings = null
-                        nextSessionAttempt = now + TimeUnit.SECONDS.toMillis(1)
+                        serverPaused = true
+                        nextSessionAttempt = Long.MAX_VALUE
+                        val message =
+                            "Automatic room reconnect paused after an internal client error · " +
+                                "${error.javaClass.simpleName}: ${error.message.orEmpty()}. Use /connect to retry."
+                        ClientConsoleStore.append("error", message)
+                        publishServerState(RoomConnectionState.DISCONNECTED, message)
                     }
 
                     session?.connectedSlot?.let { connectedSlot ->
+                        roomReconnectBackoff.observeConnected(now)
                         val address = sessionSettings?.address
                         if (activePlayerSlot != connectedSlot || activeServerAddress != address) {
                             activePlayerSlot = connectedSlot

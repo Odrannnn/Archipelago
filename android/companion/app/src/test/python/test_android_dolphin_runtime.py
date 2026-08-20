@@ -163,6 +163,16 @@ class AndroidDolphinRuntimeTest(unittest.TestCase):
         finally:
             runtime.close()
 
+    def test_dolphin_deathlink_is_deferred_until_game_watcher(self) -> None:
+        ctx = AndroidDolphinContext()
+        memory_calls = []
+        ctx.death_link_handler = lambda: memory_calls.append(True)
+
+        ctx.on_deathlink({"time": 123.0, "source": "Other player"})
+
+        self.assertEqual([], memory_calls)
+        self.assertTrue(ctx.pending_death_link)
+
 
 if __name__ == "__main__":
     unittest.main()

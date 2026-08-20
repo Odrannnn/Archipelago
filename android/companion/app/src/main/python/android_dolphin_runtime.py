@@ -36,10 +36,9 @@ class AndroidDolphinContext(AndroidClientContext):
 
     def on_deathlink(self, data: dict[str, Any]) -> None:
         super().on_deathlink(data)
-        if self.death_link_handler is None:
-            self.pending_death_link = True
-        else:
-            self.death_link_handler()
+        # Server packet handling must never touch Dolphin memory. The watcher
+        # consumes this only while the Android memory transport is available.
+        self.pending_death_link = True
 
 
 class DolphinGameAdapter:
