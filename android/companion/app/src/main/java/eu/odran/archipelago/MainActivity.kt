@@ -200,6 +200,13 @@ class MainActivity : Activity() {
                 startActivity(Intent(this@MainActivity, HostedRoomsActivity::class.java))
             }
         }
+        val backupRestore = Button(this).apply {
+            text = "Backup and restore"
+            CompanionUi.styleSecondary(this)
+            setOnClickListener {
+                startActivity(Intent(this@MainActivity, BackupRestoreActivity::class.java))
+            }
+        }
         inviteStatus = TextView(this).apply {
             CompanionUi.styleMuted(this)
             setPadding(0, CompanionUi.dp(this@MainActivity, 8), 0, 0)
@@ -250,6 +257,14 @@ class MainActivity : Activity() {
                 }
                 addView(secondaryActions, CompanionUi.insetTop(secondaryActions, this@MainActivity, 6))
                 addView(hostedRooms, CompanionUi.insetTop(hostedRooms, this@MainActivity, 6))
+            }, CompanionUi.cardParams(this@MainActivity))
+
+            addView(CompanionUi.card(
+                this@MainActivity,
+                "Data and storage",
+                "Export or restore your cached ROMs, seeds, APWorlds, rooms, saved YAMLs, and settings.",
+            ).apply {
+                addView(backupRestore, CompanionUi.fullWidth())
             }, CompanionUi.cardParams(this@MainActivity))
 
             val connectionFields = LinearLayout(this@MainActivity).apply {

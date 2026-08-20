@@ -64,6 +64,9 @@
         <activity
             android:name=".RoomLibraryActivity"
             android:exported="false" />
+        <activity
+            android:name=".BackupRestoreActivity"
+            android:exported="false" />
         <provider
             android:name=".InviteFileProvider"
             android:authorities="${applicationId}.files"

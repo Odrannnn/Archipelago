@@ -191,6 +191,19 @@ copied, but external write and delete modes are rejected. The provider resolves
 stable document IDs through the stores and canonical seed-history directories;
 it does not expose cached base ROMs, website credentials, or room controls.
 
+**Backup and restore** in the main screen's Data and storage card exports a
+versioned `.apbackup` ZIP through Android's system file picker. It contains all
+portable app-owned state: cached base and patched ROMs, generated seeds,
+imported APWorlds, saved YAMLs, joined/hosted rooms, drafts, server settings,
+passwords, and the website session used for hosted-room management. The archive
+is not encrypted and must be stored privately. Restore stages and validates the
+whole archive, enforces path and expansion limits, verifies a SHA-256 manifest,
+and rolls files and typed preferences back together if replacement fails.
+Device-specific seed-history paths are rewritten after restore. External ROM
+and ISO documents are not copied because Android file-provider permission
+grants cannot transfer to another install; those documents may need to be
+selected again. Runtime Python caches and temporary patch inputs are excluded.
+
 **Game worlds** shows the bundled games and imports additional trusted `.apworld` files into
 `filesDir/offline_generator/worlds`. Installation rejects absolute/traversal
 paths, oversized entries and expansions, malformed layouts, duplicate games,

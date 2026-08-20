@@ -77,6 +77,41 @@ object SeedHistoryStore {
         CompanionDocumentsProvider.notifyGeneratedSeedsChanged(context)
     }
 
+    /** Rewrites app-private absolute artifact paths after restoring on another Android user/device. */
+    fun repairRestoredPaths(context: Context) = synchronized(lock) {
+        val destination = indexFile(context)
+        if (!destination.isFile) return@synchronized
+        val root = JSONObject(destination.readText(Charsets.UTF_8))
+        require(root.optInt("version", INDEX_VERSION) == INDEX_VERSION) {
+            "Unsupported restored seed history version"
+        }
+        val entries = root.optJSONArray("entries") ?: JSONArray()
+        for (entryIndex in 0 until entries.length()) {
+            val entry = entries.getJSONObject(entryIndex)
+            val id = entry.getString("id")
+            val directory = File(historyRoot(context).canonicalFile, id).canonicalFile
+            require(directory.parentFile == historyRoot(context).canonicalFile) {
+                "Invalid restored seed history entry path"
+            }
+            listOf("files", "patches").forEach { key ->
+                val artifacts = entry.optJSONArray(key) ?: JSONArray()
+                for (artifactIndex in 0 until artifacts.length()) {
+                    val artifact = artifacts.getJSONObject(artifactIndex)
+                    val safeName = File(artifact.getString("name")).name
+                    require(safeName.isNotBlank()) { "Invalid restored seed artifact name" }
+                    artifact.put("path", File(directory, safeName).absolutePath)
+                }
+            }
+        }
+        val temporary = File(destination.parentFile, "${destination.name}.tmp")
+        temporary.writeText(root.toString(), Charsets.UTF_8)
+        if (!temporary.renameTo(destination)) {
+            temporary.copyTo(destination, overwrite = true)
+            temporary.delete()
+        }
+        CompanionDocumentsProvider.notifyGeneratedSeedsChanged(context)
+    }
+
     internal fun documentFiles(context: Context, id: String): List<SeedHistoryDocumentFile> = synchronized(lock) {
         val entry = readIndex(context).firstOrNull { it.id == id } ?: return@synchronized emptyList()
         val directory = entryDirectory(context, entry)
