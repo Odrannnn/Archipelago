@@ -29,6 +29,42 @@ MAX_FILL_ATTEMPTS = 50
 MAX_REPEATED_FILL_FAILURES = 20
 
 
+def _activate_android_dependencies(root: Path) -> None:
+    """Expose verified, app-private dependency packages before APWorld imports."""
+    registry = root / "python_dependencies" / "installed.json"
+    if not registry.is_file():
+        return
+    try:
+        records = json.loads(registry.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        logging.getLogger(__name__).warning("Ignoring an unreadable Android dependency registry")
+        return
+
+    changed = False
+    for record in records if isinstance(records, list) else ():
+        if not isinstance(record, dict):
+            continue
+        relative = record.get("site_packages")
+        if not isinstance(relative, str) or not relative:
+            continue
+        candidate = (root / "python_dependencies" / relative).resolve()
+        dependency_root = (root / "python_dependencies").resolve()
+        try:
+            candidate.relative_to(dependency_root)
+        except ValueError:
+            continue
+        if not candidate.is_dir():
+            continue
+        path = str(candidate)
+        if path not in sys.path:
+            # User-installed packages should take precedence over packages bundled
+            # by Chaquopy, matching a desktop virtual environment's site-packages.
+            sys.path.insert(0, path)
+            changed = True
+    if changed:
+        importlib.invalidate_caches()
+
+
 def _world_load_failure(package_name: str, game: str, error: Exception) -> str:
     """Turn an APWorld import exception into an actionable Android error."""
     current: BaseException | None = error
@@ -53,9 +89,8 @@ def _world_load_failure(package_name: str, game: str, error: Exception) -> str:
             )
         return (
             f"Missing Python dependency '{module}' required by {game}.\n"
-            "That module is not bundled with this companion, and the Android APWorld installer cannot add Python "
-            "packages itself. Update the companion or use an Android-compatible APWorld release; if neither is "
-            "available, report the dependency name to the companion or APWorld maintainer.\n"
+            "Open Game worlds and check Android Python dependencies for a reviewed build. If none is available, "
+            "the dependency needs a curated Android build recipe before this APWorld can load.\n"
             f"Technical details: {technical}"
         )
 
@@ -72,6 +107,7 @@ def _world_load_failure(package_name: str, game: str, error: Exception) -> str:
 
 def _prepare_runtime(work_directory: str) -> tuple[Path, Path]:
     root = Path(work_directory).resolve()
+    _activate_android_dependencies(root)
     players = root / "Players"
     output = root / "output"
     players.mkdir(parents=True, exist_ok=True)

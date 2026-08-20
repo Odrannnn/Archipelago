@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "id": "py-randomprime-1.31.1",
+  "build_kind": "cargo-pyo3",
+  "package": "py-randomprime",
+  "version": "1.31.1",
+  "module": "py_randomprime",
+  "python_package": "py_randomprime",
+  "python_abi": "abi3",
+  "python_version": "3.12",
+  "android_abi": "arm64-v8a",
+  "rust_target": "aarch64-linux-android",
+  "minimum_sdk": 26,
+  "rust_toolchain": "1.85.1",
+  "additional_rust_targets": [
+    "powerpc-unknown-linux-gnu"
+  ],
+  "source_url": "https://files.pythonhosted.org/packages/4a/8c/624e61f4b264b98f8361bedbcc95d73283d5612f72315c5d634f7c3b1b5a/py_randomprime-1.31.1.tar.gz",
+  "source_sha256": "bc4d8d2ccb61d08fadfee7c01853349fda532562c9eb2d9f88db3f02f039002a",
+  "python_target_url": "https://repo1.maven.org/maven2/com/chaquo/python/target/3.12.12-0/target-3.12.12-0-arm64-v8a.zip",
+  "python_target_sha256": "7a4a278ec1fed0e0d0359fbec71d6d481d79a7efbc8e2090267a91046417027a",
+  "cargo_directory": ".",
+  "cargo_library": "libpy_randomprime.so",
+  "extension_destination": "py_randomprime/rust.so",
+  "worlds": [
+    {
+      "game": "Metroid Prime",
+      "minimum_world_version": "0.5.4",
+      "maximum_world_version": "0.5.4"
+    }
+  ]
+}

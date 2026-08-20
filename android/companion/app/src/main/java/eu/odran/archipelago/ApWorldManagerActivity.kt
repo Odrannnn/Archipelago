@@ -1,5 +1,6 @@
 package eu.odran.archipelago
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
@@ -11,17 +12,25 @@ import android.widget.ScrollView
 import android.widget.TextView
 import java.text.DateFormat
 import java.util.Date
+import java.util.Locale
 import kotlin.concurrent.thread
 
 /** Installs trusted APWorld Python packages for on-device generation and ROM patching. */
+@SuppressLint("SetTextI18n")
 class ApWorldManagerActivity : Activity() {
     private lateinit var worldsContainer: LinearLayout
+    private lateinit var dependenciesContainer: LinearLayout
     private lateinit var status: TextView
+    private lateinit var dependencyStatus: TextView
+    private var dependencyCatalog = emptyList<NativeDependencyAsset>()
+    private var dependencyBusy: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         worldsContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        dependenciesContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         status = TextView(this).apply { CompanionUi.styleBody(this) }
+        dependencyStatus = TextView(this).apply { CompanionUi.styleMuted(this) }
         val content = CompanionUi.screen(this).apply {
             addView(CompanionUi.pageTitle(
                 this@ApWorldManagerActivity,
@@ -39,6 +48,19 @@ class ApWorldManagerActivity : Activity() {
                     setOnClickListener { confirmImport() }
                 }, matchWrap())
                 addView(status, CompanionUi.insetTop(status, this@ApWorldManagerActivity, 8))
+            }, CompanionUi.cardParams(this@ApWorldManagerActivity))
+            addView(CompanionUi.card(
+                this@ApWorldManagerActivity,
+                "Android Python dependencies",
+                "Imported worlds can use reviewed native packages built from hash-pinned upstream source. Downloads are matched against GitHub's release digest and installed only in this app's private storage.",
+            ).apply {
+                addView(dependencyStatus, CompanionUi.fullWidth())
+                addView(Button(this@ApWorldManagerActivity).apply {
+                    text = "Refresh dependency catalog"
+                    CompanionUi.styleSecondary(this)
+                    setOnClickListener { refreshDependencyCatalog(force = true) }
+                }, CompanionUi.insetTop(this, this@ApWorldManagerActivity, 8))
+                addView(dependenciesContainer, CompanionUi.insetTop(dependenciesContainer, this@ApWorldManagerActivity, 8))
             }, CompanionUi.cardParams(this@ApWorldManagerActivity))
             addView(CompanionUi.card(
                 this@ApWorldManagerActivity,
@@ -76,6 +98,7 @@ class ApWorldManagerActivity : Activity() {
         SystemBarInsets.apply(window, scroll)
         setContentView(scroll)
         renderWorlds()
+        renderDependencies()
         status.text = "Loading game capabilities…"
         thread(name = "apworld-catalog") {
             runCatching { OfflineGenerator.refreshCatalog(this) }
@@ -90,6 +113,7 @@ class ApWorldManagerActivity : Activity() {
                     renderWorlds()
                 } }
         }
+        refreshDependencyCatalog(force = false)
     }
 
     private fun confirmImport() {
@@ -133,6 +157,8 @@ class ApWorldManagerActivity : Activity() {
                         "Installed ${installed.game}, but it could not load: ${shortFailure(failure)}"
                     }
                     renderWorlds()
+                    renderDependencies()
+                    offerDependencies(installed)
                 }
             }.onFailure { error -> runOnUiThread { status.text = "Could not install APWorld:\n${error.message ?: error.javaClass.simpleName}" } }
         }
@@ -234,6 +260,193 @@ class ApWorldManagerActivity : Activity() {
         }
     }
 
+    private fun refreshDependencyCatalog(force: Boolean) {
+        if (dependencyBusy != null) return
+        dependencyStatus.text = if (force) {
+            "Refreshing the curated Android dependency catalog…"
+        } else {
+            "Checking the curated Android dependency catalog…"
+        }
+        thread(name = "native-dependency-catalog") {
+            runCatching { NativeDependencyCatalogClient(this).load(force) }
+                .onSuccess { result -> runOnUiThread {
+                    dependencyCatalog = result.assets
+                    dependencyStatus.text = buildString {
+                        append("${result.assets.size} compatible package build")
+                        if (result.assets.size != 1) append('s')
+                        append(if (result.cached) " in the verified cache." else " verified from GitHub.")
+                        result.warning?.let { append("\n$it") }
+                    }
+                    renderDependencies()
+                } }
+                .onFailure { error -> runOnUiThread {
+                    dependencyStatus.text = "Dependency catalog unavailable: ${error.message ?: error.javaClass.simpleName}"
+                    renderDependencies()
+                } }
+        }
+    }
+
+    private fun renderDependencies() {
+        dependenciesContainer.removeAllViews()
+        val imported = ImportedApWorldStore.list(this)
+        val relevant = dependencyCatalog.filter { asset -> asset.worlds.any { rule -> imported.any(rule::matches) } }
+        val installed = NativeDependencyStore.list(this).associateBy { it.packageName }
+        if (relevant.isEmpty() && installed.isEmpty()) {
+            dependenciesContainer.addView(TextView(this).apply {
+                text = if (imported.isEmpty()) {
+                    "Import an APWorld to check whether it needs an Android native package."
+                } else {
+                    "No reviewed native package is required by the currently imported worlds."
+                }
+                CompanionUi.styleBody(this)
+            }, CompanionUi.fullWidth())
+            return
+        }
+
+        relevant.forEach { asset ->
+            val record = installed[asset.packageName]
+            val exact = NativeDependencyStore.isInstalled(this, asset)
+            val panel = CompanionUi.panel(this).apply {
+                addView(TextView(this@ApWorldManagerActivity).apply {
+                    text = "${asset.packageName} ${asset.version}"
+                    textSize = 18f
+                    setTextColor(CompanionUi.text)
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                })
+                addView(TextView(this@ApWorldManagerActivity).apply {
+                    text = buildString {
+                        append(if (exact) "Installed and verified" else if (record != null) {
+                            "Version ${record.version} installed · reviewed update available"
+                        } else {
+                            "Available for Android ${asset.androidAbi}"
+                        })
+                        append("\nModule ${asset.moduleName} · Python ${asset.pythonAbi} · ${formatBytes(asset.byteCount)}")
+                        append("\nRequired by ")
+                        append(asset.worlds.joinToString { it.game })
+                    }
+                    CompanionUi.styleMuted(this)
+                    setPadding(0, CompanionUi.dp(this@ApWorldManagerActivity, 4), 0, 0)
+                })
+                addView(Button(this@ApWorldManagerActivity).apply {
+                    text = when {
+                        dependencyBusy == asset.packageName -> "Installing…"
+                        exact -> "Remove package"
+                        record != null -> "Install reviewed update"
+                        else -> "Download and install"
+                    }
+                    isEnabled = dependencyBusy == null
+                    if (exact) CompanionUi.styleDanger(this) else CompanionUi.stylePrimary(this)
+                    setOnClickListener {
+                        if (exact) confirmRemoveDependency(asset) else confirmInstallDependency(asset)
+                    }
+                }, CompanionUi.insetTop(this, this@ApWorldManagerActivity, 8))
+            }
+            dependenciesContainer.addView(panel, CompanionUi.insetTop(panel, this, 8))
+        }
+
+        installed.values.filter { record -> relevant.none { it.packageName == record.packageName } }.forEach { record ->
+            val panel = CompanionUi.panel(this).apply {
+                addView(TextView(this@ApWorldManagerActivity).apply {
+                    text = "${record.packageName} ${record.version}"
+                    CompanionUi.styleBody(this)
+                })
+                addView(TextView(this@ApWorldManagerActivity).apply {
+                    text = "Installed package is not required by a currently imported world."
+                    CompanionUi.styleMuted(this)
+                })
+                addView(Button(this@ApWorldManagerActivity).apply {
+                    text = "Remove package"
+                    isEnabled = dependencyBusy == null
+                    CompanionUi.styleDanger(this)
+                    setOnClickListener { removeDependency(record.packageName) }
+                }, CompanionUi.insetTop(this, this@ApWorldManagerActivity, 8))
+            }
+            dependenciesContainer.addView(panel, CompanionUi.insetTop(panel, this, 8))
+        }
+    }
+
+    private fun offerDependencies(world: ImportedApWorld) {
+        val missing = dependencyCatalog.filter { asset ->
+            asset.worlds.any { it.matches(world) } && !NativeDependencyStore.isInstalled(this, asset)
+        }
+        if (missing.isEmpty()) return
+        AlertDialog.Builder(this)
+            .setTitle("Android dependency available")
+            .setMessage(
+                "${world.game} can use ${missing.joinToString { "${it.packageName} ${it.version}" }}. " +
+                    "Install the reviewed Android build now?",
+            )
+            .setNegativeButton("Later", null)
+            .setPositiveButton("Install") { _, _ -> confirmInstallDependency(missing.first(), skipConfirmation = true) }
+            .show()
+    }
+
+    private fun confirmInstallDependency(asset: NativeDependencyAsset, skipConfirmation: Boolean = false) {
+        val install = {
+            dependencyBusy = asset.packageName
+            dependencyStatus.text = "Downloading ${asset.packageName} ${asset.version}…"
+            renderDependencies()
+            thread(name = "native-dependency-install") {
+                runCatching {
+                    NativeDependencyStore.downloadAndInstall(this, asset) { downloaded, total ->
+                        runOnUiThread {
+                            dependencyStatus.text = "Downloading ${asset.packageName}: ${formatBytes(downloaded)} / ${formatBytes(total)}"
+                        }
+                    }
+                }.onSuccess { runOnUiThread {
+                    dependencyBusy = null
+                    dependencyStatus.text = "Installed ${asset.packageName} ${asset.version}. Failed APWorld imports may require a full companion restart."
+                    renderDependencies()
+                    thread(name = "native-dependency-catalog-refresh") {
+                        runCatching { OfflineGenerator.refreshCatalog(this) }
+                            .onSuccess { runOnUiThread { renderWorlds() } }
+                    }
+                } }.onFailure { error -> runOnUiThread {
+                    dependencyBusy = null
+                    dependencyStatus.text = "Could not install ${asset.packageName}: ${error.message ?: error.javaClass.simpleName}"
+                    renderDependencies()
+                } }
+            }
+        }
+        if (skipConfirmation) {
+            install()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Install ${asset.packageName}?")
+            .setMessage(
+                "This reviewed build was produced from ${asset.sourceUrl} and is restricted to ${asset.androidAbi}. " +
+                    "The download and its upstream source are both verified by SHA-256 before installation.",
+            )
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Install") { _, _ -> install() }
+            .show()
+    }
+
+    private fun confirmRemoveDependency(asset: NativeDependencyAsset) {
+        AlertDialog.Builder(this)
+            .setTitle("Remove ${asset.packageName}?")
+            .setMessage("Worlds which require this native module will lose that functionality until it is installed again.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Remove") { _, _ -> removeDependency(asset.packageName) }
+            .show()
+    }
+
+    private fun removeDependency(packageName: String) {
+        dependencyStatus.text = if (NativeDependencyStore.remove(this, packageName)) {
+            "Removed $packageName. Restart the companion if the module was already loaded."
+        } else {
+            "Could not remove $packageName."
+        }
+        renderDependencies()
+    }
+
+    private fun formatBytes(bytes: Long): String = when {
+        bytes >= 1024L * 1024L -> String.format(Locale.ROOT, "%.1f MiB", bytes / (1024.0 * 1024.0))
+        bytes >= 1024L -> String.format(Locale.ROOT, "%.1f KiB", bytes / 1024.0)
+        else -> "$bytes B"
+    }
+
     private fun capabilitySummary(capability: WorldCapability?, failure: String?): String {
         if (failure != null) return "Load failed: ${shortFailure(failure)}"
         if (capability == null) return "Loading capabilities…"
@@ -262,6 +475,7 @@ class ApWorldManagerActivity : Activity() {
                 if (ImportedApWorldStore.remove(this, world.packageName)) {
                     status.text = "Removed ${world.game}. If it was already loaded, fully restart the companion before importing another version."
                     renderWorlds()
+                    renderDependencies()
                 } else {
                     status.text = "Could not remove ${world.game}."
                 }
