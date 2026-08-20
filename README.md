@@ -19,8 +19,9 @@ their original authorship, history, and licenses.
 
 This fork adds a self-contained Android workflow for playing GBA, GBC, and SNES multiworlds
 with [Archipelago](https://archipelago.gg). It combines an Android companion app
-with custom mGBA and SNES9x libretro cores so RetroArch can exchange game state
-with an Archipelago room without a PC.
+with RetroArch's memory interfaces so games can exchange state with an Archipelago
+room without a PC. GBA/GBC uses a custom mGBA bridge; SNES uses nightly Network
+Commands by default and offers a custom SNES9x bridge as an optional fallback.
 
 The app bundles fourteen compatible worlds from the pinned Archipelago core.
 The nine SNES worlds are A Link to the Past, EarthBound, Final Fantasy Mystic
@@ -30,7 +31,7 @@ of the Moon, Link's Awakening DX, Mario & Luigi: Superstar Saga, Pokémon
 Emerald, and Yu-Gi-Oh! 2006. They can generate, patch, and play without a manual
 APWorld import. Other compatible worlds can still be added as trusted
 `.apworld` files. Conventional SNES worlds use their upstream `SNIClient`
-through the reusable Python-to-SNES9x path; conventional GBA and GB/GBC worlds
+through a reusable Python-to-emulator path; conventional GBA and GB/GBC worlds
 use their upstream `BizHawkClient` through the Python-to-mGBA path. Link's
 Awakening DX uses a dedicated Android adapter over the same mGBA bridge.
 The rest of this repository remains based on the upstream
@@ -45,14 +46,14 @@ The rest of this repository remains based on the upstream
 
 - Connects RetroArch's emulated GBA or GBC memory to the companion through a
   loopback-only bridge at `127.0.0.1:43056`.
-- Connects nine built-in SNES games through a custom SNES9x core's frame-boundary SNI
-  memory bridge at TCP `127.0.0.1:43057`. The bridge exposes generic flat ROM,
-  SRAM, and WRAM domains and reports soft resets without running an SNI process.
-- Retains RetroArch nightly's UDP Network Commands interface at
-  `127.0.0.1:55355` as a compatibility fallback.
+- Connects nine built-in SNES clients through RetroArch nightly's UDP Network
+  Commands interface at `127.0.0.1:55355` by default.
+- Retains the custom SNES9x core's frame-boundary SNI memory bridge at TCP
+  `127.0.0.1:43057` as an optional mapper-independent fallback. It exposes flat
+  ROM, SRAM, and WRAM domains and reports soft resets without an SNI process.
 - Uses one shared emulator lifecycle for mGBA and registered SNI clients, with
-  deduplicated server resynchronization after memory loss, transport reattach,
-  and explicit reset-generation changes reported by the SNES9x core.
+  deduplicated server resynchronization after memory loss and transport reattach;
+  the optional SNES9x bridge also reports explicit reset-generation changes.
 - Detects compatible ROMs using built-in or imported bridge clients, then reads
   the authentication data defined by each game.
 - Connects to Archipelago rooms over WebSockets, including TLS fallback.
@@ -152,7 +153,7 @@ across refreshes and can be restored from the **Hosted rooms** screen.
 ### Launch related Android apps
 
 - Launches saved patched ROMs in 64-bit RetroArch with either the custom mGBA
-  bridge core or custom SNES9x bridge core while retaining RetroArch's normal
+  bridge core or the stock SNES9x core while retaining RetroArch's normal
   configuration, controller mappings, overrides, and remaps.
 - Opens the PopTracker Android app with the imported room's game identifier,
   active server address, selected player name, and room password.
@@ -167,7 +168,8 @@ Archipelago room
         ↕ WebSocket
 Android companion app
         ├─ TCP 127.0.0.1:43056 ↔ custom mGBA core ↔ GBA/GBC memory
-        └─ TCP 127.0.0.1:43057 ↔ custom SNES9x core ↔ SNI ROM/SRAM/WRAM
+        ├─ UDP 127.0.0.1:55355 ↔ RetroArch Network Commands ↔ SNES memory
+        └─ TCP 127.0.0.1:43057 ↔ optional custom SNES9x core ↔ SNI ROM/SRAM/WRAM
 ```
 
 The custom core performs memory access only on mGBA's emulation thread. It
@@ -182,8 +184,10 @@ exposed to the LAN.
 - Android companion package `eu.odran.archipelago`
 - 64-bit RetroArch (`com.retroarch.aarch64`)
 - The custom mGBA Archipelago bridge core installed in RetroArch
-- For SNES games, `snes9x_apbridge_v1_libretro_android.so` installed through
-  RetroArch's **Install or Restore a Core** action
+- For SNES games, an Android nightly with **Settings > Network > Network Commands**
+  enabled and the stock `snes9x_libretro_android.so` core installed
+- Optional: `snes9x_apbridge_v1_libretro_android.so` installed through
+  RetroArch's **Install or Restore a Core** action for its mapper-independent bridge
 - A legally obtained clean ROM accepted by the selected game world
 - For games not built in, a trusted and compatible `.apworld`
 - An Archipelago room when playing online
@@ -228,8 +232,8 @@ automatically, provide it explicitly:
 ```
 
 See the [companion documentation](android/companion/README.md) for further
-details. The custom core is built separately from mGBA and installed through
-RetroArch's **Load Core > Install or Restore a Core** command.
+details. The optional custom SNES9x core is built separately from mGBA and
+installed through RetroArch's **Load Core > Install or Restore a Core** command.
 
 ## Privacy and legal notes
 

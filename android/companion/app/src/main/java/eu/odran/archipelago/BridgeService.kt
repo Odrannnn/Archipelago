@@ -15,6 +15,18 @@ import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 
+internal enum class SniTransportKind {
+    RETROARCH_NETWORK_COMMANDS,
+    SNES9X_BRIDGE,
+}
+
+internal fun preferredSniTransportOrder(preferSnesFallback: Boolean = false): List<SniTransportKind> =
+    if (preferSnesFallback) {
+        listOf(SniTransportKind.SNES9X_BRIDGE, SniTransportKind.RETROARCH_NETWORK_COMMANDS)
+    } else {
+        listOf(SniTransportKind.RETROARCH_NETWORK_COMMANDS, SniTransportKind.SNES9X_BRIDGE)
+    }
+
 /**
  * Owns the emulator connection independently of MainActivity. A foreground
  * service is required because Android may suspend ordinary background app
@@ -136,7 +148,7 @@ class BridgeService : Service() {
         var sessionSettings: ServerSettings? = null
         var nextMgbaAttempt = 0L
         var nextSniAttempt = 0L
-        var nextSnesPromotionAttempt = 0L
+        var preferSnesFallback = false
         var nextGbaProbe = 0L
         var nextSniProbe = 0L
         var nextSessionAttempt = 0L
@@ -162,8 +174,8 @@ class BridgeService : Service() {
         try {
             publish(
                 "Waiting for an Archipelago emulator bridge…",
-                "SNES games prefer the custom SNES9x bridge on TCP 127.0.0.1:${Snes9xBridgeClient.DEFAULT_PORT}; " +
-                    "RetroArch nightly Network Commands remain available as a fallback. Dolphin Archipelago " +
+                "SNES games use RetroArch nightly Network Commands on UDP 127.0.0.1:${RetroArchNetworkClient.DEFAULT_PORT}; " +
+                    "the optional custom SNES9x bridge on TCP 127.0.0.1:${Snes9xBridgeClient.DEFAULT_PORT} is a fallback. Dolphin Archipelago " +
                     "uses its dedicated localhost memory service on TCP 127.0.0.1:${DolphinSocketClient.DEFAULT_PORT}.",
             )
             while (running && !Thread.currentThread().isInterrupted) {
@@ -171,6 +183,7 @@ class BridgeService : Service() {
 
                 if (reconnectRequested) {
                     reconnectRequested = false
+                    preferSnesFallback = false
                     serverPaused = false
                     val oldSession = session
                     oldSession?.close()
@@ -569,7 +582,7 @@ class BridgeService : Service() {
                 if (!snesPaused && sniClient == null && now >= nextSniAttempt) {
                     var candidate: SniMemoryClient? = null
                     try {
-                        val connected = connectPreferredSniClient()
+                        val connected = connectPreferredSniClient(preferSnesFallback)
                         candidate = connected.first
                         val status = connected.second
                         activeSniClient = candidate
@@ -588,7 +601,7 @@ class BridgeService : Service() {
                             ?.unrecoveredFailures
                             ?: 0L
                         retroArchFailureGate.reset()
-                        nextSnesPromotionAttempt = now + TimeUnit.SECONDS.toMillis(2)
+                        preferSnesFallback = false
                         nextSniProbe = 0L
                         publish("${status.description} connected · inspecting SNI-compatible ROM…")
                         Log.i(TAG, "Connected SNES transport: ${status.description}")
@@ -596,35 +609,6 @@ class BridgeService : Service() {
                         candidate?.close()
                         if (activeSniClient === candidate) activeSniClient = null
                         nextSniAttempt = now + TimeUnit.SECONDS.toMillis(1)
-                    }
-                }
-
-                if (
-                    sniClient is RetroArchNetworkClient &&
-                    now >= nextSnesPromotionAttempt
-                ) {
-                    var promoted: Snes9xBridgeClient? = null
-                    try {
-                        promoted = Snes9xBridgeClient().apply { connect() }
-                        val status = promoted.checkStatus()
-                        val fallback = sniClient
-                        val runtime = sniRuntime
-                        runtime?.emulatorDetached()
-                        runtime?.attach(promoted)
-                        sniClient = promoted
-                        activeSniClient = promoted
-                        sniResetGeneration = status.resetGeneration
-                        sniProbeHealthy = true
-                        retroArchFailuresObserved = 0L
-                        retroArchFailureGate.reset()
-                        sniMemoryAttached = false
-                        nextSniProbe = 0L
-                        fallback?.close()
-                        publish("${status.description} connected · inspecting SNI-compatible ROM…")
-                        Log.i(TAG, "Promoted SNES transport from Network Commands to ${status.description}")
-                    } catch (_: Exception) {
-                        promoted?.close()
-                        nextSnesPromotionAttempt = now + TimeUnit.SECONDS.toMillis(2)
                     }
                 }
 
@@ -700,6 +684,7 @@ class BridgeService : Service() {
                                 error,
                             )
                         } else {
+                            preferSnesFallback = connectedSni is RetroArchNetworkClient
                             retroArchFailureGate.reset()
                             currentSniRuntime.detach(connectedSni)
                             sniMemoryAttached = false
@@ -916,12 +901,20 @@ class BridgeService : Service() {
         )
     }
 
-    private fun connectPreferredSniClient(): Pair<SniMemoryClient, SniTransportStatus> {
+    private fun connectPreferredSniClient(
+        preferSnesFallback: Boolean,
+    ): Pair<SniMemoryClient, SniTransportStatus> {
         var lastError: Exception? = null
-        val factories: List<() -> SniMemoryClient> = listOf(
-            { Snes9xBridgeClient().apply { connect() } },
-            { RetroArchNetworkClient() },
-        )
+        val factories: List<() -> SniMemoryClient> = preferredSniTransportOrder(
+            preferSnesFallback,
+        ).map { transport ->
+            when (transport) {
+                SniTransportKind.RETROARCH_NETWORK_COMMANDS ->
+                    { -> RetroArchNetworkClient() }
+                SniTransportKind.SNES9X_BRIDGE ->
+                    { -> Snes9xBridgeClient().apply { connect() } }
+            }
+        }
         factories.forEach { factory ->
             var candidate: SniMemoryClient? = null
             try {
@@ -960,7 +953,7 @@ class BridgeService : Service() {
         serverStatusText = "💤 Archipelago waiting for ROM"
         serverStatusDetails =
             "Archipelago will connect after you load a $PATCHED_ROM_DESCRIPTION in RetroArch. " +
-                "SNES games use the custom SNES9x Archipelago core when installed."
+                "SNES games use RetroArch nightly Network Commands by default; the custom SNES9x core is optional."
         updateNotification()
     }
 

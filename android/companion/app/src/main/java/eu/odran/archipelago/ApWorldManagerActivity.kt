@@ -43,7 +43,7 @@ class ApWorldManagerActivity : Activity() {
             addView(CompanionUi.card(
                 this@ApWorldManagerActivity,
                 "Built-in SNES live sync",
-                "Verified upstream SNI clients included with the companion. Use the custom SNES9x Archipelago core for mapper-independent memory access.",
+                "Verified upstream SNI clients included with the companion. RetroArch nightly Network Commands are the default; the custom SNES9x Archipelago core is an optional mapper-independent fallback.",
             ).apply {
                 addView(TextView(this@ApWorldManagerActivity).apply {
                     text = OfflineGenerator.bundledWorlds(this@ApWorldManagerActivity)

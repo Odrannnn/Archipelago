@@ -43,11 +43,11 @@ no memory addresses or values are logged. Unavailable-port messages are rate-lim
 long wait for Dolphin cannot overwrite the useful connection or failure event in
 logcat.
 
-The application connects either to the custom mGBA libretro core at
-`127.0.0.1:43056` or the custom SNES9x core at `127.0.0.1:43057`. RetroArch
-nightly's UDP Network Commands at `127.0.0.1:55355` remain a fallback. Both SNES
-transports run registered upstream SNI client logic without a separate SNI
-executable.
+The application connects to the custom mGBA libretro core at `127.0.0.1:43056`.
+For SNES, RetroArch nightly's UDP Network Commands at `127.0.0.1:55355` are the
+default transport, with the custom SNES9x core at `127.0.0.1:43057` retained as
+an optional fallback. Both SNES transports run registered upstream SNI client
+logic without a separate SNI executable.
 
 `BridgeService` owns this connection as a foreground service. It reconnects
 when RetroArch or the core restarts and sends a one-second keepalive while the
@@ -132,13 +132,14 @@ selection, command registration, data-storage notifications, player/game name
 lookups, error reporting, and buffered-write API. A transport loss clears the
 attached ROM/device state but preserves the server's received-item list so a
 reset game-side cursor can consume those items again after reattachment.
-`Snes9xBridgeClient` is the preferred replacement for SNI's desktop memory
-transport. The core exposes mapper-independent FX Pak Pro ROM, SRAM, and WRAM
-domains directly and processes requests in `retro_run()`. Its TCP listener
-survives `retro_reset()` and PING returns the new reset generation. The older
-`RetroArchNetworkClient` LoROM adapter remains as a Network Commands fallback;
-the custom core is required for the verified mapper-independent compatibility
-shown in the app.
+`RetroArchNetworkClient` is the default Android replacement for SNI's desktop
+memory transport. It uses the stock SNES9x core through nightly Network Commands
+and hardens the UDP request/reply lifecycle against stale replies and temporary
+timeouts. `Snes9xBridgeClient` remains an optional fallback. Its custom core
+exposes mapper-independent FX Pak Pro ROM, SRAM, and WRAM domains directly,
+processes requests in `retro_run()`, survives `retro_reset()`, and reports a new
+reset generation. The custom core is still required where mapper-independent
+addressing is needed.
 
 The supported upstream worlds are bundled as Python source and resources inside
 the APK. Additional games require a trusted `.apworld` whose conventional client
@@ -277,8 +278,8 @@ uninstalling removes those copies. The app never bundles a ROM.
 
 After a supported patched ROM is saved, the companion offers to launch it directly in
 the installed 64-bit RetroArch package. The launch intent selects either the custom
-`mgba_apbridge_v9_libretro_android.so` core or
-`snes9x_apbridge_v1_libretro_android.so` and passes RetroArch's own standard
+`mgba_apbridge_v9_libretro_android.so` core or the stock
+`snes9x_libretro_android.so` core and passes RetroArch's own standard
 `retroarch.cfg` path without creating or modifying the file, preserving controller
 mappings, overrides, and remaps. Each launch starts a fresh RetroArch task so a
 suspended video surface cannot leave the game running with audio but no picture.

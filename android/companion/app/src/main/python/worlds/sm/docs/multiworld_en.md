@@ -119,10 +119,11 @@ the lua you are using in your file explorer and copy the `socket.dll` to the bas
 
 ##### RetroArch 1.10.1 or newer
 
-> **Android companion:** install `snes9x_apbridge_v1_libretro_android.so` with
-> **Load Core > Install or Restore a Core**. The companion launches that core
-> directly and does not require Network Commands. The desktop instructions
-> below apply to the standard Archipelago client only.
+> **Android companion:** use an Android nightly, enable **Network Commands** on
+> port 55355, and install the stock `snes9x_libretro_android.so` core. The
+> companion launches that core directly. The custom
+> `snes9x_apbridge_v1_libretro_android.so` core is an optional fallback installed
+> through **Load Core > Install or Restore a Core**.
 
 You only have to do these steps once. Note, RetroArch 1.9.x will not work as it is older than 1.10.1.
 
