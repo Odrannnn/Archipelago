@@ -135,10 +135,10 @@ class GeneratorActivity : Activity() {
         }
         status = TextView(this).apply {
             text = "Starting Python 3.12…"
-            minLines = 4
-            maxLines = 4
-            ellipsize = android.text.TextUtils.TruncateAt.END
+            minLines = 2
             gravity = android.view.Gravity.TOP or android.view.Gravity.START
+            setTextIsSelectable(true)
+            setHorizontallyScrolling(false)
             CompanionUi.styleBody(this)
         }
         patchesContainer = LinearLayout(this).apply {
@@ -371,10 +371,6 @@ class GeneratorActivity : Activity() {
                 "Configure players, generate offline, then patch or host the result.",
             ), CompanionUi.fullWidth())
 
-            addView(CompanionUi.card(this@GeneratorActivity, "Generator status").apply {
-                addView(status, matchWrapParams())
-            }, CompanionUi.cardParams(this@GeneratorActivity))
-
             addView(CompanionUi.card(
                 this@GeneratorActivity,
                 "Players and seed",
@@ -424,6 +420,14 @@ class GeneratorActivity : Activity() {
                 "Generation and ROM patching work offline. Hosting requires an internet connection.",
             ).apply {
                 addView(generateButton, matchWrapParams())
+                addView(CompanionUi.panel(this@GeneratorActivity).apply {
+                    addView(TextView(this@GeneratorActivity).apply {
+                        text = "Generator status"
+                        setTypeface(typeface, Typeface.BOLD)
+                        CompanionUi.styleMuted(this)
+                    }, matchWrapParams())
+                    addView(status, CompanionUi.insetTop(status, this@GeneratorActivity, 6))
+                }, CompanionUi.insetTop(status, this@GeneratorActivity, 8))
                 addView(exportSeedButton, CompanionUi.insetTop(exportSeedButton, this@GeneratorActivity, 4))
                 addView(hostSeedButton, CompanionUi.insetTop(hostSeedButton, this@GeneratorActivity, 4))
                 addView(viewHostedRoomsButton, CompanionUi.insetTop(viewHostedRoomsButton, this@GeneratorActivity, 4))
