@@ -23,9 +23,9 @@ class ClientConsoleStoreTest {
     }
 
     @Test
-    fun multiLineOutputIsSplitIntoConsoleRows() {
+    fun multiLineOutputStaysInOneConsoleBubble() {
         ClientConsoleStore.append("output", "one\ntwo")
 
-        assertEquals(listOf("one", "two"), ClientConsoleStore.snapshot().entries.map { it.text })
+        assertEquals(listOf("one\ntwo"), ClientConsoleStore.snapshot().entries.map { it.text })
     }
 }

@@ -175,7 +175,7 @@ object CompanionUi {
             ViewGroup.LayoutParams.WRAP_CONTENT,
         ).apply { topMargin = dp(context, top) }
 
-    private fun roundedBackground(
+    fun roundedBackground(
         context: Context,
         fillColor: Int,
         strokeColor: Int,

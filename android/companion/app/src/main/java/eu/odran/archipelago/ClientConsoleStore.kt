@@ -21,11 +21,8 @@ object ClientConsoleStore {
 
     @Synchronized
     fun append(kind: String, text: String) {
-        val lines = text.lines().ifEmpty { listOf("") }
-        lines.forEach { line ->
-            entries.addLast(Entry(nextId++, System.currentTimeMillis(), kind, line))
-            while (entries.size > MAX_ENTRIES) entries.removeFirst()
-        }
+        entries.addLast(Entry(nextId++, System.currentTimeMillis(), kind, text))
+        while (entries.size > MAX_ENTRIES) entries.removeFirst()
         revision++
     }
 

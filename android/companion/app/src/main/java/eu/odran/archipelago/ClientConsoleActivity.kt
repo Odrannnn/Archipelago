@@ -7,10 +7,9 @@ import android.graphics.Typeface
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.text.SpannableStringBuilder
-import android.text.Spanned
-import android.text.style.ForegroundColorSpan
+import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
@@ -26,10 +25,12 @@ class ClientConsoleActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
     private lateinit var connection: TextView
-    private lateinit var transcript: TextView
+    private lateinit var transcript: LinearLayout
     private lateinit var transcriptScroll: ScrollView
     private lateinit var input: EditText
     private var renderedRevision = -1L
+    private var renderedEntryIds = emptyList<Long>()
+    private var followTailRequested = false
 
     private val refresh = object : Runnable {
         override fun run() {
@@ -41,9 +42,13 @@ class ClientConsoleActivity : Activity() {
             }
             val snapshot = ClientConsoleStore.snapshot()
             if (snapshot.revision != renderedRevision) {
+                val followTail = followTailRequested || isFollowingTail()
+                followTailRequested = false
                 renderedRevision = snapshot.revision
-                transcript.text = render(snapshot.entries)
-                transcriptScroll.post { transcriptScroll.fullScroll(View.FOCUS_DOWN) }
+                render(snapshot.entries)
+                if (followTail) {
+                    transcriptScroll.post { transcriptScroll.fullScroll(View.FOCUS_DOWN) }
+                }
             }
             handler.postDelayed(this, 250)
         }
@@ -52,18 +57,15 @@ class ClientConsoleActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         connection = TextView(this).apply { CompanionUi.styleMuted(this) }
-        transcript = TextView(this).apply {
-            typeface = Typeface.MONOSPACE
-            textSize = 13f
-            setTextColor(CompanionUi.text)
-            setTextIsSelectable(true)
+        transcript = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             setPadding(
-                CompanionUi.dp(this@ClientConsoleActivity, 12),
                 CompanionUi.dp(this@ClientConsoleActivity, 10),
                 CompanionUi.dp(this@ClientConsoleActivity, 12),
                 CompanionUi.dp(this@ClientConsoleActivity, 10),
+                CompanionUi.dp(this@ClientConsoleActivity, 12),
             )
-            setBackgroundColor(Color.WHITE)
+            setBackgroundColor(CompanionUi.background)
         }
         transcriptScroll = ScrollView(this).apply {
             isFillViewport = true
@@ -148,34 +150,149 @@ class ClientConsoleActivity : Activity() {
 
     private fun sendInput() {
         if (ClientConsoleStore.submit(input.text.toString())) {
+            followTailRequested = true
             input.text.clear()
         }
     }
 
-    private fun render(entries: List<ClientConsoleStore.Entry>): CharSequence {
-        val builder = SpannableStringBuilder()
-        entries.forEachIndexed { index, entry ->
-            val start = builder.length
-            builder.append(timeFormat.format(Date(entry.timestamp)))
-            builder.append(" ")
-            builder.append(when (entry.kind) {
-                "input" -> "> "
-                "server" -> "# "
-                "status" -> "• "
-                "error" -> "! "
-                else -> "  "
-            })
-            builder.append(entry.text)
-            val color = when (entry.kind) {
-                "input" -> CompanionUi.primary
-                "server" -> Color.rgb(24, 117, 76)
-                "status" -> CompanionUi.textMuted
-                "error" -> CompanionUi.danger
-                else -> CompanionUi.text
-            }
-            builder.setSpan(ForegroundColorSpan(color), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            if (index != entries.lastIndex) builder.append("\n")
-        }
-        return builder
+    private fun isFollowingTail(): Boolean {
+        if (renderedRevision < 0) return true
+        val content = transcriptScroll.getChildAt(0) ?: return true
+        val remaining = content.height - transcriptScroll.height - transcriptScroll.scrollY
+        return remaining <= CompanionUi.dp(this, 72)
     }
+
+    private fun render(entries: List<ClientConsoleStore.Entry>) {
+        val appendFrom = renderedEntryIds.size.takeIf { renderedCount ->
+            renderedCount > 0 && entries.size >= renderedCount &&
+                entries.subList(0, renderedCount).map { it.id } == renderedEntryIds
+        }
+        if (appendFrom == null) transcript.removeAllViews()
+        if (entries.isEmpty()) {
+            transcript.addView(TextView(this).apply {
+                text = "No console messages yet."
+                textSize = 14f
+                setTextColor(CompanionUi.textMuted)
+                gravity = Gravity.CENTER
+                setPadding(0, CompanionUi.dp(this@ClientConsoleActivity, 24), 0, 0)
+            }, CompanionUi.fullWidth())
+            renderedEntryIds = emptyList()
+            return
+        }
+        entries.drop(appendFrom ?: 0).forEach { entry ->
+            transcript.addView(
+                consoleEntry(entry),
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { bottomMargin = CompanionUi.dp(this@ClientConsoleActivity, 12) },
+            )
+        }
+        renderedEntryIds = entries.map { it.id }
+    }
+
+    private fun consoleEntry(entry: ClientConsoleStore.Entry): View {
+        val style = consoleStyle(entry.kind)
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(LinearLayout(this@ClientConsoleActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(consoleChip(
+                    timeFormat.format(Date(entry.timestamp)),
+                    CompanionUi.textMuted,
+                    Color.rgb(238, 240, 245),
+                    CompanionUi.border,
+                    monospace = true,
+                ))
+                addView(
+                    consoleChip(style.label, style.accent, style.badgeFill, style.stroke),
+                    LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ).apply { marginStart = CompanionUi.dp(this@ClientConsoleActivity, 6) },
+                )
+            }, CompanionUi.fullWidth())
+            addView(TextView(this@ClientConsoleActivity).apply {
+                text = entry.text
+                textSize = 14f
+                setTextColor(style.textColor)
+                setTextIsSelectable(true)
+                setLineSpacing(CompanionUi.dp(this@ClientConsoleActivity, 2).toFloat(), 1.05f)
+                setPadding(
+                    CompanionUi.dp(this@ClientConsoleActivity, 12),
+                    CompanionUi.dp(this@ClientConsoleActivity, 10),
+                    CompanionUi.dp(this@ClientConsoleActivity, 12),
+                    CompanionUi.dp(this@ClientConsoleActivity, 10),
+                )
+                background = CompanionUi.roundedBackground(
+                    this@ClientConsoleActivity,
+                    style.bubbleFill,
+                    style.stroke,
+                    12,
+                )
+            }, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = CompanionUi.dp(this@ClientConsoleActivity, 5) })
+        }
+    }
+
+    private fun consoleChip(
+        value: String,
+        foreground: Int,
+        fill: Int,
+        stroke: Int,
+        monospace: Boolean = false,
+    ) = TextView(this).apply {
+        text = value
+        textSize = 10.5f
+        setTextColor(foreground)
+        setTypeface(if (monospace) Typeface.MONOSPACE else typeface, Typeface.BOLD)
+        includeFontPadding = false
+        setPadding(
+            CompanionUi.dp(this@ClientConsoleActivity, 7),
+            CompanionUi.dp(this@ClientConsoleActivity, 5),
+            CompanionUi.dp(this@ClientConsoleActivity, 7),
+            CompanionUi.dp(this@ClientConsoleActivity, 5),
+        )
+        background = CompanionUi.roundedBackground(
+            this@ClientConsoleActivity,
+            fill,
+            stroke,
+            10,
+        )
+    }
+
+    private fun consoleStyle(kind: String): ConsoleStyle = when (kind) {
+        "input" -> ConsoleStyle(
+            "YOU", CompanionUi.primary, CompanionUi.primarySoft,
+            CompanionUi.primarySoft, Color.rgb(181, 197, 229), CompanionUi.text,
+        )
+        "server" -> ConsoleStyle(
+            "SERVER", Color.rgb(24, 117, 76), Color.rgb(230, 246, 238),
+            Color.rgb(242, 251, 246), Color.rgb(177, 218, 197), CompanionUi.text,
+        )
+        "status" -> ConsoleStyle(
+            "STATUS", CompanionUi.textMuted, Color.rgb(238, 240, 245),
+            Color.rgb(248, 249, 252), CompanionUi.border, CompanionUi.textMuted,
+        )
+        "error" -> ConsoleStyle(
+            "ERROR", CompanionUi.danger, Color.rgb(252, 235, 233),
+            Color.rgb(255, 247, 246), Color.rgb(235, 183, 178), CompanionUi.danger,
+        )
+        else -> ConsoleStyle(
+            "CLIENT", CompanionUi.primary, Color.rgb(238, 242, 250),
+            CompanionUi.surface, CompanionUi.border, CompanionUi.text,
+        )
+    }
+
+    private data class ConsoleStyle(
+        val label: String,
+        val accent: Int,
+        val badgeFill: Int,
+        val bubbleFill: Int,
+        val stroke: Int,
+        val textColor: Int,
+    )
 }
