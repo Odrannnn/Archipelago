@@ -1,15 +1,15 @@
 package eu.odran.archipelago
 
 import java.io.IOException
-import java.net.DatagramPacket
-import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.net.SocketTimeoutException
+import java.nio.ByteBuffer
+import java.nio.channels.DatagramChannel
+import java.nio.channels.SelectionKey
+import java.nio.channels.Selector
 import java.nio.charset.StandardCharsets
-import java.util.concurrent.Executors
-import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
 
 internal data class RetroArchNetworkMetrics(
@@ -36,11 +36,10 @@ class RetroArchNetworkClient internal constructor(
     private val addressMapper: SniAddressMapper = LoRomSniAddressMapper,
     private val steadyCommandTimeoutMs: Int = COMMAND_TIMEOUT_MS,
     private val recoveryCommandTimeoutMs: Int = RECOVERY_COMMAND_TIMEOUT_MS,
-    private val socketReceiveTimeoutMs: Int? = null,
 ) : SniMemoryClient {
     @Volatile private var closed = false
-    private val socketLock = Any()
-    private var socket = openSocket()
+    private val transportLock = Any()
+    private var transport = openTransport()
     private var recoveryCommandsRemaining = RECOVERY_COMMAND_COUNT
     private var commandsSent = 0L
     private var responsesReceived = 0L
@@ -51,27 +50,32 @@ class RetroArchNetworkClient internal constructor(
     private var unrecoveredFailures = 0L
     private var lastRttMs = 0.0
     private var maxRttMs = 0.0
-    private val deadlineExecutor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { task ->
-        Thread(task, "retroarch-command-deadline").apply { isDaemon = true }
-    }
-
     init {
         require(steadyCommandTimeoutMs > 0) { "RetroArch command timeout must be positive" }
         require(recoveryCommandTimeoutMs >= steadyCommandTimeoutMs) {
             "RetroArch recovery timeout must be at least the steady timeout"
         }
-        require(socketReceiveTimeoutMs == null || socketReceiveTimeoutMs > 0) {
-            "RetroArch socket receive timeout must be positive"
-        }
     }
 
-    private fun openSocket() = DatagramSocket().apply {
-        connect(
-            InetSocketAddress(
-                InetAddress.getByName("127.0.0.1"),
-                this@RetroArchNetworkClient.port,
-            ),
-        )
+    private fun openTransport(): UdpTransport {
+        val channel = DatagramChannel.open()
+        var selector: Selector? = null
+        try {
+            channel.configureBlocking(false)
+            channel.connect(
+                InetSocketAddress(
+                    InetAddress.getByName("127.0.0.1"),
+                    port,
+                ),
+            )
+            selector = Selector.open()
+            channel.register(selector, SelectionKey.OP_READ)
+            return UdpTransport(channel, selector)
+        } catch (error: Exception) {
+            selector?.close()
+            channel.close()
+            throw error
+        }
     }
 
     @Synchronized
@@ -208,41 +212,37 @@ class RetroArchNetworkClient internal constructor(
         require(request.size <= MAX_COMMAND_PACKET_SIZE) {
             "RetroArch command is ${request.size} bytes; maximum is $MAX_COMMAND_PACKET_SIZE"
         }
-        val activeSocket = synchronized(socketLock) {
+        val activeTransport = synchronized(transportLock) {
             check(!closed) { "RetroArch Network Commands client is closed" }
-            socket
+            transport
         }
         val commandTimeoutMs = if (recoveryCommandsRemaining > 0) {
             recoveryCommandTimeoutMs
         } else {
             steadyCommandTimeoutMs
         }
-        activeSocket.soTimeout = socketReceiveTimeoutMs ?: commandTimeoutMs
-        val buffer = ByteArray(MAX_PACKET_SIZE)
-        val packet = DatagramPacket(buffer, buffer.size)
         val startedAt = System.nanoTime()
-        val requestFinished = AtomicBoolean(false)
-        val hardDeadlineExpired = AtomicBoolean(false)
-        val deadline = deadlineExecutor.schedule({
-            if (requestFinished.compareAndSet(false, true)) {
-                hardDeadlineExpired.set(true)
-                // Android's DatagramSocket SO_RCVTIMEO can remain blocked across an
-                // emulator/background transition even after a reply is queued. Closing
-                // this exact socket from an independent thread provides a real deadline.
-                synchronized(socketLock) {
-                    if (!closed && socket === activeSocket) activeSocket.close()
-                }
-            }
-        }, commandTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
+        val deadlineNanos = startedAt + TimeUnit.MILLISECONDS.toNanos(commandTimeoutMs.toLong())
+        val response = ByteBuffer.allocate(MAX_PACKET_SIZE)
         commandsSent++
         try {
-            activeSocket.send(DatagramPacket(request, request.size))
-            activeSocket.receive(packet)
-            if (!requestFinished.compareAndSet(false, true)) {
-                throw java.net.SocketTimeoutException("Hard request deadline expired")
+            val sent = activeTransport.channel.write(ByteBuffer.wrap(request))
+            if (sent != request.size) {
+                throw IOException("RetroArch UDP command could not be sent atomically")
+            }
+            while (response.position() == 0) {
+                val remainingNanos = deadlineNanos - System.nanoTime()
+                if (remainingNanos <= 0L) throw SocketTimeoutException("RetroArch command timed out")
+                val waitMillis = max(
+                    1L,
+                    TimeUnit.NANOSECONDS.toMillis(remainingNanos),
+                )
+                activeTransport.selector.select(waitMillis)
+                activeTransport.selector.selectedKeys().clear()
+                activeTransport.channel.read(response)
             }
         } catch (error: IOException) {
-            if (error is java.net.SocketTimeoutException || hardDeadlineExpired.get()) {
+            if (error is SocketTimeoutException) {
                 timeouts++
             } else {
                 transportFailures++
@@ -251,23 +251,21 @@ class RetroArchNetworkClient internal constructor(
                 "RetroArch did not answer on 127.0.0.1:$port. Use an Android nightly build and enable Settings > Network > Network Commands.",
                 error,
             )
-        } finally {
-            requestFinished.set(true)
-            deadline.cancel(false)
         }
         val rttMs = (System.nanoTime() - startedAt) / 1_000_000.0
         responsesReceived++
         lastRttMs = rttMs
         maxRttMs = max(maxRttMs, rttMs)
         if (recoveryCommandsRemaining > 0) recoveryCommandsRemaining--
-        return packet.data.decodeToString(packet.offset, packet.offset + packet.length).trim()
+        response.flip()
+        return StandardCharsets.US_ASCII.decode(response).toString().trim()
     }
 
     private fun rotateSocketAfterFailure() {
-        synchronized(socketLock) {
-            socket.close()
+        synchronized(transportLock) {
+            transport.close()
             if (closed) return
-            socket = openSocket()
+            transport = openTransport()
             recoveryCommandsRemaining = RECOVERY_COMMAND_COUNT
             socketRotations++
         }
@@ -292,10 +290,9 @@ class RetroArchNetworkClient internal constructor(
     override fun close() {
         if (closed) return
         closed = true
-        synchronized(socketLock) {
-            socket.close()
+        synchronized(transportLock) {
+            transport.close()
         }
-        deadlineExecutor.shutdownNow()
     }
 
     companion object {
@@ -312,6 +309,17 @@ class RetroArchNetworkClient internal constructor(
         private const val MAX_READ_SIZE = 2_048
         internal const val MAX_WRITE_CHUNK_SIZE = 640
         private val VERSION_PATTERN = Regex("\\d+\\.\\d+\\.\\d+.*")
+    }
+
+    private data class UdpTransport(
+        val channel: DatagramChannel,
+        val selector: Selector,
+    ) : AutoCloseable {
+        override fun close() {
+            selector.wakeup()
+            channel.close()
+            selector.close()
+        }
     }
 }
 
