@@ -370,7 +370,7 @@ class MainActivity : Activity() {
             REQUEST_OPEN_INVITE -> handleInvite(Intent(Intent.ACTION_VIEW, data.data))
             REQUEST_OPEN_PLAYER_PATCH -> openManualPlayerPatch(data.data!!)
             REQUEST_PATCH_BASE_ROM -> acceptBaseRom(data.data!!)
-            REQUEST_SAVE_STREAMING_ROM -> patchRomDocuments(data.data!!)
+            REQUEST_SAVE_STREAMING_ROM -> patchRomDocuments(data.data!!, data.flags)
             REQUEST_INVITE_APWORLD -> installRequiredInviteApWorld(data.data!!)
             REQUEST_PATCH_APWORLD -> installRequiredPatchApWorld(data.data!!)
             REQUEST_SELECT_PATCHED_ROM -> rememberExistingPatchedRom(data.data!!, data.flags)
@@ -453,7 +453,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun rememberPatchedRom(name: String, uri: Uri, flags: Int, sha256: String) {
+    private fun rememberPatchedRom(name: String, uri: Uri, flags: Int, sha256: String?) {
         val permissionFlags = flags and (
             Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
         )
@@ -798,6 +798,22 @@ class MainActivity : Activity() {
             .show()
     }
 
+    private fun offerDolphinLaunch(name: String, uri: Uri) {
+        AlertDialog.Builder(this)
+            .setTitle("Disc image ready")
+            .setMessage("Saved $name. Launch it now in the Dolphin Archipelago Android fork?")
+            .setNegativeButton("Done", null)
+            .setPositiveButton("Launch in Dolphin") { _, _ ->
+                runCatching { DolphinLauncher.launch(this, uri) }
+                    .onSuccess { inviteStatus.text = "Launching $name in Dolphin…" }
+                    .onFailure { error ->
+                        inviteStatus.text =
+                            "Could not launch Dolphin: ${error.message ?: error.javaClass.simpleName}"
+                    }
+            }
+            .show()
+    }
+
     private fun chooseRequiredPatchApWorld() {
         startActivityForResult(
             Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
@@ -1068,7 +1084,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun patchRomDocuments(destination: Uri) {
+    private fun patchRomDocuments(destination: Uri, resultFlags: Int) {
         val session = pendingRomPatch ?: return
         val requirements = pendingRomRequirements ?: return
         val inputs = pendingRomInputUris.toMap()
@@ -1080,7 +1096,13 @@ class MainActivity : Activity() {
             }.onSuccess {
                 val name = pendingStreamingDestinationName ?: "Patched ${session.game}.iso"
                 clearPendingRomPatch()
-                runOnUiThread { inviteStatus.text = "Saved $name · ready to load in Dolphin." }
+                runOnUiThread {
+                    if (session.rememberForActiveRoom) {
+                        rememberPatchedRom(name, destination, resultFlags, null)
+                    }
+                    inviteStatus.text = "Saved $name · ready to load in Dolphin."
+                    offerDolphinLaunch(name, destination)
+                }
             }.onFailure { error ->
                 BaseRomCache.forget(this, requirements.game)
                 clearPendingRomPatch()
@@ -1194,14 +1216,18 @@ class MainActivity : Activity() {
         }
 
         if (!isSohRoom && !room.patchedRomUri.isNullOrBlank()) {
+            val launchInDolphin = DolphinLauncher.isGameCubeGame(this, room.gameName) ||
+                room.patchedRomName?.let(DolphinLauncher::isSupportedDiscName) == true
             val actionHeight = CompanionUi.dp(this, 48)
             val romActions = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = android.view.Gravity.CENTER_VERTICAL
             }
             val launchButton = Button(this).apply {
-                retroArchButton = this
-                text = if (RetroArchLauncher.isRunningRom(
+                if (!launchInDolphin) retroArchButton = this
+                text = if (launchInDolphin) {
+                    "Launch in Dolphin"
+                } else if (RetroArchLauncher.isRunningRom(
                         room.gameName,
                         room.playerSlot,
                         room.serverAddress(),
@@ -1218,22 +1244,32 @@ class MainActivity : Activity() {
                         contentResolver.openFileDescriptor(uri, "r")?.use { descriptor ->
                             check(descriptor.statSize != 0L) { "The saved ROM is empty." }
                         } ?: error("The saved ROM is no longer available.")
-                        RetroArchLauncher.launch(
-                            this@MainActivity,
-                            uri,
-                            room.gameName,
-                            room.playerSlot,
-                            room.serverAddress(),
-                        )
+                        if (launchInDolphin) {
+                            DolphinLauncher.launch(this@MainActivity, uri)
+                            false
+                        } else {
+                            RetroArchLauncher.launch(
+                                this@MainActivity,
+                                uri,
+                                room.gameName,
+                                room.playerSlot,
+                                room.serverAddress(),
+                            )
+                        }
                     }.onSuccess { resumed ->
-                        inviteStatus.text = if (resumed) {
+                        inviteStatus.text = if (launchInDolphin) {
+                            "Launching ${room.patchedRomName ?: "saved disc image"} in Dolphin…"
+                        } else if (resumed) {
                             "Returning to ${room.patchedRomName ?: "saved ROM"} in RetroArch…"
                         } else {
                             "Launching ${room.patchedRomName ?: "saved ROM"} in RetroArch…"
                         }
-                    }.onFailure {
-                        inviteStatus.text =
+                    }.onFailure { error ->
+                        inviteStatus.text = if (launchInDolphin) {
+                            "Could not launch Dolphin: ${error.message ?: error.javaClass.simpleName}"
+                        } else {
                             "Could not open the saved ROM. Patch and save it again if it was moved or deleted."
+                        }
                     }
                 }
             }
@@ -1241,7 +1277,7 @@ class MainActivity : Activity() {
                 launchButton,
                 LinearLayout.LayoutParams(0, actionHeight, 1f),
             )
-            if (room.playerSlot != null) {
+            if (room.playerSlot != null && room.patchedRomSha256 != null) {
                 romActions.addView(Button(this).apply {
                     text = "⚙"
                     textSize = 20f

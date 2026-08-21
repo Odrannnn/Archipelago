@@ -348,13 +348,15 @@ object JoinedRoomStore {
     }
 
     @Synchronized
-    fun rememberPatchedRom(context: Context, name: String, uri: Uri, sha256: String): JoinedRoom? {
-        require(SHA256_PATTERN.matches(sha256)) { "Invalid patched ROM fingerprint." }
+    fun rememberPatchedRom(context: Context, name: String, uri: Uri, sha256: String?): JoinedRoom? {
+        if (sha256 != null) {
+            require(SHA256_PATTERN.matches(sha256)) { "Invalid patched ROM fingerprint." }
+        }
         val current = load(context) ?: return null
         val updated = current.copy(
             patchedRomName = File(name).name,
             patchedRomUri = uri.toString(),
-            patchedRomSha256 = sha256.lowercase(),
+            patchedRomSha256 = sha256?.lowercase(),
         )
         val rooms = loadAll(context).filterNot { it.roomId == updated.roomId } + updated
         persist(context, rooms, updated.roomId)

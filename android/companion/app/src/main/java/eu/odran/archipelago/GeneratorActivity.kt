@@ -64,6 +64,7 @@ class GeneratorActivity : Activity() {
     private lateinit var exportSeedButton: Button
     private lateinit var hostSeedButton: Button
     private lateinit var patchButton: Button
+    private lateinit var launchDolphinButton: Button
     private lateinit var forgetBaseRomButton: Button
     private lateinit var patchesContainer: LinearLayout
     private lateinit var historyContainer: LinearLayout
@@ -99,6 +100,8 @@ class GeneratorActivity : Activity() {
     private val pendingRomInputs = linkedMapOf<String, ByteArray>()
     private val pendingRomInputUris = linkedMapOf<String, Uri>()
     private var pendingStreamingPatch: Pair<File, Map<String, Uri>>? = null
+    private var lastDolphinRomUri: Uri? = null
+    private var lastDolphinRomName: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -312,6 +315,14 @@ class GeneratorActivity : Activity() {
             isEnabled = false
             setOnClickListener { patchWithCachedBaseRomOrChoose() }
         }
+        lastDolphinRomUri = savedInstanceState?.getString(STATE_DOLPHIN_ROM_URI)?.let(Uri::parse)
+        lastDolphinRomName = savedInstanceState?.getString(STATE_DOLPHIN_ROM_NAME)
+        launchDolphinButton = Button(this).apply {
+            text = "Launch in Dolphin"
+            CompanionUi.stylePrimary(this)
+            visibility = if (lastDolphinRomUri == null) View.GONE else View.VISIBLE
+            setOnClickListener { launchLastDolphinRom() }
+        }
         forgetBaseRomButton = Button(this).apply {
             text = "Forget cached base ROM"
             CompanionUi.styleDanger(this)
@@ -433,6 +444,7 @@ class GeneratorActivity : Activity() {
                 addView(viewHostedRoomsButton, CompanionUi.insetTop(viewHostedRoomsButton, this@GeneratorActivity, 4))
                 addView(patchesContainer, CompanionUi.insetTop(patchesContainer, this@GeneratorActivity, 8))
                 addView(patchButton, CompanionUi.insetTop(patchButton, this@GeneratorActivity, 4))
+                addView(launchDolphinButton, CompanionUi.insetTop(launchDolphinButton, this@GeneratorActivity, 4))
                 addView(forgetBaseRomButton, CompanionUi.insetTop(forgetBaseRomButton, this@GeneratorActivity, 4))
             }, CompanionUi.cardParams(this@GeneratorActivity))
 
@@ -1861,7 +1873,7 @@ class GeneratorActivity : Activity() {
         }
     }
 
-    private fun patchRomDocuments(destination: Uri) {
+    private fun patchRomDocuments(destination: Uri, resultFlags: Int) {
         val (selectedPatch, inputs) = pendingStreamingPatch ?: return
         val requirements = pendingRomRequirements ?: return
         status.text = "Patching ${requirements.game} directly into the selected ISO…"
@@ -1870,11 +1882,15 @@ class GeneratorActivity : Activity() {
                 OfflineGenerator.patchRomDocuments(this, selectedPatch.readBytes(), inputs, destination)
                 inputs.forEach { (key, uri) -> BaseRomDocumentStore.store(this, requirements.game, key, uri) }
             }.onSuccess { runOnUiThread {
+                persistDocumentPermission(destination, resultFlags)
                 pendingStreamingPatch = null
                 pendingRomRequirements = null
                 pendingRomInputUris.clear()
                 patchButton.isEnabled = true
                 forgetBaseRomButton.isEnabled = true
+                lastDolphinRomUri = destination
+                lastDolphinRomName = "${selectedPatch.nameWithoutExtension}${requirements.resultExtension.ifBlank { ".iso" }}"
+                launchDolphinButton.visibility = View.VISIBLE
                 status.text = "Saved patched ${requirements.game} ISO."
             } }.onFailure { error ->
                 BaseRomCache.forget(this, requirements.game)
@@ -1885,6 +1901,32 @@ class GeneratorActivity : Activity() {
                 showError("Disc patching failed", error)
             }
         }
+    }
+
+    private fun launchLastDolphinRom() {
+        val uri = lastDolphinRomUri ?: return
+        runCatching { DolphinLauncher.launch(this, uri) }
+            .onSuccess {
+                status.text = "Launching ${lastDolphinRomName ?: "patched disc image"} in Dolphin…"
+            }
+            .onFailure { error ->
+                status.text = "Could not launch Dolphin: ${error.message ?: error.javaClass.simpleName}"
+            }
+    }
+
+    private fun persistDocumentPermission(uri: Uri, flags: Int) {
+        val permissionFlags = flags and (
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        )
+        if (permissionFlags != 0 && flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0) {
+            runCatching { contentResolver.takePersistableUriPermission(uri, permissionFlags) }
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(STATE_DOLPHIN_ROM_URI, lastDolphinRomUri?.toString())
+        outState.putString(STATE_DOLPHIN_ROM_NAME, lastDolphinRomName)
     }
 
     private fun createPatchedRom(selectedPatch: File, romInputs: Map<String, ByteArray>): File {
@@ -1931,7 +1973,7 @@ class GeneratorActivity : Activity() {
         }
         when (requestCode) {
             REQUEST_BASE_ROM -> acceptBaseRom(data.data!!)
-            REQUEST_STREAMING_ROM_OUTPUT -> patchRomDocuments(data.data!!)
+            REQUEST_STREAMING_ROM_OUTPUT -> patchRomDocuments(data.data!!, data.flags)
             REQUEST_IMPORT_YAML -> importYaml(data.data!!)
             REQUEST_EXPORT -> {
                 val export = pendingExport ?: return
@@ -2012,6 +2054,8 @@ class GeneratorActivity : Activity() {
         private const val REQUEST_BASE_ROM = 201
         private const val REQUEST_EXPORT = 202
         private const val REQUEST_STREAMING_ROM_OUTPUT = 204
+        private const val STATE_DOLPHIN_ROM_URI = "dolphin_rom_uri"
+        private const val STATE_DOLPHIN_ROM_NAME = "dolphin_rom_name"
         private const val REQUEST_IMPORT_YAML = 203
     }
 }
