@@ -966,7 +966,9 @@ class BridgeService : Service() {
                     } catch (error: Exception) {
                         Log.e(TAG, "Archipelago client failed; automatic room reconnect paused", error)
                         val oldSession = session
-                        oldSession?.close()
+                        runCatching { oldSession?.close() }.onFailure { closeError ->
+                            Log.e(TAG, "Archipelago client cleanup failed", closeError)
+                        }
                         if (activeSession === oldSession) activeSession = null
                         session = null
                         sessionSettings = null

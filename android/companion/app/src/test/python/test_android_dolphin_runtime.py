@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 import sys
 import asyncio
+import threading
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -195,10 +197,67 @@ class AndroidDolphinRuntimeTest(unittest.TestCase):
                     "players": [{"team": 0, "slot": 1, "name": "Player1"}],
                     "slot_data": {},
                 }))
-                tick = json.loads(runtime.tick(True))
+                deadline = time.monotonic() + 2.0
+                tick = {"messages": []}
+                while time.monotonic() < deadline:
+                    tick = json.loads(runtime.tick(True))
+                    if created[0].packages and tick["messages"]:
+                        break
+                    time.sleep(0.01)
                 self.assertEqual(["Connected"], created[0].packages)
                 self.assertIn({"cmd": "LocationChecks", "locations": [123]}, tick["messages"])
         finally:
+            runtime.close()
+
+    def test_registered_bridge_does_not_wait_for_busy_upstream_event_loop(self) -> None:
+        loop_blocked = threading.Event()
+        release_loop = threading.Event()
+
+        class BusyContext(AndroidClientContext):
+            game = "Busy GameCube Game"
+
+            def __init__(self, address, password):
+                super().__init__(address, password)
+
+        def run_component(*_args):
+            async def main():
+                ctx = BusyContext("example.test:38281", None)
+                # Let the host's deferred context-ready callback run first,
+                # then model an upstream watcher doing synchronous DME scans.
+                await asyncio.sleep(0)
+                loop_blocked.set()
+                release_loop.wait(2.0)
+                await ctx.exit_event.wait()
+
+            asyncio.run(main())
+
+        component = SimpleNamespace(display_name="Busy Client", func=run_component)
+        runtime = AndroidDolphinRuntime("unused", [])
+        try:
+            with patch("offline_generator._prepare_runtime"), patch(
+                "offline_generator._client_component_for_game",
+                return_value=component,
+            ):
+                detected = json.loads(runtime.probe_registered(
+                    "BUSY01",
+                    "Busy GameCube Game",
+                    "Player1",
+                    "example.test:38281",
+                    "",
+                ))
+                self.assertTrue(detected["matched"])
+                self.assertTrue(loop_blocked.wait(1.0))
+
+                started = time.monotonic()
+                tick = json.loads(runtime.tick(True))
+                self.assertLess(time.monotonic() - started, 0.5)
+                self.assertEqual("", tick["error"])
+
+                started = time.monotonic()
+                runtime.reset_connection()
+                self.assertLess(time.monotonic() - started, 0.5)
+        finally:
+            release_loop.set()
             runtime.close()
 
     def test_wind_waker_defers_chart_memory_reads_until_game_watcher(self) -> None:

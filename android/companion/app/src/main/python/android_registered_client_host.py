@@ -80,6 +80,13 @@ class RegisteredClientHost:
         self.component: Any | None = None
         self.error = ""
         self._console: list[dict[str, str]] = []
+        self._bridge_messages: list[dict[str, Any]] = []
+        self._bridge_console: list[dict[str, str]] = []
+        self._bridge_disconnect = False
+        self._bridge_diagnostic = ""
+        self._bridge_lock = threading.RLock()
+        self._tick_scheduled = False
+        self._emulator_available = False
         self._context_ready = threading.Event()
         self._closed = threading.Event()
         self.thread = threading.Thread(
@@ -202,12 +209,19 @@ class RegisteredClientHost:
         ctx = self.ctx
         if ctx is None:
             return
+        self._call_soon(self._deliver_packet, ctx, packet_json)
 
-        async def deliver() -> None:
+    def _call_soon(self, callback: Any, *args: Any) -> None:
+        loop = self.loop
+        if loop is None or not loop.is_running():
+            raise RuntimeError(self.error or "Registered APWorld client event loop is unavailable")
+        loop.call_soon_threadsafe(callback, *args)
+
+    def _deliver_packet(self, ctx: Any, packet_json: str) -> None:
+        try:
             process_packet(ctx, _ContextPacketHandler(), packet_json)
-            await asyncio.sleep(0)
-
-        self._submit(deliver())
+        except Exception as exc:
+            self._record_async_error("packet handler", exc)
 
     def execute_command(self, raw: str) -> dict[str, Any]:
         if self.ctx is None:
@@ -228,23 +242,71 @@ class RegisteredClientHost:
                 "diagnostic": "Registered APWorld client is starting.",
             }
 
-        async def drain() -> dict[str, Any]:
+        # A desktop client's watcher and websocket normally share one asyncio
+        # loop. Some GameCube watchers perform long synchronous memory scans on
+        # that loop. Never make Android's websocket/service thread wait for the
+        # scan: request a same-loop drain and return the most recently captured
+        # mailbox contents. This preserves upstream ordering without a second
+        # network connection or an arbitrary timeout.
+        with self._bridge_lock:
+            self._emulator_available = bool(emulator_available)
+            schedule_tick = not self._tick_scheduled
+            if schedule_tick:
+                self._tick_scheduled = True
+        if schedule_tick:
+            try:
+                self._call_soon(self._capture_tick, ctx)
+            except Exception:
+                with self._bridge_lock:
+                    self._tick_scheduled = False
+                raise
+
+        with self._bridge_lock:
+            messages = self._bridge_messages
+            console = self._bridge_console
+            disconnect = self._bridge_disconnect
+            self._bridge_messages = []
+            self._bridge_console = []
+            self._bridge_disconnect = False
+            diagnostic = self._bridge_diagnostic
+        return {
+            "messages": messages,
+            "console": console,
+            "disconnect": disconnect,
+            "error": self.error,
+            "diagnostic": diagnostic,
+        }
+
+    def _capture_tick(self, ctx: Any) -> None:
+        try:
+            with self._bridge_lock:
+                emulator_available = self._emulator_available
             ctx.emulator_lifecycle.begin_tick(emulator_available)
             ctx.emulator_lifecycle.end_tick()
             messages = ctx.outgoing
             ctx.outgoing = []
-            disconnect = ctx.disconnect_requested
+            disconnect = bool(ctx.disconnect_requested)
             ctx.disconnect_requested = False
             console = self._drain_pre_context_console() + drain_console(ctx)["console"]
-            return {
-                "messages": plain(messages),
-                "console": plain(console),
-                "disconnect": bool(disconnect),
-                "error": self.error,
-                "diagnostic": str(ctx.diagnostic),
-            }
+            with self._bridge_lock:
+                self._bridge_messages.extend(plain(messages))
+                self._bridge_console.extend(plain(console))
+                self._bridge_disconnect = self._bridge_disconnect or disconnect
+                self._bridge_diagnostic = str(ctx.diagnostic)
+        except Exception as exc:
+            self._record_async_error("bridge mailbox", exc)
+        finally:
+            with self._bridge_lock:
+                self._tick_scheduled = False
 
-        return self._submit(drain())
+    def _record_async_error(self, operation: str, exc: Exception) -> None:
+        message = f"{type(exc).__name__}: {exc}"
+        self.error = message
+        logging.getLogger(__name__).exception(
+            "Registered APWorld client %s failed", operation,
+        )
+        with self._bridge_lock:
+            self._bridge_console.append({"kind": "error", "text": message})
 
     def _drain_pre_context_console(self) -> list[dict[str, str]]:
         messages = self._console
@@ -252,14 +314,25 @@ class RegisteredClientHost:
         return messages
 
     def reset_connection(self) -> None:
-        if self.ctx is None:
+        ctx = self.ctx
+        if ctx is None:
             return
+        with self._bridge_lock:
+            self._bridge_messages = []
+            self._bridge_disconnect = False
+        try:
+            self._call_soon(self._reset_connection, ctx)
+        except RuntimeError:
+            # Cleanup must remain idempotent when the component has already
+            # exited or its loop is shutting down.
+            if self.is_alive:
+                raise
 
-        async def reset() -> None:
-            reset_connection(self.ctx)
-            await asyncio.sleep(0)
-
-        self._submit(reset())
+    def _reset_connection(self, ctx: Any) -> None:
+        try:
+            reset_connection(ctx)
+        except Exception as exc:
+            self._record_async_error("connection reset", exc)
 
     def validate(self, game: str, auth: str, game_id: str) -> bool:
         ctx = self.ctx
@@ -273,12 +346,16 @@ class RegisteredClientHost:
 
     def emulator_reattached(self) -> None:
         if self.ctx is not None:
-            self.ctx.emulator_lifecycle.reattached()
+            self._call_soon(self.ctx.emulator_lifecycle.reattached)
 
     def emulator_detached(self) -> None:
         if self.ctx is not None:
-            self.ctx.emulator_lifecycle.begin_tick(False)
-            self.ctx.emulator_lifecycle.end_tick()
+            self._call_soon(self._mark_emulator_detached, self.ctx)
+
+    @staticmethod
+    def _mark_emulator_detached(ctx: Any) -> None:
+        ctx.emulator_lifecycle.begin_tick(False)
+        ctx.emulator_lifecycle.end_tick()
 
     def close(self) -> None:
         global _active_host
