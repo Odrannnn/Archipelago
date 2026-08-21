@@ -68,11 +68,10 @@ object DolphinLauncher {
             component = ComponentName(packageName, MAIN_ACTIVITY)
             data = savedImage
             clipData = ClipData.newRawUri("Patched Archipelago disc image", savedImage)
-            addFlags(
-                Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_CLEAR_TASK,
-            )
+            // Preserve a running emulation task. The custom Dolphin entry point
+            // brings its existing EmulationActivity forward when this URI is
+            // received while a game is already running.
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         })
     }
 
