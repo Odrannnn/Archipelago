@@ -11,13 +11,37 @@ on:
       - 'android/companion/native-dependencies/**'
   workflow_dispatch:
     inputs:
-      recipe:
-        description: Android cross-build adapter
+      package:
+        description: Exact PyPI package name
+        required: true
+        type: string
+        default: py-randomprime
+      version:
+        description: Exact PyPI package version
+        required: true
+        type: string
+        default: 1.31.1
+      module:
+        description: Python module which the package must provide
+        required: true
+        type: string
+        default: py_randomprime
+      strategy:
+        description: Prefer a committed adapter when available, or force a path
         required: true
         type: choice
-        default: py-randomprime-1.31.1
+        default: auto
         options:
-          - py-randomprime-1.31.1
+          - auto
+          - generic
+          - adapter
+      minimum_sdk:
+        description: Minimum Android API supported by the artifact
+        required: true
+        type: choice
+        default: '26'
+        options:
+          - '26'
       publish:
         description: Publish to the verified build cache (main only)
         required: true
@@ -26,22 +50,28 @@ on:
 
 permissions:
   contents: read
-  id-token: write
-  attestations: write
 
 concurrency:
-  group: android-python-dependency-${{ github.event.inputs.recipe || 'validation' }}
+  group: android-python-dependency-${{ github.event.inputs.package || 'py-randomprime' }}-${{ github.event.inputs.version || '1.31.1' }}
   cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-24.04
+    outputs:
+      request_id: ${{ steps.request.outputs.request_id }}
     env:
-      RECIPE_ID: ${{ github.event.inputs.recipe || 'py-randomprime-1.31.1' }}
+      REQUEST_PACKAGE: ${{ github.event.inputs.package || 'py-randomprime' }}
+      REQUEST_VERSION: ${{ github.event.inputs.version || '1.31.1' }}
+      REQUEST_MODULE: ${{ github.event.inputs.module || 'py_randomprime' }}
+      REQUEST_STRATEGY: ${{ github.event.inputs.strategy || 'auto' }}
+      REQUEST_MINIMUM_SDK: ${{ github.event.inputs.minimum_sdk || '26' }}
       RELEASE_TAG: android-python-dependencies
       INDEX_FILE: android-python-dependencies-v1.json
     steps:
       - uses: actions/checkout@v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Refuse publishing outside main
         if: ${{ github.event.inputs.publish == 'true' && github.ref != 'refs/heads/main' }}
@@ -54,35 +84,50 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Test dependency builder
+        run: python -m unittest discover -s android/companion/native-dependencies/tests -v
+
+      - name: Resolve and pin build request
+        id: request
+        run: |
+          python android/companion/native-dependencies/scripts/resolve_build_request.py \
+            --package "$REQUEST_PACKAGE" \
+            --version "$REQUEST_VERSION" \
+            --module "$REQUEST_MODULE" \
+            --strategy "$REQUEST_STRATEGY" \
+            --python-version 3.12 \
+            --android-abi arm64-v8a \
+            --minimum-sdk "$REQUEST_MINIMUM_SDK" \
+            --recipes android/companion/native-dependencies/recipes \
+            --output build-request.json
+
       - name: Set up Android SDK and NDK
         uses: android-actions/setup-android@v3.2.2
-      - name: Install Android NDK
+      - name: Install adapter Android NDK
+        if: ${{ steps.request.outputs.strategy == 'adapter' }}
         run: |
           sdkmanager "ndk;27.2.12479018"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> "$GITHUB_ENV"
 
-      - name: Read pinned Rust toolchain and targets
+      - name: Read committed adapter toolchains
+        if: ${{ steps.request.outputs.strategy == 'adapter' }}
         id: recipe
         run: |
           python - <<'PY'
           import json, os
           from pathlib import Path
-          recipe_id = os.environ["RECIPE_ID"]
-          allowed = {path.stem: path for path in Path("android/companion/native-dependencies/recipes").glob("*.json")}
-          if recipe_id not in allowed:
-              raise SystemExit(f"Unknown Android build adapter: {recipe_id}")
-          recipe = json.loads(allowed[recipe_id].read_text(encoding="utf-8"))
+          request = json.loads(Path("build-request.json").read_text(encoding="utf-8"))
+          path = Path(request["adapter"])
+          recipe = json.loads(path.read_text(encoding="utf-8"))
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write(f"path={allowed[recipe_id].as_posix()}\n")
+              output.write(f"path={path.as_posix()}\n")
               output.write(f"rust={recipe['rust_toolchain']}\n")
               output.write(f"target={recipe['rust_target']}\n")
               output.write(f"extra_targets={' '.join(recipe.get('additional_rust_targets', []))}\n")
           PY
 
-      - name: Test dependency builder
-        run: python -m unittest discover -s android/companion/native-dependencies/tests -v
-
       - name: Install pinned Rust toolchain
+        if: ${{ steps.request.outputs.strategy == 'adapter' }}
         run: |
           rustup toolchain install "${{ steps.recipe.outputs.rust }}" --profile minimal
           rustup target add --toolchain "${{ steps.recipe.outputs.rust }}" "${{ steps.recipe.outputs.target }}"
@@ -91,30 +136,45 @@ jobs:
           done
           cargo +${{ steps.recipe.outputs.rust }} install cargo-ndk --version 3.5.4 --locked
 
-      - name: Build hash-pinned upstream source
+      - name: Build with committed adapter
+        if: ${{ steps.request.outputs.strategy == 'adapter' }}
         run: |
           python android/companion/native-dependencies/scripts/build_dependency.py \
             --recipe "${{ steps.recipe.outputs.path }}" \
             --output dist
 
-      - name: Verify packaged Android ELF
+      - name: Check out pinned Chaquopy CPython 3.12 builder
+        if: ${{ steps.request.outputs.strategy == 'generic-chaquopy' }}
+        uses: actions/checkout@v6.0.2
+        with:
+          repository: chaquo/chaquopy
+          ref: e01057c72fdd737f202bd1be1de85af51e06cad0
+          path: _chaquopy
+          persist-credentials: false
+
+      - name: Install pinned generic build toolchain
+        if: ${{ steps.request.outputs.strategy == 'generic-chaquopy' }}
         run: |
-          python - <<'PY'
-          import json, zipfile
-          from pathlib import Path
-          entry = json.loads(Path("dist/catalog-entry.json").read_text(encoding="utf-8"))
-          artifact = Path("dist") / entry["file_name"]
-          with zipfile.ZipFile(artifact) as package:
-              manifest = json.loads(package.read("dependency.json"))
-              assert manifest["source_sha256"] == entry["source_sha256"]
-              native = [name for name in package.namelist() if name.endswith(".so")]
-              assert native, "package contains no native extension"
-              package.extract(native[0], "elf-check")
-              print(Path("elf-check") / native[0])
-          PY
-          ELF_FILE=$(find elf-check -type f -name '*.so' -print -quit)
-          readelf -h "$ELF_FILE" | tee dist/elf-header.txt
-          readelf -h "$ELF_FILE" | grep -q 'Machine:.*AArch64'
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends patchelf
+          python -m pip install -r _chaquopy/server/pypi/requirements.txt
+          _chaquopy/target/download-target.sh \
+            _chaquopy/maven/com/chaquo/python/target/3.12.12-0
+
+      - name: Build hash-pinned source generically
+        if: ${{ steps.request.outputs.strategy == 'generic-chaquopy' }}
+        run: |
+          python android/companion/native-dependencies/scripts/build_generic_dependency.py \
+            --request build-request.json \
+            --chaquopy-root _chaquopy \
+            --output dist
+
+      - name: Validate packaged dependency without loading it
+        run: |
+          python android/companion/native-dependencies/scripts/validate_dependency.py \
+            --entry dist/catalog-entry.json \
+            --artifact-directory dist \
+            --report dist/validation-report.json
 
       - name: Create catalog
         run: |
@@ -122,21 +182,16 @@ jobs:
             --entry dist/catalog-entry.json \
             --output "dist/$INDEX_FILE"
 
-      - name: Attest dependency package
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        uses: actions/attest-build-provenance@v3.0.0
-        with:
-          subject-path: dist/*.zip
-
       - name: Store validated package
         uses: actions/upload-artifact@v7.0.0
         with:
-          name: android-python-${{ env.RECIPE_ID }}
+          name: android-python-${{ env.REQUEST_ID }}
           path: |
             dist/*.zip
             dist/${{ env.INDEX_FILE }}
             dist/catalog-entry.json
-            dist/elf-header.txt
+            dist/validation-report.json
+            build-request.json
           if-no-files-found: error
           retention-days: 14
 
@@ -146,17 +201,33 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     env:
-      RECIPE_ID: ${{ github.event.inputs.recipe }}
+      REQUEST_ID: ${{ needs.build.outputs.request_id }}
       RELEASE_TAG: android-python-dependencies
       INDEX_FILE: android-python-dependencies-v1.json
     steps:
       - uses: actions/checkout@v6.0.2
+        with:
+          persist-credentials: false
       - name: Download validated build
         uses: actions/download-artifact@v8.0.1
         with:
-          name: android-python-${{ env.RECIPE_ID }}
+          name: android-python-${{ steps.request.outputs.request_id }}
           path: dist
+
+      - name: Revalidate downloaded dependency
+        run: |
+          python android/companion/native-dependencies/scripts/validate_dependency.py \
+            --entry dist/catalog-entry.json \
+            --artifact-directory dist \
+            --report dist/publish-validation-report.json
+
+      - name: Attest validated dependency package
+        uses: actions/attest-build-provenance@v3.0.0
+        with:
+          subject-path: dist/*.zip
 
       - name: Merge existing published catalog
         env:
