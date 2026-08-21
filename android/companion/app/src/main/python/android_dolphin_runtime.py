@@ -200,6 +200,7 @@ class AndroidDolphinRuntime:
         self.adapters = tuple(adapters) if adapters is not None else self._load_adapters()
         self.adapter: DolphinGameAdapter | None = None
         self.ctx: AndroidDolphinContext | None = None
+        self.registered_host = None
         self.game_id = ""
         self.last_error = ""
 
@@ -245,7 +246,34 @@ class AndroidDolphinRuntime:
         self.ctx = None
         return json.dumps({"matched": False, "error": self.last_error})
 
+    def probe_registered(
+        self,
+        game_id: str,
+        game: str,
+        player_name: str,
+        server_address: str,
+        password: str,
+    ) -> str:
+        """Start or inspect the APWorld's ordinary registered client entry point."""
+        from android_registered_client_host import start_or_probe
+
+        self.game_id = str(game_id)
+        self.registered_host, result = start_or_probe(
+            self.registered_host,
+            self.work_directory,
+            str(game),
+            str(player_name),
+            str(server_address),
+            str(password),
+            self.game_id,
+        )
+        parsed = json.loads(result)
+        self.last_error = str(parsed.get("error", ""))
+        return result
+
     def validate_active(self, game: str, auth: str, game_id: str) -> bool:
+        if self.registered_host is not None:
+            return self.registered_host.validate(game, auth, game_id)
         if self.adapter is None or self.ctx is None or game != self.adapter.game:
             return False
         try:
@@ -256,10 +284,15 @@ class AndroidDolphinRuntime:
             return False
 
     def process_packet(self, packet_json: str) -> None:
+        if self.registered_host is not None:
+            self.registered_host.process_packet(packet_json)
+            return
         if self.ctx is not None and self.adapter is not None:
             process_packet(self.ctx, self.adapter, packet_json)
 
     def execute_command(self, raw: str) -> str:
+        if self.registered_host is not None:
+            return json.dumps(plain(self.registered_host.execute_command(raw)))
         if self.ctx is None or self.adapter is None:
             return json.dumps({
                 "console": [{"kind": "error", "text": "No Dolphin game client is active."}],
@@ -269,6 +302,8 @@ class AndroidDolphinRuntime:
             return json.dumps(plain(self._run(execute_console_command(self.ctx, raw))))
 
     def tick(self, emulator_available: bool = True) -> str:
+        if self.registered_host is not None:
+            return json.dumps(plain(self.registered_host.tick(emulator_available)))
         if self.ctx is None or self.adapter is None:
             return json.dumps({"messages": [], "disconnect": False, "error": "No Dolphin client is active"})
         error = ""
@@ -305,17 +340,26 @@ class AndroidDolphinRuntime:
 
     def emulator_reattached(self) -> None:
         dme.hook()
+        if self.registered_host is not None:
+            self.registered_host.emulator_reattached()
+            return
         if self.ctx is not None:
             self.ctx.dolphin_status = "Dolphin connected successfully."
             self.ctx.emulator_lifecycle.reattached()
 
     def emulator_detached(self) -> None:
+        if self.registered_host is not None:
+            self.registered_host.emulator_detached()
+            return
         if self.ctx is not None:
             self.ctx.dolphin_status = "Dolphin connection was lost."
             self.ctx.emulator_lifecycle.begin_tick(False)
             self.ctx.emulator_lifecycle.end_tick()
 
     def reset_connection(self) -> None:
+        if self.registered_host is not None:
+            self.registered_host.reset_connection()
+            return
         if self.ctx is None:
             return
         reset_connection(self.ctx)
@@ -323,6 +367,9 @@ class AndroidDolphinRuntime:
             self.adapter.reset_connection(self.ctx)
 
     def close(self) -> None:
+        if self.registered_host is not None:
+            self.registered_host.close()
+            self.registered_host = None
         pending = asyncio.all_tasks(self.loop)
         for task in pending:
             task.cancel()

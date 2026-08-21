@@ -4,8 +4,10 @@ from collections import namedtuple
 import json
 from pathlib import Path
 import sys
+import asyncio
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 
 PYTHON_SOURCE = Path(__file__).resolve().parents[2] / "main" / "python"
@@ -21,6 +23,7 @@ from android_dolphin_runtime import (
     DolphinGameAdapter,
     WindWakerDolphinAdapter,
 )
+from android_client_runtime import AndroidClientContext
 
 
 class Backend:
@@ -131,6 +134,70 @@ class AndroidDolphinRuntimeTest(unittest.TestCase):
         try:
             result = json.loads(runtime.probe("OTHER1"))
             self.assertFalse(result["matched"])
+        finally:
+            runtime.close()
+
+    def test_registered_component_owns_upstream_game_loop_with_managed_packets(self) -> None:
+        created = []
+        component_args = []
+
+        class ImportedContext(AndroidClientContext):
+            game = "Imported GameCube Game"
+            items_handling = 0b101
+
+            def __init__(self, address, password):
+                super().__init__(address, password)
+                self.packages = []
+                created.append(self)
+
+            def on_package(self, cmd, args):
+                self.packages.append(cmd)
+                if cmd == "Connected":
+                    self.outgoing.append({"cmd": "LocationChecks", "locations": [123]})
+
+        def run_component(*args):
+            component_args.extend(args)
+
+            async def main():
+                ctx = ImportedContext("example.test:38281", "secret")
+                await ctx.exit_event.wait()
+
+            asyncio.run(main())
+
+        component = SimpleNamespace(display_name="Imported Client", func=run_component)
+        runtime = AndroidDolphinRuntime("unused", [])
+        try:
+            with patch("offline_generator._prepare_runtime"), patch(
+                "offline_generator._client_component_for_game",
+                return_value=component,
+            ):
+                detected = json.loads(runtime.probe_registered(
+                    "GAME01",
+                    "Imported GameCube Game",
+                    "Player1",
+                    "example.test:38281",
+                    "secret",
+                ))
+                self.assertTrue(detected["matched"])
+                self.assertEqual("Player1", detected["auth"])
+                self.assertEqual(0b101, detected["items_handling"])
+                self.assertEqual(
+                    ["--connect", "example.test:38281", "--password", "secret"],
+                    component_args,
+                )
+
+                runtime.process_packet(json.dumps({
+                    "cmd": "Connected",
+                    "team": 0,
+                    "slot": 1,
+                    "checked_locations": [],
+                    "missing_locations": [123],
+                    "players": [{"team": 0, "slot": 1, "name": "Player1"}],
+                    "slot_data": {},
+                }))
+                tick = json.loads(runtime.tick(True))
+                self.assertEqual(["Connected"], created[0].packages)
+                self.assertIn({"cmd": "LocationChecks", "locations": [123]}, tick["messages"])
         finally:
             runtime.close()
 

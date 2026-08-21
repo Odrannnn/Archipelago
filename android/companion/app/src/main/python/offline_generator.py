@@ -192,6 +192,28 @@ def _client_component_for_path(path: str):
     return None
 
 
+def _client_component_for_game(game: str):
+    """Resolve a world's registered client through its declared player container."""
+    patch_type = _player_container_type(str(game))
+    extension = getattr(patch_type, "patch_file_ending", "") if patch_type is not None else ""
+    if extension:
+        component = _client_component_for_path(f"Player{extension}")
+        if component is not None:
+            return component
+
+    # Some patchless worlds identify their component by game rather than a
+    # player-container suffix. This is part of LauncherComponents' public API.
+    from worlds.LauncherComponents import Type, components
+    for component in reversed(components):
+        if (
+            getattr(component, "type", None) == Type.CLIENT
+            and callable(getattr(component, "func", None))
+            and getattr(component, "game_name", None) == game
+        ):
+            return component
+    return None
+
+
 def _component_result_extension(requirements: list[dict[str, object]]) -> str:
     """Best-effort output suffix for clients which patch their selected ROM in place."""
     for requirement in requirements:

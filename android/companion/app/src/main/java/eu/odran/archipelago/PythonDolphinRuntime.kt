@@ -17,9 +17,31 @@ class PythonDolphinRuntime(
     }
 
     override fun probe(): DetectedGameInfo? = synchronized(OfflineGenerator.runtimeLock) {
-        val result = JSONObject(runtime.callAttr("probe", client.gameId()).toString())
-        if (!result.optBoolean("matched")) return@synchronized null
-        DetectedGameInfo(
+        parseProbe(JSONObject(runtime.callAttr("probe", client.gameId()).toString()))
+    }
+
+    fun probeRegistered(
+        game: String,
+        playerName: String,
+        settings: ServerSettings,
+    ): DetectedGameInfo? = synchronized(OfflineGenerator.runtimeLock) {
+        parseProbe(
+            JSONObject(
+                runtime.callAttr(
+                    "probe_registered",
+                    client.gameId(),
+                    game,
+                    playerName,
+                    settings.address,
+                    settings.password,
+                ).toString(),
+            ),
+        )
+    }
+
+    private fun parseProbe(result: JSONObject): DetectedGameInfo? {
+        if (!result.optBoolean("matched")) return null
+        return DetectedGameInfo(
             game = result.getString("game"),
             auth = result.getString("auth"),
             itemsHandling = result.optInt("items_handling", 7),

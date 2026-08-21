@@ -260,8 +260,14 @@ class AndroidClientContext:
         self.client_handler = None
         self.game = None
         self.auth = None
-        self.items_handling = 0b111
-        self.want_slot_data = True
+        self.items_handling = (
+            getattr(type(self), "items_handling", None) if desktop_signature else None
+        )
+        if self.items_handling is None:
+            self.items_handling = 0b111
+        self.want_slot_data = bool(
+            getattr(type(self), "want_slot_data", True) if desktop_signature else True
+        )
         self.seed_name = None
         self.server_seed_name = None
         self.server = None
@@ -288,7 +294,9 @@ class AndroidClientContext:
         self.team = None
         self.finished_game = False
         self.ready = False
-        self.tags: set[str] = set()
+        self.tags: set[str] = set(
+            getattr(type(self), "tags", set()) if desktop_signature else set()
+        )
         self.outgoing: list[dict] = []
         self.disconnect_requested = False
         self.last_death_link = 0.0
@@ -304,6 +312,15 @@ class AndroidClientContext:
         self.exit_event = asyncio.Event()
         self.watcher_event = asyncio.Event()
 
+        # A conventional APWorld client creates this same context from its own
+        # asyncio loop. The optional Android host records it so the managed
+        # websocket transport can feed the upstream client unchanged.
+        try:
+            from android_registered_client_host import register_context
+            register_context(self)
+        except ImportError:
+            pass
+
     def run_cli(self) -> None:
         """Desktop console lifecycle is owned by the companion UI."""
 
@@ -316,6 +333,9 @@ class AndroidClientContext:
 
     async def get_username(self) -> None:
         return None
+
+    def on_package(self, _cmd: str, _args: dict) -> None:
+        """Desktop-compatible no-op overridden by ordinary game contexts."""
 
     async def send_connect(self) -> None:
         return None

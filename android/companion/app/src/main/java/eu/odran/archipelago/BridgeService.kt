@@ -123,6 +123,27 @@ class BridgeService : Service() {
         super.onDestroy()
     }
 
+    private fun probeDolphinRuntime(runtime: PythonDolphinRuntime): DetectedGameInfo? {
+        runtime.probe()?.let { return it }
+        val room = JoinedRoomStore.load(this) ?: return null
+        val isGameCubeRoom = DolphinLauncher.isGameCubeGame(this, room.gameName) ||
+            room.patchedRomName?.let(DolphinLauncher::isSupportedDiscName) == true ||
+            OfflineGenerator.cachedCatalog().any { capability ->
+                capability.game == room.gameName &&
+                    DolphinLauncher.isSupportedDiscName("patched${capability.resultExtension}")
+            }
+        if (!isGameCubeRoom) return null
+        val settings = ServerSettings.load(this)
+        if (!settings.isConfigured) return null
+        val playerName = room.playerName ?: room.playerSlot?.let { slot ->
+            room.players.getOrNull(slot - 1)
+                ?.removeSuffix(" (${room.gameName})")
+                ?.trim()
+        }
+        if (playerName.isNullOrBlank()) return null
+        return runtime.probeRegistered(room.gameName, playerName, settings)
+    }
+
     private fun connectionLoop() {
         var mgbaBridge: MGBABridgeClient? = null
         var gbaRuntime: PythonGbaRuntime? = null
@@ -378,7 +399,7 @@ class BridgeService : Service() {
                             dolphinGame = if (dolphinGame?.let(runtime::validateActive) == true) {
                                 dolphinGame
                             } else {
-                                runtime.probe()
+                                probeDolphinRuntime(runtime)
                             }
                             if (dolphinGame != null && !dolphinMemoryAttached) {
                                 runtime.emulatorReattached()
@@ -458,7 +479,7 @@ class BridgeService : Service() {
                                     dolphinGame = if (dolphinGame?.let(runtime::validateActive) == true) {
                                         dolphinGame
                                     } else {
-                                        runtime.probe()
+                                        probeDolphinRuntime(runtime)
                                     }
                                     if (dolphinGame == null) {
                                         dolphinMemoryAttached = false
