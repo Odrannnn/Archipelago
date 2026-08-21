@@ -201,6 +201,31 @@ def _component_result_extension(requirements: list[dict[str, object]]) -> str:
     return ".rom"
 
 
+def _component_patch_capability(
+    game: str,
+    patch_type,
+    patch_extension: str,
+    work_directory: str,
+) -> tuple[str, bool]:
+    """Probe an optional desktop client without allowing one world to break the catalog."""
+    if game == "The Wind Waker" or patch_type is not None or not patch_extension:
+        return "", False
+    if _client_component_for_path(f"player{patch_extension}") is None:
+        return "", False
+    try:
+        _, requirements = _rom_requirements(game, work_directory, validated_only=False)
+    except Exception as error:
+        logging.getLogger(__name__).warning(
+            "Could not inspect client-component ROM inputs for %s: %s",
+            game,
+            error,
+        )
+        return "", False
+    if not requirements:
+        return "", False
+    return _component_result_extension(requirements), True
+
+
 def _world_load_failure(package_name: str, game: str, error: Exception) -> str:
     """Turn an APWorld import exception into an actionable Android error."""
     current: BaseException | None = error
@@ -634,17 +659,14 @@ def world_catalog(work_directory: str) -> str:
         container_type = patch_type or _player_container_type(game)
         patch_extension = getattr(container_type, "patch_file_ending", "") if container_type else ""
         result_extension = getattr(patch_type, "result_file_ending", "") if patch_type else ""
-        component_patch = False
-        if not patch_type and patch_extension:
-            component = _client_component_for_path(f"player{patch_extension}")
-            if component is not None:
-                try:
-                    _, component_inputs = _rom_requirements(game, work_directory, validated_only=False)
-                except (KeyError, TypeError, ValueError):
-                    component_inputs = []
-                if component_inputs:
-                    result_extension = _component_result_extension(component_inputs)
-                    component_patch = True
+        component_extension, component_patch = _component_patch_capability(
+            game,
+            patch_type,
+            patch_extension,
+            work_directory,
+        )
+        if component_patch:
+            result_extension = component_extension
         if game == "The Wind Waker":
             from android_tww_patcher import PATCH_EXTENSION, RESULT_EXTENSION
             patch_extension = PATCH_EXTENSION

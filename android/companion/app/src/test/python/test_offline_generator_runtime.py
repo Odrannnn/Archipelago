@@ -96,6 +96,32 @@ class OfflineGeneratorRuntimeTest(unittest.TestCase):
             self.assertEqual(player.with_suffix(".rom"), result)
             self.assertEqual(b"patched-rom", destination.read_bytes())
 
+    def test_component_probe_failure_does_not_abort_world_catalog(self) -> None:
+        with patch.object(OFFLINE_GENERATOR, "_client_component_for_path", return_value=object()), \
+                patch.object(
+                    OFFLINE_GENERATOR,
+                    "_rom_requirements",
+                    side_effect=AttributeError("Settings has no matching group"),
+                ):
+            self.assertEqual(
+                ("", False),
+                OFFLINE_GENERATOR._component_patch_capability(
+                    "Example Game",
+                    None,
+                    ".apexample",
+                    "unused",
+                ),
+            )
+            self.assertEqual(
+                ("", False),
+                OFFLINE_GENERATOR._component_patch_capability(
+                    "The Wind Waker",
+                    None,
+                    ".aptww",
+                    "unused",
+                ),
+            )
+
     def test_ignores_apworld_container_without_player_manifest_fields(self) -> None:
         world_container = self._container({
             "game": "Example Game",
