@@ -118,6 +118,53 @@ class ComponentUpdatesTest {
         )
     }
 
+    @Test
+    fun `notification resolver includes only newer installed components`() {
+        val companion = componentAsset(ManagedComponent.COMPANION, "2.0.0")
+        val dolphin = componentAsset(ManagedComponent.DOLPHIN, "2603-50")
+        val popTracker = componentAsset(ManagedComponent.POPTRACKER, "0.36.0")
+        val mgba = componentAsset(ManagedComponent.MGBA_CORE, "v10")
+        val snes9x = componentAsset(ManagedComponent.SNES9X_CORE, "v2")
+
+        val updates = ComponentUpdateResolver.resolve(
+            listOf(companion, dolphin, popTracker, mgba, snes9x),
+            apkStates = mapOf(
+                ManagedComponent.COMPANION to InstalledApkState("companion", "1.0.0", 1),
+                ManagedComponent.DOLPHIN to InstalledApkState("dolphin", "2603-50", 2),
+                // An optional component which is not installed is not an update notification.
+                ManagedComponent.POPTRACKER to null,
+            ),
+            coreStates = mapOf(
+                ManagedComponent.MGBA_CORE to InstalledCoreState(
+                    installedFileName = "mgba_apbridge_v9_libretro_android.so",
+                    installedVersion = "v9",
+                ),
+                ManagedComponent.SNES9X_CORE to InstalledCoreState(
+                    installedFileName = "snes9x_apbridge_v2_libretro_android.so",
+                    installedVersion = "v2",
+                    sameVersionAsAvailable = true,
+                    matchesAvailable = false,
+                ),
+            ),
+        )
+
+        assertEquals(
+            listOf(ManagedComponent.COMPANION, ManagedComponent.MGBA_CORE),
+            updates.map { it.component },
+        )
+    }
+
+    private fun componentAsset(component: ManagedComponent, version: String) = ComponentAsset(
+        component,
+        version,
+        "${component.componentId}-$version",
+        "https://github.com/example/releases/download/v1/${component.componentId}",
+        "a".repeat(64),
+        100,
+        "v1",
+        "2026-01-01T00:00:00Z",
+    )
+
     private fun release(
         tag: String,
         prerelease: Boolean,

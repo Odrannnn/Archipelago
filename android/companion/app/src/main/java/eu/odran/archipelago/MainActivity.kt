@@ -5,6 +5,8 @@ import android.app.AlertDialog
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -18,6 +20,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.PopupMenu
@@ -55,6 +58,10 @@ class MainActivity : Activity() {
     private lateinit var address: EditText
     private lateinit var password: EditText
     private lateinit var joinedRoomContainer: LinearLayout
+    private lateinit var updateBellButton: ImageButton
+    private lateinit var updateBellBadge: TextView
+    private var updateCheckRunning = false
+    private var updateCheckGeneration = 0
     private var retroArchButton: Button? = null
     private var renderedRoom: JoinedRoom? = null
     private var pendingRequiredApWorldInvite: RoomInvite? = null
@@ -311,6 +318,108 @@ class MainActivity : Activity() {
             ),
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
         )
+        addView(updateBell(), LinearLayout.LayoutParams(
+            CompanionUi.dp(this@MainActivity, 48),
+            CompanionUi.dp(this@MainActivity, 48),
+        ).apply { marginStart = CompanionUi.dp(this@MainActivity, 4) })
+    }
+
+    private fun updateBell(): FrameLayout = FrameLayout(this).apply {
+        updateBellButton = ImageButton(this@MainActivity).apply {
+            contentDescription = "Checking component updates"
+            setImageResource(R.drawable.ic_notifications)
+            setColorFilter(CompanionUi.textMuted)
+            setPadding(
+                CompanionUi.dp(this@MainActivity, 12),
+                CompanionUi.dp(this@MainActivity, 12),
+                CompanionUi.dp(this@MainActivity, 12),
+                CompanionUi.dp(this@MainActivity, 12),
+            )
+            val attributes = obtainStyledAttributes(
+                intArrayOf(android.R.attr.selectableItemBackgroundBorderless),
+            )
+            background = attributes.getDrawable(0)
+            attributes.recycle()
+            setOnClickListener {
+                startActivity(Intent(this@MainActivity, DownloadsUpdatesActivity::class.java))
+            }
+        }
+        addView(updateBellButton, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+        ))
+        updateBellBadge = TextView(this@MainActivity).apply {
+            visibility = View.GONE
+            gravity = Gravity.CENTER
+            textSize = 10f
+            setTextColor(Color.WHITE)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            minWidth = CompanionUi.dp(this@MainActivity, 18)
+            minHeight = CompanionUi.dp(this@MainActivity, 18)
+            setPadding(
+                CompanionUi.dp(this@MainActivity, 4),
+                0,
+                CompanionUi.dp(this@MainActivity, 4),
+                0,
+            )
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(CompanionUi.danger)
+                cornerRadius = CompanionUi.dp(this@MainActivity, 10).toFloat()
+            }
+        }
+        addView(updateBellBadge, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            CompanionUi.dp(this@MainActivity, 18),
+            Gravity.TOP or Gravity.END,
+        ))
+    }
+
+    private fun refreshUpdateBell() {
+        if (updateCheckRunning) return
+        updateCheckRunning = true
+        val generation = ++updateCheckGeneration
+        updateBellButton.contentDescription = "Checking component updates"
+        thread(name = "component-update-bell") {
+            runCatching { ComponentUpdateChecker(this).check() }
+                .onSuccess { summary -> runOnUiThread {
+                    if (generation != updateCheckGeneration) return@runOnUiThread
+                    updateCheckRunning = false
+                    renderUpdateBell(summary.updates)
+                } }
+                .onFailure { error -> runOnUiThread {
+                    if (generation != updateCheckGeneration) return@runOnUiThread
+                    updateCheckRunning = false
+                    updateBellBadge.visibility = View.GONE
+                    updateBellButton.setColorFilter(CompanionUi.textMuted)
+                    updateBellButton.contentDescription =
+                        "Could not check component updates. Open downloads and updates to retry."
+                    updateBellButton.setOnLongClickListener {
+                        AlertDialog.Builder(this@MainActivity)
+                            .setTitle("Update check failed")
+                            .setMessage(error.message ?: error.javaClass.simpleName)
+                            .setPositiveButton("Close", null)
+                            .show()
+                        true
+                    }
+                } }
+        }
+    }
+
+    private fun renderUpdateBell(updates: List<ComponentAsset>) {
+        updateBellButton.setOnLongClickListener(null)
+        if (updates.isEmpty()) {
+            updateBellBadge.visibility = View.GONE
+            updateBellButton.setColorFilter(CompanionUi.textMuted)
+            updateBellButton.contentDescription = "Components are up to date"
+            return
+        }
+        updateBellBadge.text = if (updates.size > 9) "9+" else updates.size.toString()
+        updateBellBadge.visibility = View.VISIBLE
+        updateBellButton.setColorFilter(CompanionUi.primary)
+        val names = updates.joinToString { it.component.displayName }
+        updateBellButton.contentDescription =
+            "${updates.size} component ${if (updates.size == 1) "update" else "updates"} available: $names"
     }
 
     private fun showAppMenu(anchor: View) {
@@ -1445,6 +1554,7 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         handler.post(refreshStatus)
+        refreshUpdateBell()
     }
 
     override fun onStop() {

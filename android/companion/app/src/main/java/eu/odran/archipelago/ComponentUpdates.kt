@@ -175,6 +175,56 @@ internal data class ComponentCatalogResult(
     val warning: String? = null,
 )
 
+internal data class ComponentUpdateSummary(
+    val updates: List<ComponentAsset>,
+    val checkedAt: Long,
+    val cached: Boolean,
+    val warning: String? = null,
+)
+
+/** Resolves only newer versions of components which are already installed. */
+internal object ComponentUpdateResolver {
+    fun resolve(
+        assets: List<ComponentAsset>,
+        apkStates: Map<ManagedComponent, InstalledApkState?>,
+        coreStates: Map<ManagedComponent, InstalledCoreState>,
+    ): List<ComponentAsset> = assets.filter { asset ->
+        when (asset.component.kind) {
+            ComponentKind.APK -> apkStates[asset.component]?.let { installed ->
+                ComponentVersion.isNewer(asset.version, installed.versionName)
+            } == true
+            ComponentKind.CORE -> coreStates[asset.component]?.relationTo(asset.version) ==
+                CoreReleaseRelation.UPDATE_AVAILABLE
+        }
+    }
+}
+
+/** Uses the same cached, verified release catalog as the downloads screen. */
+internal class ComponentUpdateChecker(private val context: Context) {
+    fun check(forceRefresh: Boolean = false): ComponentUpdateSummary {
+        val catalog = ComponentReleaseClient(context).load(forceRefresh)
+        val apkStates = ManagedComponent.entries
+            .filter { it.kind == ComponentKind.APK }
+            .associateWith { ApkComponentInstaller.installedState(context, it) }
+        val coreStates = if (RetroArchCoreStore.selectedTree(context) == null) {
+            emptyMap()
+        } else {
+            catalog.assets
+                .filter { it.component.kind == ComponentKind.CORE }
+                .associate { asset ->
+                    asset.component to runCatching { RetroArchCoreStore.installedState(context, asset) }
+                        .getOrDefault(InstalledCoreState())
+                }
+        }
+        return ComponentUpdateSummary(
+            updates = ComponentUpdateResolver.resolve(catalog.assets, apkStates, coreStates),
+            checkedAt = catalog.checkedAt,
+            cached = catalog.cached,
+            warning = catalog.warning,
+        )
+    }
+}
+
 internal class ComponentReleaseClient(private val context: Context) {
     private val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
 
