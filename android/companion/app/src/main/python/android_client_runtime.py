@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import contextmanager
 import json
 import logging
@@ -15,6 +16,7 @@ from NetUtils import NetworkItem
 
 
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
+_MISSING = object()
 
 
 def plain(value: Any) -> Any:
@@ -220,12 +222,41 @@ class AndroidClientCommandProcessor(CommandProcessor):
 
 
 class AndroidClientContext:
-    def __init__(self, backend: Any, command_processor_type=AndroidClientCommandProcessor):
-        self.backend = backend
-        self.bizhawk_ctx = SimpleNamespace(backend=backend)
+    def __init__(self, backend: Any = None, command_processor_type: Any = _MISSING):
+        """Initialize either an Android runtime or a desktop-style APWorld context.
+
+        Managed Android runtimes pass ``(backend, CommandProcessor)``. Ordinary
+        desktop clients subclass CommonContext and pass ``(server_address,
+        password)``. Supporting both signatures lets launcher components run
+        unchanged inside the isolated patch host.
+        """
+        desktop_signature = (
+            command_processor_type is not _MISSING and not callable(command_processor_type)
+        ) or (
+            command_processor_type is _MISSING and (backend is None or isinstance(backend, str))
+        )
+        if desktop_signature:
+            self.server_address = backend
+            self.password = None if command_processor_type is _MISSING else command_processor_type
+            runtime_backend = None
+            processor_type = getattr(type(self), "command_processor", AndroidClientCommandProcessor)
+            if not callable(processor_type):
+                processor_type = AndroidClientCommandProcessor
+        else:
+            self.server_address = None
+            self.password = None
+            runtime_backend = backend
+            processor_type = (
+                AndroidClientCommandProcessor
+                if command_processor_type is _MISSING
+                else command_processor_type
+            )
+
+        self.backend = runtime_backend
+        self.bizhawk_ctx = SimpleNamespace(backend=runtime_backend)
         self.console_messages: list[dict[str, str]] = []
         self.android_actions: list[dict[str, str]] = []
-        self.command_processor = command_processor_type(self)
+        self.command_processor = processor_type(self)
         self.client_handler = None
         self.game = None
         self.auth = None
@@ -268,6 +299,26 @@ class AndroidClientContext:
         self.emulator_writes = 0
         self.emulator_write_bytes = 0
         self.emulator_lifecycle = EmulatorLifecycle(self)
+        self.ui = None
+        self.server_task = None
+        self.exit_event = asyncio.Event()
+        self.watcher_event = asyncio.Event()
+
+    def run_cli(self) -> None:
+        """Desktop console lifecycle is owned by the companion UI."""
+
+    def run_gui(self) -> None:
+        """Desktop GUI lifecycle is owned by the companion UI."""
+
+    async def shutdown(self) -> None:
+        self.exit_event.set()
+        self.watcher_event.set()
+
+    async def get_username(self) -> None:
+        return None
+
+    async def send_connect(self) -> None:
+        return None
 
     def console_message(self, kind: str, text: str) -> None:
         for line in str(text).splitlines() or [""]:

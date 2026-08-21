@@ -1279,6 +1279,7 @@ def _copy_component_output(
         try:
             component.func(str(patch_path))
         except BaseException as error:
+            logging.getLogger(__name__).exception("Registered APWorld client component failed")
             failure.append(error)
 
     before = {

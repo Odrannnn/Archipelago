@@ -15,6 +15,7 @@ sys.modules["NetUtils"] = SimpleNamespace(
 )
 
 from android_client_runtime import (
+    AndroidClientCommandProcessor,
     AndroidClientContext,
     execute_console_command,
     process_packet,
@@ -28,6 +29,31 @@ class Handler:
 
     def on_package(self, ctx, cmd, args) -> None:
         self.packets.append((cmd, args))
+
+
+class DesktopCommandProcessor(AndroidClientCommandProcessor):
+    pass
+
+
+class DesktopStyleContext(AndroidClientContext):
+    command_processor = DesktopCommandProcessor
+
+
+class DesktopCompatibilityTest(unittest.IsolatedAsyncioTestCase):
+    async def test_common_context_accepts_desktop_server_and_password_signature(self) -> None:
+        ctx = DesktopStyleContext("archipelago.gg:38281", "secret")
+
+        self.assertIsNone(ctx.backend)
+        self.assertEqual("archipelago.gg:38281", ctx.server_address)
+        self.assertEqual("secret", ctx.password)
+        self.assertIsInstance(ctx.command_processor, DesktopCommandProcessor)
+        self.assertIsNone(ctx.ui)
+
+        ctx.run_cli()
+        ctx.run_gui()
+        await ctx.shutdown()
+        self.assertTrue(ctx.exit_event.is_set())
+        self.assertTrue(ctx.watcher_event.is_set())
 
 
 class EmulatorLifecycleTest(unittest.TestCase):
