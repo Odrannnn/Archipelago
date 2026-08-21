@@ -669,6 +669,10 @@ class MainActivity : Activity() {
                             append(" + ")
                             append(dependencies.installed.joinToString { it.packageName })
                         }
+                        if (dependencies.pureInstalled.isNotEmpty()) {
+                            append(" + ")
+                            append(dependencies.pureInstalled.joinToString { it.packageName })
+                        }
                         append(" · continuing invitation…")
                     }
                     resolveAndLoadRoom(invite)
@@ -837,6 +841,10 @@ class MainActivity : Activity() {
                         if (dependencies.installed.isNotEmpty()) {
                             append(" + ")
                             append(dependencies.installed.joinToString { it.packageName })
+                        }
+                        if (dependencies.pureInstalled.isNotEmpty()) {
+                            append(" + ")
+                            append(dependencies.pureInstalled.joinToString { it.packageName })
                         }
                         append(" · continuing patch…")
                     }
@@ -1319,7 +1327,7 @@ class MainActivity : Activity() {
     }
 
     private fun provisionDependencies(world: ImportedApWorld): NativeDependencyProvisionResult {
-        return NativeDependencyProvisioner.installFor(
+        val provisioned = NativeDependencyProvisioner.installFor(
             this,
             listOf(world),
             onStarting = { asset -> runOnUiThread {
@@ -1331,6 +1339,13 @@ class MainActivity : Activity() {
                     "Downloading ${asset.packageName}: ${formatDependencyBytes(downloaded)} / ${formatDependencyBytes(total)}"
             } },
         )
+        check(provisioned.unresolved.isEmpty()) {
+            provisioned.unresolved.joinToString(
+                prefix = "Some APWorld dependencies are not available for Android yet: ",
+                separator = "; ",
+            ) { "${it.requirement} (${it.reason})" }
+        }
+        return provisioned
     }
 
     private fun formatDependencyBytes(bytes: Long): String = when {

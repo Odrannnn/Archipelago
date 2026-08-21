@@ -148,8 +148,8 @@ def _world_load_failure(package_name: str, game: str, error: Exception) -> str:
             )
         return (
             f"Missing Python dependency '{module}' required by {game}.\n"
-            "Open Game worlds and check Android Python dependencies for a reviewed build. If none is available, "
-            "the dependency needs a curated Android build recipe before this APWorld can load.\n"
+            "Open Game worlds to retry the APWorld's declared dependency installation. Universal wheels are "
+            "installed from PyPI; packages with native code need a compatible artifact in the Android build cache.\n"
             f"Technical details: {technical}"
         )
 

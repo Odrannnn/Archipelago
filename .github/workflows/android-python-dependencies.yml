@@ -12,14 +12,14 @@ on:
   workflow_dispatch:
     inputs:
       recipe:
-        description: Reviewed dependency recipe
+        description: Android cross-build adapter
         required: true
         type: choice
         default: py-randomprime-1.31.1
         options:
           - py-randomprime-1.31.1
       publish:
-        description: Publish to the curated dependency release (main only)
+        description: Publish to the verified build cache (main only)
         required: true
         type: boolean
         default: false
@@ -70,7 +70,7 @@ jobs:
           recipe_id = os.environ["RECIPE_ID"]
           allowed = {path.stem: path for path in Path("android/companion/native-dependencies/recipes").glob("*.json")}
           if recipe_id not in allowed:
-              raise SystemExit(f"Unknown reviewed recipe: {recipe_id}")
+              raise SystemExit(f"Unknown Android build adapter: {recipe_id}")
           recipe = json.loads(allowed[recipe_id].read_text(encoding="utf-8"))
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"path={allowed[recipe_id].as_posix()}\n")
@@ -167,7 +167,7 @@ jobs:
             gh release download "$RELEASE_TAG" --pattern "$INDEX_FILE" --dir previous || true
           else
             gh release create "$RELEASE_TAG" --target main --title "Android Python dependencies" \
-              --notes "Curated native Python packages for Archipelago Companion Android." --prerelease
+              --notes "Verified native Python build cache for Archipelago Companion Android." --prerelease
           fi
           MERGE_ARGS=(--entry dist/catalog-entry.json --output "dist/$INDEX_FILE")
           if [ -f "previous/$INDEX_FILE" ]; then
@@ -175,7 +175,7 @@ jobs:
           fi
           python android/companion/native-dependencies/scripts/merge_catalog.py "${MERGE_ARGS[@]}"
 
-      - name: Publish package and verified catalog
+      - name: Publish package and verified build cache
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

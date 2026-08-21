@@ -83,6 +83,7 @@ chaquopy {
             install("schema==0.7.8")
             install("pathspec==1.0.4")
             install("platformdirs==4.10.1")
+            install("packaging==25.0")
             install("typing_extensions==4.15.0")
             install("requests==2.32.5")
             install("ruamel.yaml==0.18.10")

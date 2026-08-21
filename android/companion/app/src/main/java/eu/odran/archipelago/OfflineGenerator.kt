@@ -38,6 +38,43 @@ data class WorldCapability(
     val liveBridge: Boolean,
 )
 
+data class DeclaredPythonDependency(
+    val packageName: String,
+    val moduleName: String,
+    val requirement: String,
+    val specifier: String,
+    val exactVersion: String?,
+    val declaredBy: String,
+) {
+    fun acceptsVersion(version: String): Boolean {
+        exactVersion?.let { return ComponentVersion.compare(version, it) == 0 }
+        if (specifier.isBlank()) return true
+        return specifier.split(',').all { raw ->
+            val comparison = raw.trim()
+            val operator = listOf("===", "==", "!=", ">=", "<=", ">", "<")
+                .firstOrNull(comparison::startsWith) ?: return@all true
+            val expected = comparison.removePrefix(operator).trim().removeSuffix(".*")
+            val result = ComponentVersion.compare(version, expected)
+            when (operator) {
+                "===", "==" -> result == 0
+                "!=" -> result != 0
+                ">=" -> result >= 0
+                "<=" -> result <= 0
+                ">" -> result > 0
+                "<" -> result < 0
+                else -> true
+            }
+        }
+    }
+}
+
+data class InstalledPythonDependency(val packageName: String, val version: String)
+data class UnresolvedPythonDependency(val requirement: String, val reason: String)
+data class PurePythonDependencyResult(
+    val installed: List<InstalledPythonDependency>,
+    val unresolved: List<UnresolvedPythonDependency>,
+)
+
 data class GenerationResult(
     val seed: String,
     val attempts: Int,
@@ -111,6 +148,62 @@ object OfflineGenerator {
 
     fun availableGames(context: Context): List<String> =
         (bundledWorlds(context).map { it.game } + ImportedApWorldStore.list(context).map { it.game }).sorted()
+
+    fun declaredDependencies(
+        context: Context,
+        worlds: List<ImportedApWorld>,
+    ): List<DeclaredPythonDependency> = synchronized(runtimeLock) {
+        val module = python(context).getModule("apworld_dependencies")
+        worlds.flatMap { world ->
+            val packageDirectory = File(File(workDirectory(context), "worlds"), world.packageName)
+            val result = JSONArray(module.callAttr("scan_package", packageDirectory.absolutePath).toString())
+            List(result.length()) { index ->
+                val item = result.getJSONObject(index)
+                DeclaredPythonDependency(
+                    packageName = item.getString("package"),
+                    moduleName = item.getString("module"),
+                    requirement = item.getString("requirement"),
+                    specifier = item.optString("specifier"),
+                    exactVersion = item.optString("version").takeIf(String::isNotBlank),
+                    declaredBy = "${world.game}: ${item.optString("declared_by", "dependency declaration")}",
+                )
+            }
+        }.distinctBy { it.packageName to it.requirement }
+    }
+
+    fun installPureDependencies(
+        context: Context,
+        dependencies: List<DeclaredPythonDependency>,
+    ): PurePythonDependencyResult = synchronized(runtimeLock) {
+        val declarations = JSONArray().apply {
+            dependencies.forEach { dependency ->
+                put(JSONObject()
+                    .put("package", dependency.packageName)
+                    .put("module", dependency.moduleName)
+                    .put("requirement", dependency.requirement)
+                    .put("declared_by", dependency.declaredBy))
+            }
+        }
+        val result = JSONObject(
+            python(context).getModule("apworld_dependencies").callAttr(
+                "install_pure",
+                declarations.toString(),
+                workDirectory(context).absolutePath,
+            ).toString(),
+        )
+        val installed = result.getJSONArray("installed")
+        val unresolved = result.getJSONArray("unresolved")
+        PurePythonDependencyResult(
+            installed = List(installed.length()) { index ->
+                val item = installed.getJSONObject(index)
+                InstalledPythonDependency(item.getString("package"), item.getString("version"))
+            },
+            unresolved = List(unresolved.length()) { index ->
+                val item = unresolved.getJSONObject(index)
+                UnresolvedPythonDependency(item.getString("requirement"), item.getString("reason"))
+            },
+        )
+    }
 
     fun defaultYaml(context: Context, game: String): String = synchronized(runtimeLock) {
         require(game in availableGames(context)) { "$game is not available; import its APWorld first" }

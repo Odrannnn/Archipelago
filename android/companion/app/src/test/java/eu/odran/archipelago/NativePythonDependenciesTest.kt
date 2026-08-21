@@ -47,17 +47,47 @@ class NativePythonDependenciesTest {
     }
 
     @Test
-    fun `automatic provisioning selects only reviewed world versions`() {
+    fun `automatic provisioning selects assets requested by the APWorld`() {
         val reviewed = dependency("py-randomprime", "1.31.1", "0.5.4")
         val unrelated = dependency("other-native", "2.0.0", "0.6.0")
 
         val selected = NativeDependencyProvisioner.requiredAssets(
             listOf(reviewed, unrelated),
-            listOf(world("0.5.4")),
+            listOf(declaration("py-randomprime", "1.31.1")),
         )
 
         assertEquals(listOf(reviewed), selected)
-        assertTrue(NativeDependencyProvisioner.requiredAssets(listOf(reviewed), listOf(world("0.5.5"))).isEmpty())
+        assertTrue(
+            NativeDependencyProvisioner.requiredAssets(
+                listOf(reviewed),
+                listOf(declaration("py-randomprime", "1.31.2")),
+            ).isEmpty(),
+        )
+    }
+
+    @Test
+    fun `verified build cache does not require an APWorld allowlist`() {
+        val digest = "a".repeat(64)
+        val cache = index(digest, 4_000_000)
+        cache.getJSONArray("packages").getJSONObject(0).remove("worlds")
+
+        val dependency = NativeDependencyCatalogParser.parse(
+            release(asset(
+                "py_randomprime-1.31.1-cp310-abi3-android_26_arm64_v8a.zip",
+                digest,
+                4_000_000,
+            )).toString(),
+            cache.toString(),
+        ).single()
+
+        assertTrue(dependency.worlds.isEmpty())
+        assertEquals(
+            listOf(dependency),
+            NativeDependencyProvisioner.requiredAssets(
+                listOf(dependency),
+                listOf(declaration("py-randomprime", "1.31.1")),
+            ),
+        )
     }
 
     @Test
@@ -67,7 +97,14 @@ class NativePythonDependenciesTest {
 
         val selected = NativeDependencyProvisioner.requiredAssets(
             listOf(older, current),
-            listOf(world("0.5.4")),
+            listOf(DeclaredPythonDependency(
+                packageName = "py-randomprime",
+                moduleName = "py_randomprime",
+                requirement = "py-randomprime>=1.30,<2",
+                specifier = ">=1.30,<2",
+                exactVersion = null,
+                declaredBy = "test",
+            )),
         )
 
         assertEquals(listOf(current), selected)
@@ -82,6 +119,15 @@ class NativePythonDependenciesTest {
         sourceName = "metroidprime.apworld",
         sha256 = "c".repeat(64),
         installedAt = 0,
+    )
+
+    private fun declaration(packageName: String, version: String) = DeclaredPythonDependency(
+        packageName = packageName,
+        moduleName = packageName.replace('-', '_'),
+        requirement = "$packageName==$version",
+        specifier = "==$version",
+        exactVersion = version,
+        declaredBy = "test",
     )
 
     private fun dependency(packageName: String, version: String, worldVersion: String) = NativeDependencyAsset(

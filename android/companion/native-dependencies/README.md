@@ -1,10 +1,10 @@
 # Android Python dependencies
 
-This directory contains reviewed build recipes for native Python dependencies used by imported APWorlds. Recipes pin the upstream source URL and SHA-256 digest; the Android workflow never accepts build commands from the app.
+This directory builds native Python artifacts used by imported APWorlds. The published catalog is a verified build cache, not an APWorld or dependency allowlist. The companion discovers requirements from the APWorld the user chose to trust, installs universal wheels directly from PyPI, and looks up native artifacts by normalized package name and compatible version.
 
-The manual `Android Python dependencies` workflow accepts only recipe identifiers committed under `recipes/`. A build packages one Android Python module, attests it, and can update the long-lived `android-python-dependencies` GitHub release. The companion obtains both the catalog and package digests from GitHub's release API before installing anything in app-private storage.
+The manual `Android Python dependencies` workflow currently accepts build adapters committed under `recipes/`. This restriction protects GitHub runner capacity and expresses Android cross-compilation details; it does not authorize which APWorld may use the resulting package. A build packages one Android Python module, attests it, and can update the long-lived `android-python-dependencies` GitHub release. The companion obtains both the cache index and package digests from GitHub's release API before installing anything in app-private storage.
 
-Adding a dependency requires a reviewed recipe and, when necessary, a new explicitly implemented build kind in `scripts/build_dependency.py`. Do not add arbitrary shell fragments to recipes.
+New native packages still need a compatible cross-build adapter until a sandboxed public build-request service exists. Do not add arbitrary shell fragments to recipes. Pure-Python `py3-none-any` wheels require no recipe or catalog entry.
 
 Current build kinds:
 

@@ -119,11 +119,11 @@ internal object NativeDependencyCatalogParser {
             val releaseBytes = releaseAsset.optLong("size", -1)
             val downloadUrl = releaseAsset.optString("browser_download_url")
             require(releaseSha == expectedSha && releaseBytes == expectedBytes) {
-                "$fileName does not match the curated catalog."
+                "$fileName does not match the verified build cache."
             }
             require(downloadUrl.startsWith("https://github.com/")) { "Untrusted dependency download URL." }
-            val worlds = entry.getJSONArray("worlds").asObjects().mapNotNull(NativeDependencyWorld::fromJson)
-            require(worlds.isNotEmpty()) { "$packageName is not assigned to an APWorld." }
+            val worlds = entry.optJSONArray("worlds")?.asObjects()?.mapNotNull(NativeDependencyWorld::fromJson)
+                ?: emptyList()
             val sourceUrl = entry.getString("source_url")
             require(sourceUrl.startsWith("https://files.pythonhosted.org/")) {
                 "Untrusted upstream source URL."
@@ -170,7 +170,7 @@ internal object NativeDependencyCatalogParser {
             entry.getLong("byte_count"),
             entry.getString("source_url"),
             entry.getString("source_sha256"),
-            entry.getJSONArray("worlds").asObjects().mapNotNull(NativeDependencyWorld::fromJson),
+            entry.optJSONArray("worlds")?.asObjects()?.mapNotNull(NativeDependencyWorld::fromJson) ?: emptyList(),
         )
     }
 
@@ -286,11 +286,14 @@ internal data class InstalledNativeDependency(
 
 internal data class NativeDependencyProvisionResult(
     val catalog: NativeDependencyCatalogResult,
+    val declarations: List<DeclaredPythonDependency>,
     val required: List<NativeDependencyAsset>,
     val installed: List<NativeDependencyAsset>,
+    val pureInstalled: List<InstalledPythonDependency>,
+    val unresolved: List<UnresolvedPythonDependency>,
 )
 
-/** Installs only dependencies assigned to reviewed APWorld/version ranges in the verified catalog. */
+/** Fulfils trusted APWorld declarations from PyPI and the verified native build cache. */
 internal object NativeDependencyProvisioner {
     @Synchronized
     fun installFor(
@@ -301,16 +304,12 @@ internal object NativeDependencyProvisioner {
     ): NativeDependencyProvisionResult {
         val catalog = runCatching { NativeDependencyCatalogClient(context).load(forceRefresh = false) }
             .getOrElse { error ->
-                return NativeDependencyProvisionResult(
-                    NativeDependencyCatalogResult(
-                        assets = emptyList(),
-                        checkedAt = System.currentTimeMillis(),
-                        cached = false,
-                        warning = "Automatic Android dependency check unavailable: " +
-                            (error.message ?: error.javaClass.simpleName),
-                    ),
-                    required = emptyList(),
-                    installed = emptyList(),
+                NativeDependencyCatalogResult(
+                    assets = emptyList(),
+                    checkedAt = System.currentTimeMillis(),
+                    cached = false,
+                    warning = "Android native build cache unavailable: " +
+                        (error.message ?: error.javaClass.simpleName),
                 )
             }
         return installFromCatalog(context, catalog, worlds, onStarting, onProgress)
@@ -324,7 +323,8 @@ internal object NativeDependencyProvisioner {
         onStarting: (NativeDependencyAsset) -> Unit = {},
         onProgress: (NativeDependencyAsset, Long, Long) -> Unit = { _, _, _ -> },
     ): NativeDependencyProvisionResult {
-        val required = requiredAssets(catalog.assets, worlds)
+        val declarations = OfflineGenerator.declaredDependencies(context, worlds)
+        val required = requiredAssets(catalog.assets, declarations)
         val installed = buildList {
             required.forEach { asset ->
                 if (NativeDependencyStore.isInstalled(context, asset)) return@forEach
@@ -335,14 +335,25 @@ internal object NativeDependencyProvisioner {
                 add(asset)
             }
         }
-        return NativeDependencyProvisionResult(catalog, required, installed)
+        val pure = OfflineGenerator.installPureDependencies(context, declarations)
+        return NativeDependencyProvisionResult(
+            catalog,
+            declarations,
+            required,
+            installed,
+            pure.installed,
+            pure.unresolved,
+        )
     }
 
     internal fun requiredAssets(
         assets: List<NativeDependencyAsset>,
-        worlds: List<ImportedApWorld>,
+        declarations: List<DeclaredPythonDependency>,
     ): List<NativeDependencyAsset> = assets
-        .filter { asset -> asset.worlds.any { rule -> worlds.any(rule::matches) } }
+        .filter { asset -> declarations.any { dependency ->
+            canonicalPackage(dependency.packageName) == canonicalPackage(asset.packageName) &&
+                dependency.acceptsVersion(asset.version)
+        } }
         .groupBy(NativeDependencyAsset::packageName)
         .values
         .map { candidates ->
@@ -350,6 +361,10 @@ internal object NativeDependencyProvisioner {
                 ?: error("Empty native dependency candidate group.")
         }
         .sortedBy(NativeDependencyAsset::packageName)
+
+    private fun canonicalPackage(value: String): String = value.lowercase(Locale.ROOT)
+        .replace('_', '-')
+        .replace('.', '-')
 }
 
 internal object NativeDependencyStore {
@@ -472,7 +487,7 @@ internal object NativeDependencyStore {
                     manifest.optInt("minimum_sdk") == asset.minimumSdk &&
                     manifest.optString("source_url") == asset.sourceUrl &&
                     manifest.optString("source_sha256") == asset.sourceSha256
-                ) { "Dependency manifest does not match the curated catalog." }
+                ) { "Dependency manifest does not match the verified build cache." }
 
                 val stagedSitePackages = File(staging, "site-packages").apply { mkdirs() }
                 val stagedRoot = stagedSitePackages.canonicalFile

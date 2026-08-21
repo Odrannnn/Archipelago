@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build one reviewed Android Python dependency recipe."""
+"""Build one Android Python dependency for the verified artifact cache."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def read_recipe(path: Path) -> dict:
         "python_abi", "python_version", "android_abi", "rust_target", "minimum_sdk",
         "rust_toolchain", "source_url", "source_sha256", "python_target_url",
         "python_target_sha256", "cargo_directory", "cargo_library",
-        "extension_destination", "worlds",
+        "extension_destination",
     }
     missing = sorted(required - recipe.keys())
     if missing:
@@ -57,8 +57,6 @@ def read_recipe(path: Path) -> dict:
         raise ValueError("Untrusted Android Python target URL")
     if not DIGEST.fullmatch(recipe["python_target_sha256"]):
         raise ValueError("Invalid Android Python target digest")
-    if not recipe["worlds"] or any(not world.get("game") for world in recipe["worlds"]):
-        raise ValueError("Recipe must identify at least one APWorld")
     for field in ("cargo_directory", "python_package", "extension_destination"):
         value = Path(recipe[field])
         if value.is_absolute() or ".." in value.parts:
@@ -190,7 +188,7 @@ def package_build(recipe: dict, source: Path, library: Path, output: Path) -> tu
         "Metadata-Version: 2.1\n"
         f"Name: {recipe['package']}\n"
         f"Version: {recipe['version']}\n"
-        "Summary: Curated Android build from unmodified upstream source\n",
+        "Summary: Verified Android build from unmodified upstream source\n",
         encoding="utf-8",
     )
     (dist_info / "WHEEL").write_text(
@@ -221,7 +219,9 @@ def package_build(recipe: dict, source: Path, library: Path, output: Path) -> tu
         "file_name": artifact.name,
         "sha256": sha256(artifact),
         "byte_count": artifact.stat().st_size,
-        "worlds": recipe["worlds"],
+        # Optional provenance for old clients. Current clients match artifacts
+        # against declarations read directly from the trusted APWorld.
+        "worlds": recipe.get("worlds", []),
     }
     entry_path = output / "catalog-entry.json"
     entry_path.write_text(json.dumps(entry, indent=2, sort_keys=True) + "\n", encoding="utf-8")

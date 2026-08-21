@@ -23,6 +23,7 @@ class ApWorldManagerActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var dependencyStatus: TextView
     private var dependencyCatalog = emptyList<NativeDependencyAsset>()
+    private var declaredDependencies = emptyList<DeclaredPythonDependency>()
     private var dependencyBusy: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,7 +53,7 @@ class ApWorldManagerActivity : Activity() {
             addView(CompanionUi.card(
                 this@ApWorldManagerActivity,
                 "Android Python dependencies",
-                "Imported worlds can use reviewed native packages built from hash-pinned upstream source. Downloads are matched against GitHub's release digest and installed only in this app's private storage.",
+                "Trusted APWorlds may declare Python packages. Universal wheels install directly from PyPI; native Android builds use the verified build cache. Packages stay in this app's private storage.",
             ).apply {
                 addView(dependencyStatus, CompanionUi.fullWidth())
                 addView(Button(this@ApWorldManagerActivity).apply {
@@ -121,7 +122,8 @@ class ApWorldManagerActivity : Activity() {
             .setTitle("Trust this APWorld?")
             .setMessage(
                 "APWorlds contain executable Python, not just settings. The app checks archive paths, sizes, " +
-                    "manifest structure, and Archipelago version compatibility, but it cannot prove the code is safe."
+                    "manifest structure, and Archipelago version compatibility, but it cannot prove the code is safe. " +
+                    "Installing also authorizes dependencies declared by this APWorld."
             )
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Choose file") { _, _ ->
@@ -156,6 +158,16 @@ class ApWorldManagerActivity : Activity() {
                             if (dependencies.installed.isNotEmpty()) {
                                 append("\nAutomatically installed ")
                                 append(dependencies.installed.joinToString { "${it.packageName} ${it.version}" })
+                                append('.')
+                            }
+                            if (dependencies.pureInstalled.isNotEmpty()) {
+                                append("\nInstalled from PyPI: ")
+                                append(dependencies.pureInstalled.joinToString { "${it.packageName} ${it.version}" })
+                                append('.')
+                            }
+                            if (dependencies.unresolved.isNotEmpty()) {
+                                append("\nStill unavailable: ")
+                                append(dependencies.unresolved.joinToString { it.requirement })
                                 append('.')
                             }
                         }
@@ -270,9 +282,9 @@ class ApWorldManagerActivity : Activity() {
     private fun refreshDependencyCatalog(force: Boolean) {
         if (dependencyBusy != null) return
         dependencyStatus.text = if (force) {
-            "Refreshing the curated Android dependency catalog…"
+            "Refreshing the verified Android build cache…"
         } else {
-            "Checking the curated Android dependency catalog…"
+            "Checking APWorld declarations and the verified Android build cache…"
         }
         thread(name = "native-dependency-catalog") {
             runCatching {
@@ -296,6 +308,7 @@ class ApWorldManagerActivity : Activity() {
             }.onSuccess { provisioned -> runOnUiThread {
                     val result = provisioned.catalog
                     dependencyCatalog = result.assets
+                    declaredDependencies = provisioned.declarations
                     dependencyBusy = null
                     dependencyStatus.text = buildString {
                         append("${result.assets.size} compatible package build")
@@ -304,7 +317,17 @@ class ApWorldManagerActivity : Activity() {
                         if (provisioned.installed.isNotEmpty()) {
                             append("\nAutomatically installed ")
                             append(provisioned.installed.joinToString { "${it.packageName} ${it.version}" })
-                            append(" for a reviewed APWorld version.")
+                            append(" from the verified Android build cache.")
+                        }
+                        if (provisioned.pureInstalled.isNotEmpty()) {
+                            append("\nInstalled universal PyPI wheels: ")
+                            append(provisioned.pureInstalled.joinToString { "${it.packageName} ${it.version}" })
+                            append('.')
+                        }
+                        if (provisioned.unresolved.isNotEmpty()) {
+                            append("\nNative build still required: ")
+                            append(provisioned.unresolved.joinToString { it.requirement })
+                            append('.')
                         }
                         result.warning?.let { append("\n$it") }
                     }
@@ -323,14 +346,14 @@ class ApWorldManagerActivity : Activity() {
     private fun renderDependencies() {
         dependenciesContainer.removeAllViews()
         val imported = ImportedApWorldStore.list(this)
-        val relevant = dependencyCatalog.filter { asset -> asset.worlds.any { rule -> imported.any(rule::matches) } }
+        val relevant = NativeDependencyProvisioner.requiredAssets(dependencyCatalog, declaredDependencies)
         val installed = NativeDependencyStore.list(this).associateBy { it.packageName }
         if (relevant.isEmpty() && installed.isEmpty()) {
             dependenciesContainer.addView(TextView(this).apply {
                 text = if (imported.isEmpty()) {
-                    "Import an APWorld to check whether it needs an Android native package."
+                    "Import an APWorld to inspect and install its declared Python packages."
                 } else {
-                    "No reviewed native package is required by the currently imported worlds."
+                    "The currently imported worlds declare no additional cached native packages."
                 }
                 CompanionUi.styleBody(this)
             }, CompanionUi.fullWidth())
@@ -355,8 +378,10 @@ class ApWorldManagerActivity : Activity() {
                             "Available for Android ${asset.androidAbi}"
                         })
                         append("\nModule ${asset.moduleName} · Python ${asset.pythonAbi} · ${formatBytes(asset.byteCount)}")
-                        append("\nRequired by ")
-                        append(asset.worlds.joinToString { it.game })
+                        append("\nRequested by ")
+                        append(declaredDependencies.filter {
+                            it.packageName.replace('_', '-').equals(asset.packageName.replace('_', '-'), ignoreCase = true)
+                        }.joinToString { it.declaredBy })
                     }
                     CompanionUi.styleMuted(this)
                     setPadding(0, CompanionUi.dp(this@ApWorldManagerActivity, 4), 0, 0)
@@ -379,13 +404,20 @@ class ApWorldManagerActivity : Activity() {
         }
 
         installed.values.filter { record -> relevant.none { it.packageName == record.packageName } }.forEach { record ->
+            val requestedBy = declaredDependencies.filter {
+                it.packageName.replace('_', '-').equals(record.packageName.replace('_', '-'), ignoreCase = true)
+            }
             val panel = CompanionUi.panel(this).apply {
                 addView(TextView(this@ApWorldManagerActivity).apply {
                     text = "${record.packageName} ${record.version}"
                     CompanionUi.styleBody(this)
                 })
                 addView(TextView(this@ApWorldManagerActivity).apply {
-                    text = "Installed package is not required by a currently imported world."
+                    text = if (requestedBy.isEmpty()) {
+                        "Installed package is not required by a currently imported world."
+                    } else {
+                        "Installed for ${requestedBy.joinToString { it.declaredBy }}."
+                    }
                     CompanionUi.styleMuted(this)
                 })
                 addView(Button(this@ApWorldManagerActivity).apply {
@@ -415,6 +447,7 @@ class ApWorldManagerActivity : Activity() {
                 } },
             ).also { provisioned ->
                 dependencyCatalog = provisioned.catalog.assets
+                declaredDependencies = provisioned.declarations
                 provisioned.catalog.warning?.let { warning -> runOnUiThread {
                     dependencyStatus.text = warning
                 } }
