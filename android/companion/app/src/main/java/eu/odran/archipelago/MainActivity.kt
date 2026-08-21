@@ -410,42 +410,69 @@ class MainActivity : Activity() {
     }
 
     private fun rememberExistingPatchedRom(uri: Uri, flags: Int) {
-        val name = runCatching {
-            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) cursor.getString(0) else null
-            }
-        }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('/') ?: "Patched game ROM"
-        if (!isSupportedRomName(name)) {
-            inviteStatus.text = "Select a supported patched .gb, .gbc, .gba, .sfc, or .smc file."
-            return
-        }
         val room = JoinedRoomStore.load(this)
         if (room == null) {
             inviteStatus.text = "There is no active imported room to associate with this ROM."
             return
         }
+        val isGameCube = isGameCubeRoom(room)
+        val name = DolphinLauncher.displayName(this, uri) ?: "Patched game ROM"
+        if (isGameCube && !name.endsWith(".iso", ignoreCase = true)) {
+            inviteStatus.text = "Select an uncompressed GameCube ISO whose filename ends in .iso."
+            return
+        }
+        if (!isGameCube && !isSupportedRomName(name)) {
+            inviteStatus.text = "Select a supported patched .gb, .gbc, .gba, .sfc, or .smc file."
+            return
+        }
         inviteStatus.text = "Verifying that $name matches this room's saved ROM…"
         thread {
             val result = runCatching {
-                val expectedHash = room.patchedRomSha256
-                    ?: room.patchedRomUri?.let { savedUri ->
-                        runCatching { sha256(Uri.parse(savedUri)) }.getOrNull()
+                if (isGameCube) {
+                    val selectedIdentity = DolphinLauncher.readGameCubeDiscIdentity(this, uri)
+                    val savedIdentity = room.patchedRomUri?.let { savedUri ->
+                        runCatching {
+                            DolphinLauncher.readGameCubeDiscIdentity(
+                                this,
+                                Uri.parse(savedUri),
+                                requireIsoName = false,
+                            )
+                        }.getOrNull()
                     }
-                    ?: error(
-                        "This room has no verifiable saved ROM. Reopen its player invite, " +
-                            "patch the ROM, and save it again.",
-                    )
-                val selectedHash = sha256(uri)
-                require(selectedHash.equals(expectedHash, ignoreCase = true)) {
-                    "That is not the ROM previously saved for this room. " +
-                        "Select an identical copy or patch and save this room's ROM again."
+                    if (savedIdentity != null) {
+                        require(selectedIdentity == savedIdentity) {
+                            "That ISO is ${selectedIdentity.gameId}, disc ${selectedIdentity.discNumber}, " +
+                                "revision ${selectedIdentity.revision}; this room expects " +
+                                "${savedIdentity.gameId}, disc ${savedIdentity.discNumber}, " +
+                                "revision ${savedIdentity.revision}."
+                        }
+                    }
+                    null
+                } else {
+                    val expectedHash = room.patchedRomSha256
+                        ?: room.patchedRomUri?.let { savedUri ->
+                            runCatching { sha256(Uri.parse(savedUri)) }.getOrNull()
+                        }
+                        ?: error(
+                            "This room has no verifiable saved ROM. Reopen its player invite, " +
+                                "patch the ROM, and save it again.",
+                        )
+                    val selectedHash = sha256(uri)
+                    require(selectedHash.equals(expectedHash, ignoreCase = true)) {
+                        "That is not the ROM previously saved for this room. " +
+                            "Select an identical copy or patch and save this room's ROM again."
+                    }
+                    selectedHash
                 }
-                selectedHash
             }
             handler.post {
                 result.onSuccess { selectedHash ->
                     rememberPatchedRom(name, uri, flags, selectedHash)
-                    inviteStatus.text = "Remembered verified ROM $name · ready to launch in RetroArch."
+                    inviteStatus.text = if (isGameCube) {
+                        "Remembered verified disc $name · ready to launch in Dolphin."
+                    } else {
+                        "Remembered verified ROM $name · ready to launch in RetroArch."
+                    }
                 }.onFailure {
                     inviteStatus.text = "Could not change the saved ROM shortcut: ${it.message}"
                 }
@@ -493,10 +520,11 @@ class MainActivity : Activity() {
     private fun ByteArray.toHexString(): String = joinToString("") { "%02x".format(it) }
 
     private fun chooseExistingPatchedRom() {
+        val isGameCube = JoinedRoomStore.load(this)?.let(::isGameCubeRoom) == true
         startActivityForResult(
             Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                 addCategory(Intent.CATEGORY_OPENABLE)
-                type = "application/octet-stream"
+                type = if (isGameCube) "*/*" else "application/octet-stream"
             },
             REQUEST_SELECT_PATCHED_ROM,
         )
@@ -980,7 +1008,7 @@ class MainActivity : Activity() {
                     startActivityForResult(
                         Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                             addCategory(Intent.CATEGORY_OPENABLE)
-                            type = "application/octet-stream"
+                            type = DolphinLauncher.discMimeType(checkNotNull(pendingStreamingDestinationName))
                             putExtra(Intent.EXTRA_TITLE, pendingStreamingDestinationName)
                         },
                         REQUEST_SAVE_STREAMING_ROM,
@@ -1094,7 +1122,8 @@ class MainActivity : Activity() {
                 OfflineGenerator.patchRomDocuments(this, session.patchBytes, inputs, destination)
                 inputs.forEach { (key, uri) -> BaseRomDocumentStore.store(this, requirements.game, key, uri) }
             }.onSuccess {
-                val name = pendingStreamingDestinationName ?: "Patched ${session.game}.iso"
+                val requestedName = pendingStreamingDestinationName ?: "Patched ${session.game}.iso"
+                val name = DolphinLauncher.displayName(this, destination) ?: requestedName
                 clearPendingRomPatch()
                 runOnUiThread {
                     if (session.rememberForActiveRoom) {
@@ -1277,7 +1306,7 @@ class MainActivity : Activity() {
                 launchButton,
                 LinearLayout.LayoutParams(0, actionHeight, 1f),
             )
-            if (room.playerSlot != null && room.patchedRomSha256 != null) {
+            if (room.playerSlot != null && (room.patchedRomSha256 != null || launchInDolphin)) {
                 romActions.addView(Button(this).apply {
                     text = "⚙"
                     textSize = 20f
@@ -1289,13 +1318,20 @@ class MainActivity : Activity() {
                     setOnClickListener {
                         AlertDialog.Builder(this@MainActivity)
                             .setTitle("Change saved ROM shortcut?")
-                            .setMessage(
+                            .setMessage(if (launchInDolphin) {
+                                "Choose the patched uncompressed ISO for this room. The app will compare its " +
+                                    "GameCube game ID, disc number, and revision with the currently saved disc " +
+                                    "when that document is still readable. " +
+                                    "It does not modify or delete either file."
+                            } else {
                                 "Choose another copy of the exact patched ROM already saved for this room. " +
                                     "The app will verify its SHA-256 fingerprint before changing the shortcut. " +
-                                    "It does not modify or delete the current ROM.",
-                            )
+                                    "It does not modify or delete the current ROM."
+                            })
                             .setNegativeButton("Cancel", null)
-                            .setPositiveButton("Pick matching ROM") { _, _ -> chooseExistingPatchedRom() }
+                            .setPositiveButton(if (launchInDolphin) "Pick matching ISO" else "Pick matching ROM") {
+                                _, _ -> chooseExistingPatchedRom()
+                            }
                             .show()
                     }
                 }, LinearLayout.LayoutParams(
@@ -1357,6 +1393,14 @@ class MainActivity : Activity() {
         )
         joinedRoomContainer.addView(moreRoomActions, matchWrapParams())
     }
+
+    private fun isGameCubeRoom(room: JoinedRoom): Boolean =
+        DolphinLauncher.isGameCubeGame(this, room.gameName) ||
+            room.patchedRomName?.let(DolphinLauncher::isSupportedDiscName) == true ||
+            OfflineGenerator.cachedCatalog().any { capability ->
+                capability.game == room.gameName &&
+                    DolphinLauncher.isSupportedDiscName("patched${capability.resultExtension}")
+            }
 
     private fun openWebUrl(url: String) {
         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))

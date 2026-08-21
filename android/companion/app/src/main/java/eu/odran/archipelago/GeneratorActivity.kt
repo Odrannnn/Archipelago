@@ -1795,8 +1795,9 @@ class GeneratorActivity : Activity() {
                     startActivityForResult(
                         Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                             addCategory(Intent.CATEGORY_OPENABLE)
-                            type = "application/octet-stream"
-                            putExtra(Intent.EXTRA_TITLE, "${selectedPatch.nameWithoutExtension}$extension")
+                            val destinationName = "${selectedPatch.nameWithoutExtension}$extension"
+                            type = DolphinLauncher.discMimeType(destinationName)
+                            putExtra(Intent.EXTRA_TITLE, destinationName)
                         },
                         REQUEST_STREAMING_ROM_OUTPUT,
                     )
@@ -1889,7 +1890,8 @@ class GeneratorActivity : Activity() {
                 patchButton.isEnabled = true
                 forgetBaseRomButton.isEnabled = true
                 lastDolphinRomUri = destination
-                lastDolphinRomName = "${selectedPatch.nameWithoutExtension}${requirements.resultExtension.ifBlank { ".iso" }}"
+                lastDolphinRomName = DolphinLauncher.displayName(this, destination)
+                    ?: "${selectedPatch.nameWithoutExtension}${requirements.resultExtension.ifBlank { ".iso" }}"
                 launchDolphinButton.visibility = View.VISIBLE
                 status.text = "Saved patched ${requirements.game} ISO."
             } }.onFailure { error ->
