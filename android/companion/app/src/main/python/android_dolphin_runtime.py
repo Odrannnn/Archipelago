@@ -201,6 +201,7 @@ class AndroidDolphinRuntime:
         self.adapter: DolphinGameAdapter | None = None
         self.ctx: AndroidDolphinContext | None = None
         self.registered_host = None
+        self.registered_backend_cache: dict[str, frozenset[str]] = {}
         self.game_id = ""
         self.last_error = ""
 
@@ -256,8 +257,23 @@ class AndroidDolphinRuntime:
     ) -> str:
         """Start or inspect the APWorld's ordinary registered client entry point."""
         from android_registered_client_host import start_or_probe
+        from offline_generator import _registered_client_backends
 
         self.game_id = str(game_id)
+        game = str(game)
+        backends = self.registered_backend_cache.get(game)
+        if backends is None:
+            backends = frozenset(_registered_client_backends(game))
+            self.registered_backend_cache[game] = backends
+        if "dolphin" not in backends:
+            if self.registered_host is not None:
+                self.registered_host.close()
+                self.registered_host = None
+            return json.dumps({
+                "matched": False,
+                "unsupported": True,
+                "error": f"{game} does not register a dolphin_memory_engine client",
+            })
         self.registered_host, result = start_or_probe(
             self.registered_host,
             self.work_directory,

@@ -1385,8 +1385,7 @@ class MainActivity : Activity() {
         }
 
         if (!isSohRoom && !room.patchedRomUri.isNullOrBlank()) {
-            val launchInDolphin = DolphinLauncher.isGameCubeGame(this, room.gameName) ||
-                room.patchedRomName?.let(DolphinLauncher::isSupportedDiscName) == true
+            val launchInDolphin = isGameCubeRoom(room)
             val actionHeight = CompanionUi.dp(this, 48)
             val romActions = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -1539,7 +1538,7 @@ class MainActivity : Activity() {
             room.patchedRomName?.let(DolphinLauncher::isSupportedDiscName) == true ||
             OfflineGenerator.cachedCatalog().any { capability ->
                 capability.game == room.gameName &&
-                    DolphinLauncher.isSupportedDiscName("patched${capability.resultExtension}")
+                    "dolphin" in capability.emulatorBackends
             }
 
     private fun openWebUrl(url: String) {

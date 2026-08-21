@@ -209,6 +209,35 @@ class AndroidDolphinRuntimeTest(unittest.TestCase):
         finally:
             runtime.close()
 
+    def test_registered_component_without_dolphin_api_is_not_started(self) -> None:
+        runtime = AndroidDolphinRuntime("unused", [])
+        try:
+            with patch(
+                "offline_generator._registered_client_backends",
+                return_value={"sni"},
+            ) as detect, patch("android_registered_client_host.start_or_probe") as start:
+                result = json.loads(runtime.probe_registered(
+                    "GAME01",
+                    "Imported SNES Game",
+                    "Player1",
+                    "example.test:38281",
+                    "",
+                ))
+                runtime.probe_registered(
+                    "GAME01",
+                    "Imported SNES Game",
+                    "Player1",
+                    "example.test:38281",
+                    "",
+                )
+
+            self.assertFalse(result["matched"])
+            self.assertTrue(result["unsupported"])
+            detect.assert_called_once_with("Imported SNES Game")
+            start.assert_not_called()
+        finally:
+            runtime.close()
+
     def test_registered_bridge_does_not_wait_for_busy_upstream_event_loop(self) -> None:
         loop_blocked = threading.Event()
         release_loop = threading.Event()

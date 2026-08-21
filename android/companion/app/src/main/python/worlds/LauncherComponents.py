@@ -59,3 +59,9 @@ icon_paths: dict[str, str] = {}
 def launch(func: Callable, name: str | None = None, args: tuple[str, ...] = ()) -> None:
     del name
     func(*args)
+
+
+def launch_subprocess(func: Callable, name: str | None = None, args: tuple[str, ...] = ()) -> None:
+    """Run desktop subprocess entry points inside the managed client thread."""
+    del name
+    func(*args)

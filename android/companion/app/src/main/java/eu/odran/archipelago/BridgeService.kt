@@ -126,13 +126,6 @@ class BridgeService : Service() {
     private fun probeDolphinRuntime(runtime: PythonDolphinRuntime): DetectedGameInfo? {
         runtime.probe()?.let { return it }
         val room = JoinedRoomStore.load(this) ?: return null
-        val isGameCubeRoom = DolphinLauncher.isGameCubeGame(this, room.gameName) ||
-            room.patchedRomName?.let(DolphinLauncher::isSupportedDiscName) == true ||
-            OfflineGenerator.cachedCatalog().any { capability ->
-                capability.game == room.gameName &&
-                    DolphinLauncher.isSupportedDiscName("patched${capability.resultExtension}")
-            }
-        if (!isGameCubeRoom) return null
         val settings = ServerSettings.load(this)
         if (!settings.isConfigured) return null
         val playerName = room.playerName ?: room.playerSlot?.let { slot ->

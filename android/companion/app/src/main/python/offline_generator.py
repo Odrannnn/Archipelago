@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import importlib
 import inspect
 import json
@@ -31,6 +32,16 @@ MAX_REPEATED_FILL_FAILURES = 20
 MAX_PLAYER_MANIFEST_BYTES = 1024 * 1024
 COMPONENT_OUTPUT_STABLE_SECONDS = 30.0
 COMPONENT_OUTPUT_POLL_SECONDS = 0.5
+
+# Launcher components do not currently declare their emulator transport. Keep
+# this mapping on public desktop APIs instead of game names so an imported
+# APWorld opts into a backend by using the same API as its desktop client.
+CLIENT_BACKEND_MODULES = {
+    "dolphin": frozenset({"dolphin_memory_engine"}),
+    "sni": frozenset({"SNIClient", "worlds.AutoSNIClient"}),
+    "bizhawk": frozenset({"BizHawkClient", "worlds._bizhawk"}),
+}
+MAX_CLIENT_SOURCE_BYTES = 2 * 1024 * 1024
 
 
 def _activate_android_dependencies(root: Path) -> None:
@@ -211,7 +222,111 @@ def _client_component_for_game(game: str):
             and getattr(component, "game_name", None) == game
         ):
             return component
+
+    # Older APWorlds may omit both a class-level patch suffix and game_name.
+    # Their registered function still belongs to the same Python package as
+    # their World class, which is stable LauncherComponents ownership data.
+    try:
+        from worlds.AutoWorld import AutoWorldRegister
+
+        world = AutoWorldRegister.world_types.get(str(game))
+        world_module = str(getattr(world, "__module__", ""))
+        parts = world_module.split(".")
+        package = ".".join(parts[:2]) if len(parts) >= 2 and parts[0] == "worlds" else world_module
+    except Exception:
+        package = ""
+    if package:
+        for component in reversed(components):
+            function_module = str(getattr(getattr(component, "func", None), "__module__", ""))
+            if (
+                getattr(component, "type", None) == Type.CLIENT
+                and callable(getattr(component, "func", None))
+                and (function_module == package or function_module.startswith(f"{package}."))
+            ):
+                return component
     return None
+
+
+def _module_source_roots(module_name: str) -> set[Path]:
+    """Locate the source tree which owns a registered launcher component."""
+    if not module_name:
+        return set()
+    candidates = [module_name]
+    parts = module_name.split(".")
+    if len(parts) >= 2 and parts[0] == "worlds":
+        candidates.insert(0, ".".join(parts[:2]))
+
+    roots: set[Path] = set()
+    for candidate in candidates:
+        try:
+            module = importlib.import_module(candidate)
+        except Exception:
+            continue
+        locations = getattr(module, "__path__", None)
+        if locations:
+            roots.update(Path(location).resolve() for location in locations)
+            continue
+        source = getattr(module, "__file__", None)
+        if source:
+            roots.add(Path(source).resolve())
+    return roots
+
+
+def _source_tree_imports(root: Path) -> set[str]:
+    """Read import declarations without executing optional client modules."""
+    sources = root.rglob("*.py") if root.is_dir() else (root,)
+    imports: set[str] = set()
+    for source in sources:
+        try:
+            if not source.is_file() or source.stat().st_size > MAX_CLIENT_SOURCE_BYTES:
+                continue
+            tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+        except (OSError, UnicodeError, SyntaxError):
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imports.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imports.add(node.module)
+    return imports
+
+
+def _registered_client_backends(game: str) -> set[str]:
+    """Infer emulator APIs used by a world's ordinary desktop client."""
+    component = _client_component_for_game(str(game))
+    if component is None:
+        return set()
+
+    module_names = {getattr(getattr(component, "func", None), "__module__", "")}
+    try:
+        from worlds.AutoWorld import AutoWorldRegister
+
+        world = AutoWorldRegister.world_types.get(str(game))
+        if world is not None:
+            module_names.add(getattr(world, "__module__", ""))
+    except Exception:
+        pass
+
+    imports: set[str] = set()
+    for module_name in module_names:
+        for root in _module_source_roots(module_name):
+            imports.update(_source_tree_imports(root))
+
+    return {
+        backend
+        for backend, api_modules in CLIENT_BACKEND_MODULES.items()
+        if any(
+            imported == api_module or imported.startswith(f"{api_module}.")
+            for imported in imports
+            for api_module in api_modules
+        )
+    }
+
+
+def registered_client_backends(game: str, work_directory: str) -> set[str]:
+    """Load installed worlds and report a client's compatible emulator APIs."""
+    _load_emulator_clients(work_directory)
+    return _registered_client_backends(str(game))
 
 
 def _component_result_extension(requirements: list[dict[str, object]]) -> str:
@@ -666,17 +781,21 @@ def world_catalog(work_directory: str) -> str:
     }
     from android_bizhawk_runtime import custom_client_games
     from android_dolphin_runtime import built_in_dolphin_games
-    bridge_games = (
-        standard_mgba_clients
-        | custom_client_games()
-        | set(AutoSNIClientRegister.game_handlers)
-        | built_in_dolphin_games()
-    )
+    custom_mgba_games = custom_client_games()
+    sni_games = set(AutoSNIClientRegister.game_handlers)
+    dolphin_games = built_in_dolphin_games()
 
     installed_root = Path(work_directory).resolve() / "worlds"
     installed_modules = {f"worlds.{path.name}" for path in installed_root.iterdir() if path.is_dir()}
     result = []
     for game, world in sorted(registry.world_types.items()):
+        emulator_backends = _registered_client_backends(game)
+        if game in standard_mgba_clients or game in custom_mgba_games:
+            emulator_backends.add("mgba")
+        if game in sni_games:
+            emulator_backends.add("sni")
+        if game in dolphin_games:
+            emulator_backends.add("dolphin")
         patch_type = AutoPatchRegister.patch_types.get(game)
         container_type = patch_type or _player_container_type(game)
         patch_extension = getattr(container_type, "patch_file_ending", "") if container_type else ""
@@ -708,7 +827,8 @@ def world_catalog(work_directory: str) -> str:
                 or (patch_type and result_extension.lower() in ANDROID_ROM_EXTENSIONS)
                 or component_patch
             ),
-            "live_bridge": game in bridge_games,
+            "live_bridge": bool(emulator_backends),
+            "emulator_backends": sorted(emulator_backends),
         })
     return json.dumps({"worlds": result, "failures": worlds.failed_world_loads})
 

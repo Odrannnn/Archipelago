@@ -37,6 +37,7 @@ data class WorldCapability(
     val template: Boolean,
     val romPatch: Boolean,
     val liveBridge: Boolean,
+    val emulatorBackends: List<String>,
 )
 
 data class DeclaredPythonDependency(
@@ -399,6 +400,9 @@ object OfflineGenerator {
                 template = item.optBoolean("template"),
                 romPatch = item.optBoolean("rom_patch"),
                 liveBridge = item.optBoolean("live_bridge"),
+                emulatorBackends = item.optJSONArray("emulator_backends")?.let { backends ->
+                    List(backends.length()) { backendIndex -> backends.getString(backendIndex) }
+                }.orEmpty(),
             )
         }
         catalog

@@ -70,6 +70,68 @@ class OfflineGeneratorRuntimeTest(unittest.TestCase):
             self.assertIs(component, OFFLINE_GENERATOR._client_component_for_path("player.apexample"))
             self.assertIsNone(OFFLINE_GENERATOR._client_component_for_path("player.apother"))
 
+    def test_discovers_registered_client_backend_from_desktop_api_import(self) -> None:
+        component = SimpleNamespace(func=lambda: None)
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "Client.py"
+            source.write_text(
+                "import dolphin_memory_engine as dme\n"
+                "from unrelated import helper\n",
+                encoding="utf-8",
+            )
+            with patch.object(OFFLINE_GENERATOR, "_client_component_for_game", return_value=component), \
+                    patch.object(OFFLINE_GENERATOR, "_module_source_roots", return_value={source}):
+                self.assertEqual(
+                    {"dolphin"},
+                    OFFLINE_GENERATOR._registered_client_backends("Imported Game"),
+                )
+
+    def test_resolves_client_component_from_world_package_ownership(self) -> None:
+        def run_component() -> None:
+            pass
+
+        run_component.__module__ = "worlds.example.client"
+        component = SimpleNamespace(
+            display_name="Example Client",
+            type="CLIENT",
+            file_identifier=None,
+            game_name=None,
+            func=run_component,
+        )
+        launcher = ModuleType("worlds.LauncherComponents")
+        launcher.Type = SimpleNamespace(CLIENT="CLIENT")
+        launcher.components = [component]
+        auto_world = ModuleType("worlds.AutoWorld")
+        auto_world.AutoWorldRegister = SimpleNamespace(
+            world_types={"Example Game": SimpleNamespace(__module__="worlds.example")},
+        )
+        worlds = ModuleType("worlds")
+        with patch.object(OFFLINE_GENERATOR, "_player_container_type", return_value=None), \
+                patch.dict(sys.modules, {
+                    "worlds": worlds,
+                    "worlds.AutoWorld": auto_world,
+                    "worlds.LauncherComponents": launcher,
+                }):
+            self.assertIs(
+                component,
+                OFFLINE_GENERATOR._client_component_for_game("Example Game"),
+            )
+
+    def test_does_not_treat_plain_text_as_a_backend_import(self) -> None:
+        component = SimpleNamespace(func=lambda: None)
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "Client.py"
+            source.write_text(
+                "HELP = 'Install dolphin_memory_engine before playing'\n",
+                encoding="utf-8",
+            )
+            with patch.object(OFFLINE_GENERATOR, "_client_component_for_game", return_value=component), \
+                    patch.object(OFFLINE_GENERATOR, "_module_source_roots", return_value={source}):
+                self.assertEqual(
+                    set(),
+                    OFFLINE_GENERATOR._registered_client_backends("Unrelated Game"),
+                )
+
     def test_component_output_is_captured_from_registered_client_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
