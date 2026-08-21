@@ -92,13 +92,40 @@ def safe_extract(archive: Path, destination: Path) -> Path:
     return roots[0]
 
 
-def run_build(recipe: dict, source: Path, python_target: Path) -> Path:
+def prepare_pyo3_cross_lib(recipe: dict, python_target: Path) -> Path:
+    """Add the minimal target sysconfig which old PyO3 needs for Android."""
+    library_directory = python_target / "jniLibs" / recipe["android_abi"]
+    target_library = library_directory / f"libpython{recipe['python_version']}.so"
+    if not target_library.is_file():
+        raise FileNotFoundError(
+            f"Android Python target does not contain {target_library.name}"
+        )
+
+    # PyO3 0.13 predates two-digit CPython minor versions and reads VERSION[2].
+    # Configure its stable ABI at the newest version it understands, while
+    # LDVERSION deliberately selects Chaquopy's real Android libpython.
+    sysconfig = {
+        "VERSION": "3.9",
+        "WITH_THREAD": 1,
+        "Py_DEBUG": 0,
+        "Py_ENABLE_SHARED": 1,
+        "LDVERSION": recipe["python_version"],
+        "SIZEOF_VOID_P": 8,
+    }
+    (library_directory / "_sysconfigdata_android.py").write_text(
+        f"build_time_vars = {sysconfig!r}\n",
+        encoding="utf-8",
+    )
+    return library_directory
+
+
+def run_build(recipe: dict, source: Path, cross_lib_directory: Path) -> Path:
     cargo_root = source / recipe["cargo_directory"]
     environment = os.environ.copy()
     environment.update({
         "PYO3_CROSS": "1",
         "PYO3_CROSS_PYTHON_VERSION": recipe["python_version"],
-        "PYO3_CROSS_LIB_DIR": str(python_target / "jniLibs" / recipe["android_abi"]),
+        "PYO3_CROSS_LIB_DIR": str(cross_lib_directory),
     })
     command = [
         "cargo", f"+{recipe['rust_toolchain']}", "ndk",
@@ -218,10 +245,8 @@ def main() -> None:
         python_target = temporary / "python-target"
         download_verified(recipe["python_target_url"], recipe["python_target_sha256"], target_archive)
         safe_extract_zip(target_archive, python_target)
-        target_library = python_target / "jniLibs" / recipe["android_abi"] / "libpython3.12.so"
-        if not target_library.is_file():
-            raise FileNotFoundError("Android Python target does not contain libpython3.12.so")
-        library = run_build(recipe, source, python_target)
+        cross_lib_directory = prepare_pyo3_cross_lib(recipe, python_target)
+        library = run_build(recipe, source, cross_lib_directory)
         artifact, entry = package_build(recipe, source, library, arguments.output)
         print(f"artifact={artifact}")
         print(f"catalog_entry={entry}")

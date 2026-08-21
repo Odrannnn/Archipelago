@@ -79,6 +79,9 @@ jobs:
               output.write(f"extra_targets={' '.join(recipe.get('additional_rust_targets', []))}\n")
           PY
 
+      - name: Test dependency builder
+        run: python -m unittest discover -s android/companion/native-dependencies/tests -v
+
       - name: Install pinned Rust toolchain
         run: |
           rustup toolchain install "${{ steps.recipe.outputs.rust }}" --profile minimal
