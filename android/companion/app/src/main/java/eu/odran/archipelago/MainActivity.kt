@@ -14,7 +14,6 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
 import android.text.InputType
-import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.Menu
@@ -312,17 +311,17 @@ class MainActivity : Activity() {
             setOnClickListener(::showAppMenu)
         }
         iconRow.addView(menuButton, LinearLayout.LayoutParams(
-            CompanionUi.dp(this@MainActivity, 48),
-            CompanionUi.dp(this@MainActivity, 48),
-        ).apply { marginEnd = CompanionUi.dp(this@MainActivity, 4) })
+            CompanionUi.dp(this@MainActivity, 44),
+            CompanionUi.dp(this@MainActivity, 44),
+        ).apply { marginEnd = CompanionUi.dp(this@MainActivity, 2) })
         iconRow.addView(TextView(this@MainActivity).apply {
             text = "Archipelago Companion"
             setTextColor(CompanionUi.text)
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             setSingleLine(true)
-            ellipsize = TextUtils.TruncateAt.END
+            gravity = Gravity.CENTER_VERTICAL
             setAutoSizeTextTypeUniformWithConfiguration(
-                18,
+                16,
                 27,
                 1,
                 TypedValue.COMPLEX_UNIT_SP,
@@ -335,13 +334,13 @@ class MainActivity : Activity() {
             )
         }, LinearLayout.LayoutParams(
             0,
-            CompanionUi.dp(this@MainActivity, 48),
+            CompanionUi.dp(this@MainActivity, 44),
             1f,
         ))
         iconRow.addView(updateBell(), LinearLayout.LayoutParams(
-            CompanionUi.dp(this@MainActivity, 48),
-            CompanionUi.dp(this@MainActivity, 48),
-        ).apply { marginStart = CompanionUi.dp(this@MainActivity, 4) })
+            CompanionUi.dp(this@MainActivity, 44),
+            CompanionUi.dp(this@MainActivity, 44),
+        ).apply { marginStart = CompanionUi.dp(this@MainActivity, 2) })
         addView(iconRow, CompanionUi.fullWidth())
         addView(TextView(this@MainActivity).apply {
             text = "Play, generate, host, and launch supported multiworlds from your phone."
