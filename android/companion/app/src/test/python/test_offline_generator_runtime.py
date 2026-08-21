@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import io
 import json
 import os
@@ -121,6 +122,44 @@ class OfflineGeneratorRuntimeTest(unittest.TestCase):
                     "unused",
                 ),
             )
+
+    def test_validates_inherited_file_setting_directly_from_descriptor(self) -> None:
+        from settings import FilePath
+
+        class RomFile(FilePath):
+            md5s = [hashlib.md5(b"disc-image").hexdigest()]
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.iso"
+            source.write_bytes(b"disc-image")
+            descriptor = os.open(source, os.O_RDONLY)
+            try:
+                OFFLINE_GENERATOR._validate_requirement_fd(
+                    {"_setting_type": RomFile},
+                    descriptor,
+                )
+            finally:
+                os.close(descriptor)
+
+    def test_stages_component_input_when_descriptor_path_cannot_be_reopened(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.iso"
+            source.write_bytes(b"disc-image")
+            descriptor = os.open(source, os.O_RDONLY)
+            try:
+                with patch.object(OFFLINE_GENERATOR, "_fd_path_is_reopenable", return_value=False):
+                    path, staged = OFFLINE_GENERATOR._component_input_path(
+                        descriptor,
+                        {"key": "rom_file", "file_name": "Metroid_Prime.iso"},
+                        root / "staged",
+                    )
+            finally:
+                os.close(descriptor)
+
+            self.assertIsNotNone(staged)
+            self.assertEqual(".iso", Path(path).suffix)
+            self.assertEqual(b"disc-image", Path(path).read_bytes())
 
     def test_ignores_apworld_container_without_player_manifest_fields(self) -> None:
         world_container = self._container({

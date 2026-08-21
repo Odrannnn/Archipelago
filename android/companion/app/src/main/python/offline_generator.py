@@ -1052,6 +1052,61 @@ def validate_rom_input(patch_bytes, input_key: str, rom_bytes, work_directory: s
         temporary_path.unlink(missing_ok=True)
 
 
+def _uses_inherited_file_validator(setting_type: type) -> bool:
+    """Return whether a setting uses Archipelago's stream-only hash validator."""
+    from settings import FilePath
+
+    return (
+        getattr(setting_type.validate, "__func__", None)
+        is getattr(FilePath.validate, "__func__", None)
+    )
+
+
+def _validate_requirement_fd(requirement: dict[str, object], input_fd: int) -> None:
+    """Validate a SAF descriptor without reopening it through Android's procfs."""
+    setting_type = requirement["_setting_type"]
+    if _uses_inherited_file_validator(setting_type):
+        # FilePath.validate only opens the path and calls this stream helper.
+        # Calling the helper on a duplicate preserves upstream hash semantics,
+        # and also works for SAF providers whose descriptors cannot be reopened
+        # through /proc/self/fd.
+        with os.fdopen(os.dup(int(input_fd)), "rb", buffering=0) as source:
+            setting_type._validate_stream_hashes(source)
+        return
+    setting_type.validate(f"/proc/self/fd/{int(input_fd)}")
+
+
+def _fd_path_is_reopenable(path: str) -> bool:
+    try:
+        with open(path, "rb", buffering=0):
+            return True
+    except OSError:
+        return False
+
+
+def _component_input_path(
+    input_fd: int,
+    requirement: dict[str, object],
+    staging_directory: Path,
+) -> tuple[str, Path | None]:
+    """Expose a SAF input as a path, copying only when procfs cannot reopen it."""
+    descriptor_path = f"/proc/self/fd/{int(input_fd)}"
+    if _fd_path_is_reopenable(descriptor_path):
+        return descriptor_path, None
+
+    suffix = Path(str(requirement.get("file_name", ""))).suffix or ".rom"
+    key = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(requirement.get("key", "input"))).strip("-") or "input"
+    staging_directory.mkdir(parents=True, exist_ok=True)
+    staged = staging_directory / f"{key}{suffix}"
+    with os.fdopen(os.dup(int(input_fd)), "rb", buffering=0) as source, staged.open("wb") as destination:
+        try:
+            source.seek(0)
+        except OSError:
+            pass
+        shutil.copyfileobj(source, destination, length=1024 * 1024)
+    return str(staged), staged
+
+
 def _apply_procedure_patch(
     patch_data: bytes,
     rom_inputs: dict[str, bytes],
@@ -1315,14 +1370,21 @@ def patch_component_rom(
 
     missing = object()
     previous_settings = {}
+    staged_inputs: list[Path] = []
     try:
         for requirement in requirements:
             key = str(requirement["key"])
             setting_type = requirement["_setting_type"]
-            descriptor_path = f"/proc/self/fd/{int(raw_inputs[key])}"
-            setting_type.validate(descriptor_path)
+            input_path, staged = _component_input_path(
+                int(raw_inputs[key]),
+                requirement,
+                patch.parent / "rom-inputs",
+            )
+            if staged is not None:
+                staged_inputs.append(staged)
+            setting_type.validate(input_path)
             previous_settings[key] = settings_group.__dict__.get(key, missing)
-            setattr(settings_group, key, setting_type(descriptor_path))
+            setattr(settings_group, key, setting_type(input_path))
         result_extension = _component_result_extension(requirements)
         output = _copy_component_output(
             component,
@@ -1338,6 +1400,8 @@ def patch_component_rom(
                 settings_group.__dict__.pop(key, None)
             else:
                 setattr(settings_group, key, previous)
+        for staged in staged_inputs:
+            staged.unlink(missing_ok=True)
 
 
 def validate_rom_input_fd(
@@ -1358,8 +1422,9 @@ def validate_rom_input_fd(
     requirement = next((item for item in requirements if item["key"] == input_key), None)
     if requirement is None:
         raise ValueError(f"{game} did not request ROM input {input_key}")
-    descriptor_path = f"/proc/self/fd/{int(input_fd)}"
     try:
-        requirement["_setting_type"].validate(descriptor_path)
+        _validate_requirement_fd(requirement, input_fd)
     except Exception as error:
-        raise ValueError(f"The selected file is not the required {requirement['description']}.") from error
+        raise ValueError(
+            f"The selected file is not the required {requirement['description']}: {error}"
+        ) from error
