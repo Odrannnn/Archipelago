@@ -12,6 +12,8 @@ import re
 import shutil
 import sys
 import tempfile
+import threading
+import time
 import typing
 import zipfile
 from io import BytesIO
@@ -27,6 +29,8 @@ ANDROID_ROM_EXTENSIONS = MGBA_ROM_EXTENSIONS | SNES_ROM_EXTENSIONS
 MAX_FILL_ATTEMPTS = 50
 MAX_REPEATED_FILL_FAILURES = 20
 MAX_PLAYER_MANIFEST_BYTES = 1024 * 1024
+COMPONENT_OUTPUT_STABLE_SECONDS = 30.0
+COMPONENT_OUTPUT_POLL_SECONDS = 0.5
 
 
 def _activate_android_dependencies(root: Path) -> None:
@@ -107,7 +111,10 @@ def _extract_player_containers(seed_archive: Path, output: Path) -> list[Path]:
                 continue
             try:
                 with archive.open(member) as candidate:
-                    manifest = _player_container_manifest(candidate)
+                    # ZipExtFile seeking differs between the Android and desktop
+                    # zipfile implementations. Player containers are small, so
+                    # give the nested ZipFile an ordinary seekable buffer.
+                    manifest = _player_container_manifest(BytesIO(candidate.read()))
             except (OSError, ValueError, zipfile.BadZipFile):
                 continue
             if manifest is None:
@@ -117,11 +124,81 @@ def _extract_player_containers(seed_archive: Path, output: Path) -> list[Path]:
                 continue
             patch_path = output / file_name
             if patch_path.exists():
-                raise RuntimeError(f"Generated player container name is duplicated: {file_name}")
-            with archive.open(member) as source, patch_path.open("wb") as target:
-                shutil.copyfileobj(source, target)
+                with archive.open(member) as source:
+                    if patch_path.read_bytes() != source.read():
+                        raise RuntimeError(f"Generated player container name is duplicated: {file_name}")
+            else:
+                with archive.open(member) as source, patch_path.open("wb") as target:
+                    shutil.copyfileobj(source, target)
             extracted.append(patch_path)
     return extracted
+
+
+def extract_player_containers(seed_archive: str, output_directory: str) -> str:
+    """Repair history created before suffix-independent player discovery existed."""
+    seed = Path(seed_archive).resolve()
+    output = Path(output_directory).resolve()
+    if not seed.is_file() or not output.is_dir():
+        raise FileNotFoundError("The saved seed archive or history directory is missing")
+    extracted = _extract_player_containers(seed, output)
+    return json.dumps([
+        {"name": path.name, "path": str(path), "kind": "patch"}
+        for path in extracted
+    ])
+
+
+def _all_subclasses(base: type) -> list[type]:
+    result = []
+    pending = list(base.__subclasses__())
+    while pending:
+        candidate = pending.pop()
+        if candidate in result:
+            continue
+        result.append(candidate)
+        pending.extend(candidate.__subclasses__())
+    return result
+
+
+def _player_container_type(game: str):
+    """Find any upstream player-container declaration, including non-patches."""
+    from worlds.Files import APPlayerContainer
+
+    candidates = [
+        candidate for candidate in _all_subclasses(APPlayerContainer)
+        if getattr(candidate, "game", None) == game
+        and isinstance(getattr(candidate, "patch_file_ending", None), str)
+        and getattr(candidate, "patch_file_ending")
+    ]
+    if not candidates:
+        return None
+    # Prefer the most-derived declaration when an APWorld has an intermediate
+    # base class carrying the same game name.
+    return max(candidates, key=lambda candidate: len(candidate.mro()))
+
+
+def _client_component_for_path(path: str):
+    """Resolve an APWorld's ordinary desktop launcher registration."""
+    from worlds.LauncherComponents import Type, components
+
+    for component in reversed(components):
+        identifier = getattr(component, "file_identifier", None)
+        if getattr(component, "type", None) != Type.CLIENT or not callable(identifier):
+            continue
+        try:
+            if identifier(path) and callable(getattr(component, "func", None)):
+                return component
+        except Exception:
+            continue
+    return None
+
+
+def _component_result_extension(requirements: list[dict[str, object]]) -> str:
+    """Best-effort output suffix for clients which patch their selected ROM in place."""
+    for requirement in requirements:
+        suffix = Path(str(requirement.get("file_name", ""))).suffix.lower()
+        if suffix:
+            return suffix
+    return ".rom"
 
 
 def _world_load_failure(package_name: str, game: str, error: Exception) -> str:
@@ -554,8 +631,20 @@ def world_catalog(work_directory: str) -> str:
     result = []
     for game, world in sorted(registry.world_types.items()):
         patch_type = AutoPatchRegister.patch_types.get(game)
-        patch_extension = getattr(patch_type, "patch_file_ending", "") if patch_type else ""
+        container_type = patch_type or _player_container_type(game)
+        patch_extension = getattr(container_type, "patch_file_ending", "") if container_type else ""
         result_extension = getattr(patch_type, "result_file_ending", "") if patch_type else ""
+        component_patch = False
+        if not patch_type and patch_extension:
+            component = _client_component_for_path(f"player{patch_extension}")
+            if component is not None:
+                try:
+                    _, component_inputs = _rom_requirements(game, work_directory, validated_only=False)
+                except (KeyError, TypeError, ValueError):
+                    component_inputs = []
+                if component_inputs:
+                    result_extension = _component_result_extension(component_inputs)
+                    component_patch = True
         if game == "The Wind Waker":
             from android_tww_patcher import PATCH_EXTENSION, RESULT_EXTENSION
             patch_extension = PATCH_EXTENSION
@@ -573,6 +662,7 @@ def world_catalog(work_directory: str) -> str:
             "rom_patch": bool(
                 game == "The Wind Waker"
                 or (patch_type and result_extension.lower() in ANDROID_ROM_EXTENSIONS)
+                or component_patch
             ),
             "live_bridge": game in bridge_games,
         })
@@ -804,14 +894,26 @@ def patch_result_extension(patch_bytes, work_directory: str = "") -> str:
     from worlds.Files import AutoPatchRegister
     handler = AutoPatchRegister.patch_types.get(game)
     if handler is None:
-        raise ValueError(f"The installed {game} world does not register a ROM patch handler")
+        patch_extension = str(manifest.get("patch_file_ending", ""))
+        if not patch_extension:
+            container_type = _player_container_type(str(game))
+            patch_extension = str(getattr(container_type, "patch_file_ending", "")) if container_type else ""
+        component = _client_component_for_path(f"player{patch_extension}") if patch_extension else None
+        if component is None:
+            raise ValueError(f"The installed {game} world does not register a ROM patch handler or client component")
+        _, requirements = _rom_requirements(str(game), work_directory, validated_only=False)
+        return _component_result_extension(requirements)
     extension = str(getattr(handler, "result_file_ending", "")).lower()
     if extension not in ANDROID_ROM_EXTENSIONS:
         raise ValueError(f"{game} produces {extension or 'an unsupported ROM format'}")
     return extension
 
 
-def _rom_requirements(game: str, work_directory: str) -> tuple[object, list[dict[str, object]]]:
+def _rom_requirements(
+    game: str,
+    work_directory: str,
+    validated_only: bool = True,
+) -> tuple[object, list[dict[str, object]]]:
     """Discover validated user files declared by an APWorld's settings group."""
     _, registry = _load_worlds(work_directory)
     world = registry.world_types.get(game)
@@ -835,7 +937,9 @@ def _rom_requirements(game: str, work_directory: str) -> tuple[object, list[dict
         setting_type = user_file_type(annotation)
         if setting_type is None:
             continue
-        if not getattr(setting_type, "md5s", None):
+        if getattr(setting_type, "is_exe", False) or not getattr(setting_type, "required", True):
+            continue
+        if validated_only and not getattr(setting_type, "md5s", None):
             continue
         declared_value = next(
             (group_type.__dict__[name] for group_type in settings_group.__class__.__mro__ if name in group_type.__dict__),
@@ -865,10 +969,27 @@ def rom_requirements(patch_bytes, work_directory: str) -> str:
         from android_tww_patcher import load_plando, requirements
         load_plando(bytes(patch_bytes))
         return json.dumps(requirements())
-    _, requirements = _rom_requirements(game, work_directory)
+    from worlds.Files import AutoPatchRegister
+    standard_patch = AutoPatchRegister.patch_types.get(game) is not None
+    if standard_patch:
+        _, requirements = _rom_requirements(game, work_directory)
+    else:
+        with zipfile.ZipFile(BytesIO(bytes(patch_bytes)), "r") as archive:
+            manifest = json.loads(archive.read("archipelago.json"))
+        patch_extension = str(manifest.get("patch_file_ending", ""))
+        if not patch_extension:
+            container_type = _player_container_type(game)
+            patch_extension = str(getattr(container_type, "patch_file_ending", "")) if container_type else ""
+        if not patch_extension or _client_component_for_path(f"player{patch_extension}") is None:
+            raise ValueError(f"The installed {game} world does not register a ROM patch handler or client component")
+        _, requirements = _rom_requirements(game, work_directory, validated_only=False)
     return json.dumps({
         "game": game,
-        "streaming": False,
+        # Custom desktop clients usually operate on disc images by path. Keep
+        # those documents outside the app heap and expose their descriptors to
+        # the disposable component worker process.
+        "streaming": not standard_patch,
+        "component_host": not standard_patch,
         "result_extension": patch_result_extension(patch_bytes, work_directory),
         "inputs": [
             {key: value for key, value in requirement.items() if not key.startswith("_")}
@@ -882,7 +1003,12 @@ def validate_rom_input(patch_bytes, input_key: str, rom_bytes, work_directory: s
     game = patch_game(patch_bytes, work_directory)
     if game == "The Wind Waker":
         raise ValueError("Wind Waker ISOs must be validated through streamed document access")
-    _, requirements = _rom_requirements(game, work_directory)
+    from worlds.Files import AutoPatchRegister
+    _, requirements = _rom_requirements(
+        game,
+        work_directory,
+        validated_only=AutoPatchRegister.patch_types.get(game) is not None,
+    )
     requirement = next(
         (item for item in requirements if item["key"] == input_key),
         None,
@@ -1016,15 +1142,202 @@ def patch_rom(patch_bytes, rom_input_paths_json: str, output_path: str, work_dir
     return str(destination)
 
 
+def patch_file_extension(patch_bytes, work_directory: str = "") -> str:
+    """Return the player-container suffix declared by its own manifest or APWorld."""
+    if work_directory:
+        _load_worlds(work_directory)
+    with zipfile.ZipFile(BytesIO(bytes(patch_bytes)), "r") as archive:
+        manifest = json.loads(archive.read("archipelago.json"))
+    extension = str(manifest.get("patch_file_ending", ""))
+    if extension:
+        return extension
+    game = str(manifest.get("game", ""))
+    container_type = _player_container_type(game)
+    extension = str(getattr(container_type, "patch_file_ending", "")) if container_type else ""
+    if not extension:
+        raise ValueError(f"The installed {game or 'player'} world does not declare a player-container suffix")
+    return extension
+
+
+def uses_component_patch_host(patch_bytes, work_directory: str) -> bool:
+    """Whether this container is handled by an upstream client component rather than AutoPatch."""
+    game = patch_game(patch_bytes, work_directory)
+    from worlds.Files import AutoPatchRegister
+    if AutoPatchRegister.patch_types.get(game) is not None or game == "The Wind Waker":
+        return False
+    extension = patch_file_extension(patch_bytes, work_directory)
+    return _client_component_for_path(f"player{extension}") is not None
+
+
+def _copy_component_output(
+    component,
+    patch_path: Path,
+    result_extension: str,
+    output_fd: int,
+    timeout_seconds: float,
+) -> Path:
+    """Run a long-lived desktop client and capture the ROM it creates beside its container."""
+    import asyncio
+
+    failure: list[BaseException] = []
+    task_completion_wall_time = [0.0]
+    original_create_task = asyncio.create_task
+
+    def tracked_create_task(coro, *args, **kwargs):
+        task = original_create_task(coro, *args, **kwargs)
+
+        def completed(finished) -> None:
+            task_completion_wall_time[0] = time.time()
+            try:
+                error = finished.exception()
+            except BaseException as callback_error:
+                error = callback_error
+            if error is not None:
+                failure.append(error)
+
+        task.add_done_callback(completed)
+        return task
+
+    def run_component() -> None:
+        try:
+            component.func(str(patch_path))
+        except BaseException as error:
+            failure.append(error)
+
+    before = {
+        candidate.resolve()
+        for candidate in patch_path.parent.iterdir()
+        if candidate.is_file()
+    }
+    worker = threading.Thread(
+        target=run_component,
+        name="apworld-launcher-component",
+        daemon=True,
+    )
+    asyncio.create_task = tracked_create_task
+    try:
+        worker.start()
+
+        preferred = patch_path.with_suffix(result_extension)
+        deadline = time.monotonic() + timeout_seconds
+        observed: tuple[Path, int, int] | None = None
+        stable_since = 0.0
+        while time.monotonic() < deadline:
+            candidates = []
+            if preferred.is_file():
+                candidates.append(preferred)
+            candidates.extend(
+                candidate for candidate in patch_path.parent.iterdir()
+                if candidate.is_file()
+                and candidate.resolve() not in before
+                and candidate != patch_path
+                and candidate.suffix.lower() == result_extension.lower()
+                and candidate not in candidates
+            )
+            for candidate in candidates:
+                stat = candidate.stat()
+                signature = (candidate, stat.st_size, stat.st_mtime_ns)
+                if stat.st_size <= 0:
+                    continue
+                if signature != observed:
+                    observed = signature
+                    stable_since = time.monotonic()
+                task_finished_after_write = task_completion_wall_time[0] >= stat.st_mtime
+                stable_fallback = time.monotonic() - stable_since >= COMPONENT_OUTPUT_STABLE_SECONDS
+                if worker.is_alive() and not task_finished_after_write and not stable_fallback:
+                    continue
+                with candidate.open("rb") as source, os.fdopen(os.dup(int(output_fd)), "wb") as destination:
+                    shutil.copyfileobj(source, destination, length=1024 * 1024)
+                    destination.flush()
+                return candidate
+            if failure and not worker.is_alive():
+                raise RuntimeError(f"The registered client component failed: {failure[-1]}") from failure[-1]
+            time.sleep(COMPONENT_OUTPUT_POLL_SECONDS)
+        detail = f": {failure[-1]}" if failure else ""
+        raise TimeoutError(
+            f"The registered client component did not produce a {result_extension} ROM "
+            f"within {int(timeout_seconds)} seconds{detail}"
+        )
+    finally:
+        asyncio.create_task = original_create_task
+
+
+def patch_component_rom(
+    patch_path: str,
+    rom_input_fds_json: str,
+    output_fd: int,
+    work_directory: str,
+    timeout_seconds: float = 1800,
+) -> str:
+    """Execute an APWorld's registered desktop client in a disposable Android process."""
+    _prepare_runtime(work_directory)
+    patch = Path(patch_path).resolve()
+    if not patch.is_file():
+        raise FileNotFoundError(f"Player container is missing: {patch}")
+    patch_data = patch.read_bytes()
+    game = patch_game(patch_data, work_directory)
+    if not uses_component_patch_host(patch_data, work_directory):
+        raise ValueError(f"{game} does not register a custom client component for {patch.suffix}")
+    component = _client_component_for_path(str(patch))
+    if component is None:
+        raise ValueError(f"No registered client component accepts {patch.name}")
+
+    raw_inputs = json.loads(rom_input_fds_json)
+    if not isinstance(raw_inputs, dict):
+        raise ValueError("ROM inputs must be a key-to-descriptor mapping")
+    settings_group, requirements = _rom_requirements(game, work_directory, validated_only=False)
+    expected_keys = {str(requirement["key"]) for requirement in requirements}
+    missing_keys = expected_keys - raw_inputs.keys()
+    if missing_keys:
+        raise ValueError(f"Missing ROM input(s) requested by {game}: {', '.join(sorted(missing_keys))}")
+
+    missing = object()
+    previous_settings = {}
+    try:
+        for requirement in requirements:
+            key = str(requirement["key"])
+            setting_type = requirement["_setting_type"]
+            descriptor_path = f"/proc/self/fd/{int(raw_inputs[key])}"
+            setting_type.validate(descriptor_path)
+            previous_settings[key] = settings_group.__dict__.get(key, missing)
+            setattr(settings_group, key, setting_type(descriptor_path))
+        result_extension = _component_result_extension(requirements)
+        output = _copy_component_output(
+            component,
+            patch,
+            result_extension,
+            int(output_fd),
+            float(timeout_seconds),
+        )
+        return json.dumps({"game": game, "output": str(output), "extension": result_extension})
+    finally:
+        for key, previous in previous_settings.items():
+            if previous is missing:
+                settings_group.__dict__.pop(key, None)
+            else:
+                setattr(settings_group, key, previous)
+
+
 def validate_rom_input_fd(
     patch_bytes, input_key: str, input_fd: int, work_directory: str,
 ) -> None:
     """Validate a large SAF-backed input through its already-open descriptor."""
     game = patch_game(patch_bytes, work_directory)
-    if game != "The Wind Waker":
+    if game == "The Wind Waker":
+        from android_tww_patcher import INPUT_KEY, load_plando, validate_iso_fd
+        if input_key != INPUT_KEY:
+            raise ValueError(f"{game} did not request ROM input {input_key}")
+        load_plando(bytes(patch_bytes))
+        validate_iso_fd(input_fd)
+        return
+    if not uses_component_patch_host(patch_bytes, work_directory):
         raise ValueError(f"{game} does not use streamed ROM inputs")
-    from android_tww_patcher import INPUT_KEY, load_plando, validate_iso_fd
-    if input_key != INPUT_KEY:
+    _, requirements = _rom_requirements(game, work_directory, validated_only=False)
+    requirement = next((item for item in requirements if item["key"] == input_key), None)
+    if requirement is None:
         raise ValueError(f"{game} did not request ROM input {input_key}")
-    load_plando(bytes(patch_bytes))
-    validate_iso_fd(input_fd)
+    descriptor_path = f"/proc/self/fd/{int(input_fd)}"
+    try:
+        requirement["_setting_type"].validate(descriptor_path)
+    except Exception as error:
+        raise ValueError(f"The selected file is not the required {requirement['description']}.") from error

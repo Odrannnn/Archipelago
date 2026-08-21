@@ -458,6 +458,7 @@ class GeneratorActivity : Activity() {
         thread(name = "offline-generator-startup") {
             runCatching {
                 val catalog = OfflineGenerator.refreshCatalog(this)
+                SeedHistoryStore.repairMissingPlayerContainers(this)
                 val restoredForms = savedDraft?.let { draft ->
                     runCatching {
                         OfflineGenerator.decodePlayerForms(draft.playersJson).also { forms ->
@@ -498,6 +499,7 @@ class GeneratorActivity : Activity() {
                         rememberYamlButton.isEnabled = generatorReady
                         importYamlButton.isEnabled = generatorReady
                         renderSavedYamls()
+                        renderHistory()
                         backfillSavedYamlMetadata()
                         val imported = startup.catalog.count { it.source == "imported" }
                         val bundled = startup.catalog.count { it.source == "bundled" }

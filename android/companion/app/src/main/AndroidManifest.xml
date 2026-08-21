@@ -103,5 +103,10 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Maintains a user-visible loopback connection to an emulator core during active gameplay" />
         </service>
+        <service
+            android:name=".ComponentPatchService"
+            android:exported="false"
+            android:process=":componentPatcher"
+            android:stopWithTask="true" />
     </application>
 </manifest>

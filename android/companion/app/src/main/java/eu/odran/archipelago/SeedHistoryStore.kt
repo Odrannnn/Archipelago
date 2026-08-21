@@ -30,6 +30,30 @@ object SeedHistoryStore {
         readIndex(context).sortedByDescending { it.createdAt }
     }
 
+    /** Restores player containers which older companion builds left nested only inside the seed ZIP. */
+    fun repairMissingPlayerContainers(context: Context) = synchronized(lock) {
+        var changed = false
+        val repaired = readIndex(context).map { entry ->
+            if (entry.patches.isNotEmpty()) return@map entry
+            val seedArchive = entry.files.firstOrNull {
+                it.name.endsWith(".zip", ignoreCase = true) && File(it.path).isFile
+            }?.let { File(it.path) } ?: return@map entry
+            val extracted = runCatching {
+                OfflineGenerator.extractPlayerContainers(context, seedArchive, entryDirectory(context, entry))
+            }.getOrDefault(emptyList())
+            if (extracted.isEmpty()) return@map entry
+            changed = true
+            entry.copy(
+                files = (entry.files + extracted).distinctBy { it.path },
+                patches = extracted,
+            )
+        }
+        if (changed) {
+            writeIndex(context, repaired)
+            CompanionDocumentsProvider.notifyGeneratedSeedsChanged(context)
+        }
+    }
+
     fun add(
         context: Context,
         result: GenerationResult,

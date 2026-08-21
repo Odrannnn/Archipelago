@@ -255,18 +255,26 @@ APWorld packages are executable Python code. Archive validation protects the
 app's filesystem but cannot sandbox or audit that code, so imports must come
 from trusted authors. Worlds may also depend on Python or native modules absent
 from the APK; these fail to load with a compatibility diagnostic. Generated
-patches are discovered through `AutoPatchRegister`. For registered
-`APProcedurePatch` handlers whose result is `.gba`, `.gbc`, `.gb`, `.sfc`, or `.smc`, the companion discovers
-the world's checksum-validated `UserFilePath` inputs, stages the selected files,
-and invokes the world's normal registered patch method. Other ROM formats remain export-only.
+player containers are discovered from their embedded upstream manifest rather
+than a hardcoded suffix list. Registered `APProcedurePatch` handlers continue
+through `AutoPatchRegister`. A nonstandard `APPlayerContainer` can also be
+patched when its APWorld registers a matching client in `LauncherComponents`
+and declares its required source files through `UserFilePath`. The companion
+runs that unchanged desktop client entry point headlessly in a disposable
+Android process, maps SAF documents into its settings, captures the ROM it
+creates, and terminates the worker without locking the main generator. This
+adapts the upstream launcher contract once instead of adding game-name branches.
+Containers whose clients depend on an unsupported desktop operating-system
+facility remain export-only with a compatibility diagnostic.
 
 A GBA, GB, or GBC world gains live play when it registers an ordinary
 Archipelago `BizHawkClient` and uses connector operations supported by the
 Android compatibility layer. Its validation, authentication, location checks,
 item delivery, DeathLink, storage messages, and completion logic execute from
-the APWorld instead of being translated into Kotlin. Worlds with custom desktop
-launchers, extra dependencies, unsupported emulator systems/domains, or other
-non-standard client behavior still require compatibility work. The APWorld
+the APWorld instead of being translated into Kotlin. Worlds with unsupported
+emulator systems/domains or desktop operating-system facilities may still need
+a new platform compatibility backend, but do not need a game-specific launcher
+branch. The APWorld
 manager records Python import failures by package and exposes the full diagnostic
 instead of leaving a failed world labelled only as not loaded.
 

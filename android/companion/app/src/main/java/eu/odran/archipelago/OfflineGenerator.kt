@@ -24,6 +24,7 @@ data class RomRequirements(
     val inputs: List<RomInputRequirement>,
     val streaming: Boolean = false,
     val resultExtension: String = "",
+    val componentHost: Boolean = false,
 )
 
 data class WorldCapability(
@@ -322,7 +323,20 @@ object OfflineGenerator {
             },
             streaming = root.optBoolean("streaming", false),
             resultExtension = root.optString("result_extension"),
+            componentHost = root.optBoolean("component_host", false),
         )
+    }
+
+    fun patchFileExtension(context: Context, patch: ByteArray): String = synchronized(runtimeLock) {
+        python(context).getModule("offline_generator")
+            .callAttr("patch_file_extension", patch, workDirectory(context).absolutePath)
+            .toString()
+    }
+
+    fun usesComponentPatchHost(context: Context, patch: ByteArray): Boolean = synchronized(runtimeLock) {
+        python(context).getModule("offline_generator")
+            .callAttr("uses_component_patch_host", patch, workDirectory(context).absolutePath)
+            .toBoolean()
     }
 
     fun validateRomInput(
@@ -419,6 +433,24 @@ object OfflineGenerator {
         )
     }
 
+    fun extractPlayerContainers(
+        context: Context,
+        seedArchive: File,
+        outputDirectory: File,
+    ): List<GeneratedArtifact> = synchronized(runtimeLock) {
+        val result = JSONArray(
+            python(context).getModule("offline_generator").callAttr(
+                "extract_player_containers",
+                seedArchive.absolutePath,
+                outputDirectory.absolutePath,
+            ).toString(),
+        )
+        List(result.length()) { index ->
+            val item = result.getJSONObject(index)
+            GeneratedArtifact(item.getString("name"), item.getString("path"), item.getString("kind"))
+        }
+    }
+
     fun patchRom(
         context: Context,
         patch: ByteArray,
@@ -448,7 +480,12 @@ object OfflineGenerator {
         patch: ByteArray,
         romInputs: Map<String, Uri>,
         output: Uri,
-    ) = synchronized(runtimeLock) {
+    ) {
+        if (usesComponentPatchHost(context, patch)) {
+            ComponentPatchService.patchBlocking(context, patch, romInputs, output)
+            return
+        }
+        synchronized(runtimeLock) {
         val openedInputs = mutableListOf<ParcelFileDescriptor>()
         var openedOutput: ParcelFileDescriptor? = null
         try {
@@ -471,6 +508,7 @@ object OfflineGenerator {
         } finally {
             openedOutput?.close()
             openedInputs.forEach { it.close() }
+        }
         }
     }
 

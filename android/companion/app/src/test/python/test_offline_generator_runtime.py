@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -49,6 +49,52 @@ class OfflineGeneratorRuntimeTest(unittest.TestCase):
 
             self.assertEqual([output / "AP_1_P1_Tester.apcustom"], extracted)
             self.assertEqual(player_container, extracted[0].read_bytes())
+
+            # History repair is idempotent when the already-extracted file is identical.
+            self.assertEqual(extracted, OFFLINE_GENERATOR._extract_player_containers(seed, output))
+
+    def test_resolves_registered_client_component_by_suffix_without_game_rule(self) -> None:
+        launcher = ModuleType("worlds.LauncherComponents")
+        launcher.Type = SimpleNamespace(CLIENT="CLIENT")
+        launcher.components = []
+        component = SimpleNamespace(
+            display_name="Example Client",
+            type="CLIENT",
+            file_identifier=lambda path: path.endswith(".apexample"),
+            func=lambda *_args: None,
+        )
+        launcher.components.append(component)
+        worlds = ModuleType("worlds")
+        with patch.dict(sys.modules, {"worlds": worlds, "worlds.LauncherComponents": launcher}):
+            self.assertIs(component, OFFLINE_GENERATOR._client_component_for_path("player.apexample"))
+            self.assertIsNone(OFFLINE_GENERATOR._client_component_for_path("player.apother"))
+
+    def test_component_output_is_captured_from_registered_client_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            player = root / "player.apexample"
+            player.write_bytes(b"container")
+            destination = root / "saved.rom"
+
+            def launch(path: str) -> None:
+                Path(path).with_suffix(".rom").write_bytes(b"patched-rom")
+
+            descriptor = os.open(destination, os.O_CREAT | os.O_TRUNC | os.O_WRONLY)
+            try:
+                with patch.object(OFFLINE_GENERATOR, "COMPONENT_OUTPUT_STABLE_SECONDS", 0.01), \
+                        patch.object(OFFLINE_GENERATOR, "COMPONENT_OUTPUT_POLL_SECONDS", 0.01):
+                    result = OFFLINE_GENERATOR._copy_component_output(
+                        SimpleNamespace(func=launch),
+                        player,
+                        ".rom",
+                        descriptor,
+                        1.0,
+                    )
+            finally:
+                os.close(descriptor)
+
+            self.assertEqual(player.with_suffix(".rom"), result)
+            self.assertEqual(b"patched-rom", destination.read_bytes())
 
     def test_ignores_apworld_container_without_player_manifest_fields(self) -> None:
         world_container = self._container({
