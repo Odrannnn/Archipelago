@@ -24,9 +24,9 @@ os.environ["SKIP_REQUIREMENTS_UPDATE"] = "1"
 MGBA_ROM_EXTENSIONS = frozenset({".gb", ".gbc", ".gba"})
 SNES_ROM_EXTENSIONS = frozenset({".sfc", ".smc"})
 ANDROID_ROM_EXTENSIONS = MGBA_ROM_EXTENSIONS | SNES_ROM_EXTENSIONS
-CUSTOM_PATCH_EXTENSIONS = frozenset({".aptww"})
 MAX_FILL_ATTEMPTS = 50
 MAX_REPEATED_FILL_FAILURES = 20
+MAX_PLAYER_MANIFEST_BYTES = 1024 * 1024
 
 
 def _activate_android_dependencies(root: Path) -> None:
@@ -63,6 +63,65 @@ def _activate_android_dependencies(root: Path) -> None:
             changed = True
     if changed:
         importlib.invalidate_caches()
+
+
+def _player_container_manifest(source) -> dict[str, object] | None:
+    """Return an upstream APPlayerContainer manifest, independent of its suffix."""
+    try:
+        with zipfile.ZipFile(source, "r") as container:
+            manifest_info = next(
+                (info for info in container.infolist() if info.filename == "archipelago.json"),
+                None,
+            )
+            if manifest_info is None:
+                manifest_info = next(
+                    (
+                        info for info in container.infolist()
+                        if info.filename.endswith("/archipelago.json")
+                    ),
+                    None,
+                )
+            if manifest_info is None or manifest_info.file_size > MAX_PLAYER_MANIFEST_BYTES:
+                return None
+            manifest = json.loads(container.read(manifest_info))
+    except (OSError, ValueError, KeyError, RuntimeError, zipfile.BadZipFile, json.JSONDecodeError):
+        return None
+    if not isinstance(manifest, dict):
+        return None
+    if not isinstance(manifest.get("game"), str) or not manifest.get("game"):
+        return None
+    player = manifest.get("player")
+    if not isinstance(player, int) or isinstance(player, bool) or player < 1:
+        return None
+    if not isinstance(manifest.get("player_name"), str):
+        return None
+    return manifest
+
+
+def _extract_player_containers(seed_archive: Path, output: Path) -> list[Path]:
+    """Extract every APWorld-created player container from a host seed archive."""
+    extracted = []
+    with zipfile.ZipFile(seed_archive, "r") as archive:
+        for member in archive.infolist():
+            if member.is_dir():
+                continue
+            try:
+                with archive.open(member) as candidate:
+                    manifest = _player_container_manifest(candidate)
+            except (OSError, ValueError, zipfile.BadZipFile):
+                continue
+            if manifest is None:
+                continue
+            file_name = Path(member.filename).name
+            if not file_name:
+                continue
+            patch_path = output / file_name
+            if patch_path.exists():
+                raise RuntimeError(f"Generated player container name is duplicated: {file_name}")
+            with archive.open(member) as source, patch_path.open("wb") as target:
+                shutil.copyfileobj(source, target)
+            extracted.append(patch_path)
+    return extracted
 
 
 def _world_load_failure(package_name: str, game: str, error: Exception) -> str:
@@ -690,8 +749,6 @@ def generate(yaml_text: str, work_directory: str, seed: str = "") -> str:
     numeric_seed = outcome["seed"]
     player_names = outcome["players"]
 
-    from worlds.Files import AutoPatchRegister
-    patch_endings = {ending.lower() for ending in AutoPatchRegister.file_endings} | CUSTOM_PATCH_EXTENSIONS
     files = []
     patches = []
     for path in sorted(output.iterdir()):
@@ -699,15 +756,10 @@ def generate(yaml_text: str, work_directory: str, seed: str = "") -> str:
             continue
         files.append({"name": path.name, "path": str(path), "kind": "seed"})
         if path.suffix.lower() == ".zip":
-            with zipfile.ZipFile(path, "r") as archive:
-                for member in archive.namelist():
-                    if Path(member).suffix.lower() in patch_endings:
-                        patch_path = output / Path(member).name
-                        with archive.open(member) as source, patch_path.open("wb") as target:
-                            shutil.copyfileobj(source, target)
-                        patch_info = {"name": patch_path.name, "path": str(patch_path), "kind": "patch"}
-                        patches.append(patch_info)
-                        files.append(patch_info)
+            for patch_path in _extract_player_containers(path, output):
+                patch_info = {"name": patch_path.name, "path": str(patch_path), "kind": "patch"}
+                patches.append(patch_info)
+                files.append(patch_info)
 
     if not any(Path(file["path"]).suffix.lower() == ".zip" for file in files):
         raise RuntimeError("Generation completed, but no hostable Archipelago seed ZIP was produced")

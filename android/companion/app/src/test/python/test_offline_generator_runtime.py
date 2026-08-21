@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import io
+import json
 import os
 from pathlib import Path
 import sys
@@ -8,6 +10,7 @@ import tempfile
 from types import ModuleType
 import unittest
 from unittest.mock import patch
+import zipfile
 
 
 PYTHON_SOURCE = Path(__file__).resolve().parents[2] / "main" / "python"
@@ -21,6 +24,48 @@ SPEC.loader.exec_module(OFFLINE_GENERATOR)
 
 
 class OfflineGeneratorRuntimeTest(unittest.TestCase):
+    @staticmethod
+    def _container(manifest: dict, payload: bytes = b"payload") -> bytes:
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w") as archive:
+            archive.writestr("archipelago.json", json.dumps(manifest))
+            archive.writestr("config.json", payload)
+        return output.getvalue()
+
+    def test_extracts_custom_player_container_without_known_suffix(self) -> None:
+        player_container = self._container({
+            "game": "Example Game",
+            "player": 1,
+            "player_name": "Tester",
+            "compatible_version": 7,
+        })
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            seed = output / "seed.zip"
+            with zipfile.ZipFile(seed, "w") as archive:
+                archive.writestr("nested/AP_1_P1_Tester.apcustom", player_container)
+
+            extracted = OFFLINE_GENERATOR._extract_player_containers(seed, output)
+
+            self.assertEqual([output / "AP_1_P1_Tester.apcustom"], extracted)
+            self.assertEqual(player_container, extracted[0].read_bytes())
+
+    def test_ignores_apworld_container_without_player_manifest_fields(self) -> None:
+        world_container = self._container({
+            "game": "Example Game",
+            "world_version": "1.0.0",
+            "compatible_version": 7,
+        })
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            seed = output / "seed.zip"
+            with zipfile.ZipFile(seed, "w") as archive:
+                archive.writestr("example.apworld", world_container)
+
+            extracted = OFFLINE_GENERATOR._extract_player_containers(seed, output)
+
+            self.assertEqual([], extracted)
+
     def test_prepare_runtime_disables_desktop_gui(self) -> None:
         previous_directory = os.getcwd()
         utils = ModuleType("Utils")
