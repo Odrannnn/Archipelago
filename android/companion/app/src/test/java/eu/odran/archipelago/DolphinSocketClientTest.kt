@@ -8,6 +8,7 @@ import java.io.DataOutputStream
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.SocketTimeoutException
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.concurrent.thread
@@ -63,7 +64,27 @@ class DolphinSocketClientTest {
         }
     }
 
-    private class FakeDolphinMemoryServer : Closeable {
+    @Test
+    fun timesOutAnUnresponsiveEmulatorAndClosesTheFramedConnection() {
+        FakeDolphinMemoryServer(stallReads = true).use { server ->
+            DolphinSocketClient(port = server.port, responseTimeoutMillis = 150).use { client ->
+                client.connect()
+
+                val started = System.nanoTime()
+                val error = runCatching { client.readBytes(0x80001000, 4) }.exceptionOrNull()
+                val elapsedMillis = (System.nanoTime() - started) / 1_000_000
+
+                assertTrue(error is java.io.IOException)
+                assertTrue(error?.cause is SocketTimeoutException)
+                assertTrue("Socket timeout took ${elapsedMillis}ms", elapsedMillis < 2_000)
+                assertFalse(client.isSocketConnected())
+            }
+        }
+    }
+
+    private class FakeDolphinMemoryServer(
+        private val stallReads: Boolean = false,
+    ) : Closeable {
         private val server = ServerSocket(0, 4, InetAddress.getLoopbackAddress())
         private val memory = ConcurrentHashMap<Long, Byte>()
         @Volatile private var running = true
@@ -98,6 +119,7 @@ class DolphinSocketClientTest {
                 when (operation) {
                     OP_STATUS -> respond(output, operation, 0, requestId, statusPayload())
                     OP_READ -> {
+                        if (stallReads) continue
                         val request = ByteBuffer.wrap(payload)
                         val address = request.int.toLong() and 0xFFFF_FFFFL
                         val size = request.int

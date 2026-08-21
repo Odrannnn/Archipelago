@@ -24,6 +24,7 @@ class DolphinSocketClient(
     private val host: String = DEFAULT_HOST,
     override val port: Int = DEFAULT_PORT,
     private val connectTimeoutMillis: Int = DEFAULT_CONNECT_TIMEOUT_MILLIS,
+    private val responseTimeoutMillis: Int = DEFAULT_RESPONSE_TIMEOUT_MILLIS,
 ) : DolphinMemoryClient {
     override val transportLabel = "fast memory"
 
@@ -57,6 +58,7 @@ class DolphinSocketClient(
     init {
         require(port in 1..65535) { "Invalid Dolphin memory-service port: $port" }
         require(connectTimeoutMillis > 0) { "Connect timeout must be positive" }
+        require(responseTimeoutMillis > 0) { "Response timeout must be positive" }
     }
 
     override fun connect() = lock.withLock {
@@ -73,7 +75,11 @@ class DolphinSocketClient(
             candidate.connect(InetSocketAddress(InetAddress.getByName(host), port), connectTimeoutMillis)
             candidate.tcpNoDelay = true
             candidate.keepAlive = true
-            candidate.soTimeout = 0
+            // Dolphin can stop servicing its loopback socket while Android
+            // backgrounds, pauses, or tears down emulation. Every Python game
+            // adapter shares one runtime lock, so an unbounded read here would
+            // also freeze APWorld validation, generation, and patching.
+            candidate.soTimeout = responseTimeoutMillis
             input = DataInputStream(BufferedInputStream(candidate.getInputStream()))
             output = DataOutputStream(BufferedOutputStream(candidate.getOutputStream()))
             lastStatus = statusLocked()
@@ -250,6 +256,11 @@ class DolphinSocketClient(
         var failed = true
         try {
             return transactLocked(operation, payload).also { failed = false }
+        } catch (error: IOException) {
+            // A timed-out or partial framed response cannot be resumed safely.
+            // Closing also lets the bridge's ordinary reconnect path take over.
+            closeLocked()
+            throw error
         } finally {
             recordTelemetryLocked(kind, byteCount, System.nanoTime() - started, failed)
         }
@@ -367,6 +378,7 @@ class DolphinSocketClient(
         const val DEFAULT_HOST = "127.0.0.1"
         const val DEFAULT_PORT = 55021
         private const val DEFAULT_CONNECT_TIMEOUT_MILLIS = 350
+        private const val DEFAULT_RESPONSE_TIMEOUT_MILLIS = 2_500
         private const val PROTOCOL_MAGIC = 0x4150444D
         private const val PROTOCOL_VERSION = 1
         private const val OP_STATUS = 1

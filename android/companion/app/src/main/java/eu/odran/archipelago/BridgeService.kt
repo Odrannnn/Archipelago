@@ -560,15 +560,15 @@ class BridgeService : Service() {
                     dolphinTelemetryText =
                         "Dolphin ${connectedDolphin?.transportLabel ?: "memory"} connected · " +
                             "waiting for the emulator to resume…\n" +
-                            "The active request remains pending and its socket is preserved."
+                            "The companion will reconnect if the emulator does not answer."
                     if (activeRuntime == null) {
                         publish(
                             "Dolphin connected · emulator response paused",
-                            "The current memory request is waiting without a deadline. This is normal while Dolphin is " +
-                                "backgrounded, paused, or busy loading; returning to the game will resume it.",
+                            "Dolphin may be backgrounded, paused, or busy loading. The companion will reconnect " +
+                                "automatically if this request times out.",
                         )
                     }
-                    Log.i(TAG, "Dolphin memory response pending for $gameId; preserving the socket")
+                    Log.i(TAG, "Dolphin memory response pending for $gameId; awaiting response deadline")
                 }
 
                 val measuredDolphin = dolphinClient
