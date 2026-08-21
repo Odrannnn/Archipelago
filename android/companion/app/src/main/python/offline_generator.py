@@ -26,7 +26,6 @@ os.environ["SKIP_REQUIREMENTS_UPDATE"] = "1"
 
 MGBA_ROM_EXTENSIONS = frozenset({".gb", ".gbc", ".gba"})
 SNES_ROM_EXTENSIONS = frozenset({".sfc", ".smc"})
-ANDROID_ROM_EXTENSIONS = MGBA_ROM_EXTENSIONS | SNES_ROM_EXTENSIONS
 MAX_FILL_ATTEMPTS = 50
 MAX_REPEATED_FILL_FAILURES = 20
 MAX_PLAYER_MANIFEST_BYTES = 1024 * 1024
@@ -336,6 +335,16 @@ def _component_result_extension(requirements: list[dict[str, object]]) -> str:
         if suffix:
             return suffix
     return ".rom"
+
+
+def _standard_result_extension(handler) -> str:
+    """Validate an upstream AutoPatch output suffix without naming consoles."""
+    extension = str(getattr(handler, "result_file_ending", "")).lower()
+    if not re.fullmatch(r"\.[a-z0-9][a-z0-9._-]{0,31}", extension):
+        raise ValueError(
+            f"{getattr(handler, 'game', 'The installed world')} declares an invalid ROM output suffix"
+        )
+    return extension
 
 
 def _component_patch_capability(
@@ -799,7 +808,10 @@ def world_catalog(work_directory: str) -> str:
         patch_type = AutoPatchRegister.patch_types.get(game)
         container_type = patch_type or _player_container_type(game)
         patch_extension = getattr(container_type, "patch_file_ending", "") if container_type else ""
-        result_extension = getattr(patch_type, "result_file_ending", "") if patch_type else ""
+        try:
+            result_extension = _standard_result_extension(patch_type) if patch_type else ""
+        except ValueError:
+            result_extension = ""
         component_extension, component_patch = _component_patch_capability(
             game,
             patch_type,
@@ -824,7 +836,7 @@ def world_catalog(work_directory: str) -> str:
             "template": True,
             "rom_patch": bool(
                 game == "The Wind Waker"
-                or (patch_type and result_extension.lower() in ANDROID_ROM_EXTENSIONS)
+                or (patch_type and result_extension)
                 or component_patch
             ),
             "live_bridge": bool(emulator_backends),
@@ -1067,10 +1079,7 @@ def patch_result_extension(patch_bytes, work_directory: str = "") -> str:
             raise ValueError(f"The installed {game} world does not register a ROM patch handler or client component")
         _, requirements = _rom_requirements(str(game), work_directory, validated_only=False)
         return _component_result_extension(requirements)
-    extension = str(getattr(handler, "result_file_ending", "")).lower()
-    if extension not in ANDROID_ROM_EXTENSIONS:
-        raise ValueError(f"{game} produces {extension or 'an unsupported ROM format'}")
-    return extension
+    return _standard_result_extension(handler)
 
 
 def _rom_requirements(
@@ -1149,10 +1158,11 @@ def rom_requirements(patch_bytes, work_directory: str) -> str:
         _, requirements = _rom_requirements(game, work_directory, validated_only=False)
     return json.dumps({
         "game": game,
-        # Custom desktop clients usually operate on disc images by path. Keep
-        # those documents outside the app heap and expose their descriptors to
-        # the disposable component worker process.
-        "streaming": not standard_patch,
+        # SAF descriptors avoid loading and duplicating an arbitrarily-sized
+        # console ROM in the Android/Kotlin heap. Standard AutoPatch handlers
+        # still receive ordinary filesystem paths, exactly as on desktop;
+        # custom client components receive the same descriptors in their worker.
+        "streaming": True,
         "component_host": not standard_patch,
         "result_extension": patch_result_extension(patch_bytes, work_directory),
         "inputs": [
@@ -1249,12 +1259,8 @@ def _component_input_path(
     return str(staged), staged
 
 
-def _apply_procedure_patch(
-    patch_data: bytes,
-    rom_inputs: dict[str, bytes],
-    work_directory: str,
-) -> tuple[bytes, str]:
-    """Stage Android-selected data and run the APWorld's normal desktop patch path."""
+def _standard_patch_registration(patch_data: bytes, work_directory: str):
+    """Resolve an upstream AutoPatch handler and its declared ROM inputs."""
     _, registry = _load_worlds(work_directory)
     from worlds.Files import AutoPatchRegister
 
@@ -1270,64 +1276,103 @@ def _apply_procedure_patch(
     world = registry.world_types.get(game)
     if world is None:
         raise ValueError(f"No installed world handles game {game}")
-    result_extension = getattr(handler, "result_file_ending", "").lower()
-    if result_extension not in ANDROID_ROM_EXTENSIONS:
-        raise ValueError(
-            f"{game} produces {getattr(handler, 'result_file_ending', 'an unsupported ROM format')}"
-        )
+    result_extension = _standard_result_extension(handler)
 
     settings_group, requirements = _rom_requirements(game, work_directory)
+    return game, handler, world, result_extension, settings_group, requirements
+
+
+def _clear_standard_patch_caches(handler, package_prefix: str) -> None:
+    for attribute in ("source_data", "base_rom_bytes"):
+        if attribute in handler.__dict__:
+            delattr(handler, attribute)
+    for module_name, module in tuple(sys.modules.items()):
+        if module is None or not (module_name == package_prefix or module_name.startswith(package_prefix + ".")):
+            continue
+        for value in vars(module).values():
+            if callable(value) and "base_rom_bytes" in getattr(value, "__dict__", {}):
+                delattr(value, "base_rom_bytes")
+
+
+def _run_standard_patch(
+    patch_data: bytes,
+    rom_input_paths: dict[str, str],
+    output: Path,
+    work_directory: str,
+) -> str:
+    """Run a registered desktop AutoPatch handler against ordinary file paths."""
+    game, handler, world, _, settings_group, requirements = _standard_patch_registration(
+        patch_data,
+        work_directory,
+    )
     expected_keys = {str(requirement["key"]) for requirement in requirements}
-    missing_keys = expected_keys - rom_inputs.keys()
+    missing_keys = expected_keys - rom_input_paths.keys()
     if missing_keys:
         raise ValueError(f"Missing ROM input(s) requested by {game}: {', '.join(sorted(missing_keys))}")
 
     package_prefix = ".".join(world.__module__.split(".")[:2])
+    patch_extension = getattr(handler, "patch_file_ending", ".ap")
+    staged_patch = output.parent / f"player{patch_extension}"
+    staged_patch.write_bytes(patch_data)
+    missing = object()
+    previous_settings = {}
+    for requirement in requirements:
+        key = str(requirement["key"])
+        setting_type = requirement["_setting_type"]
+        input_path = str(rom_input_paths[key])
+        try:
+            setting_type.validate(input_path)
+        except Exception as error:
+            raise ValueError(
+                f"The selected file is not the required {requirement['description']}: {error}"
+            ) from error
+        previous_settings[key] = settings_group.__dict__.get(key, missing)
+        setattr(settings_group, key, setting_type(input_path))
 
-    def clear_source_caches() -> None:
-        for attribute in ("source_data", "base_rom_bytes"):
-            if attribute in handler.__dict__:
-                delattr(handler, attribute)
-        for module_name, module in tuple(sys.modules.items()):
-            if module is None or not (module_name == package_prefix or module_name.startswith(package_prefix + ".")):
-                continue
-            for value in vars(module).values():
-                if callable(value) and "base_rom_bytes" in getattr(value, "__dict__", {}):
-                    delattr(value, "base_rom_bytes")
+    _clear_standard_patch_caches(handler, package_prefix)
+    try:
+        patch = handler(str(staged_patch))
+        patch.patch(str(output))
+        if not output.is_file():
+            raise ValueError(f"The {game} APWorld did not produce a patched ROM")
+        return game
+    finally:
+        _clear_standard_patch_caches(handler, package_prefix)
+        for key, previous in previous_settings.items():
+            if previous is missing:
+                settings_group.__dict__.pop(key, None)
+            else:
+                setattr(settings_group, key, previous)
 
+
+def _apply_procedure_patch(
+    patch_data: bytes,
+    rom_inputs: dict[str, bytes],
+    work_directory: str,
+) -> tuple[bytes, str]:
+    """Stage byte-backed Android inputs and run the normal desktop patch path."""
+    _, handler, _, result_extension, _, requirements = _standard_patch_registration(
+        patch_data,
+        work_directory,
+    )
+    expected_keys = {str(requirement["key"]) for requirement in requirements}
+    missing_keys = expected_keys - rom_inputs.keys()
+    if missing_keys:
+        game = getattr(handler, "game", "the selected game")
+        raise ValueError(f"Missing ROM input(s) requested by {game}: {', '.join(sorted(missing_keys))}")
     temporary_root = Path(work_directory).resolve()
     with tempfile.TemporaryDirectory(prefix="apworld-patch-", dir=temporary_root) as temporary:
         temporary_path = Path(temporary)
-        patch_extension = getattr(handler, "patch_file_ending", ".ap")
-        staged_patch = temporary_path / f"player{patch_extension}"
-        staged_output = temporary_path / f"result{result_extension}"
-        staged_patch.write_bytes(patch_data)
-
-        missing = object()
-        previous_settings = {}
+        staged_inputs: dict[str, str] = {}
         for index, requirement in enumerate(requirements):
             key = str(requirement["key"])
-            setting_type = requirement["_setting_type"]
-            previous_settings[key] = settings_group.__dict__.get(key, missing)
             suffix = Path(str(requirement.get("file_name", ""))).suffix or ".rom"
             staged_rom = temporary_path / f"input-{index}{suffix}"
             staged_rom.write_bytes(rom_inputs[key])
-            setattr(settings_group, key, setting_type(str(staged_rom)))
-
-        clear_source_caches()
-        try:
-            patch = handler(str(staged_patch))
-            patch.patch(str(staged_output))
-            if not staged_output.is_file():
-                raise ValueError(f"The {game} APWorld did not produce a patched ROM")
-            return staged_output.read_bytes(), game
-        finally:
-            clear_source_caches()
-            for key, previous in previous_settings.items():
-                if previous is missing:
-                    settings_group.__dict__.pop(key, None)
-                else:
-                    setattr(settings_group, key, previous)
+            staged_inputs[key] = str(staged_rom)
+        staged_output = temporary_path / f"result{result_extension}"
+        game = _run_standard_patch(patch_data, staged_inputs, staged_output, work_directory)
+        return staged_output.read_bytes(), game
 
 
 def patch_rom(patch_bytes, rom_input_paths_json: str, output_path: str, work_directory: str) -> str:
@@ -1359,6 +1404,55 @@ def patch_rom(patch_bytes, rom_input_paths_json: str, output_path: str, work_dir
     result, _ = _apply_procedure_patch(patch_data_bytes, rom_inputs, work_directory)
     destination.write_bytes(result)
     return str(destination)
+
+
+def patch_rom_documents(
+    patch_bytes,
+    rom_input_fds_json: str,
+    output_fd: int,
+    work_directory: str,
+) -> str:
+    """Apply any registered AutoPatch using SAF descriptors and bounded copies."""
+    _prepare_runtime(work_directory)
+    patch_data = bytes(patch_bytes)
+    game = patch_game(patch_data, work_directory)
+    raw_inputs = json.loads(rom_input_fds_json)
+    if not isinstance(raw_inputs, dict):
+        raise ValueError("ROM inputs must be a key-to-descriptor mapping")
+    if game == "The Wind Waker":
+        from android_tww_patcher import INPUT_KEY, patch
+        input_fd = raw_inputs.get(INPUT_KEY)
+        if input_fd is None:
+            raise ValueError("Missing the clean Wind Waker ISO")
+        return patch(patch_data, int(input_fd), int(output_fd), work_directory)
+
+    _, _, _, result_extension, _, requirements = _standard_patch_registration(
+        patch_data,
+        work_directory,
+    )
+    expected_keys = {str(requirement["key"]) for requirement in requirements}
+    missing_keys = expected_keys - raw_inputs.keys()
+    if missing_keys:
+        raise ValueError(f"Missing ROM input(s) requested by {game}: {', '.join(sorted(missing_keys))}")
+
+    temporary_root = Path(work_directory).resolve()
+    with tempfile.TemporaryDirectory(prefix="apworld-document-patch-", dir=temporary_root) as temporary:
+        temporary_path = Path(temporary)
+        input_paths: dict[str, str] = {}
+        for requirement in requirements:
+            key = str(requirement["key"])
+            input_path, _ = _component_input_path(
+                int(raw_inputs[key]),
+                requirement,
+                temporary_path / "rom-inputs",
+            )
+            input_paths[key] = input_path
+        staged_output = temporary_path / f"result{result_extension}"
+        _run_standard_patch(patch_data, input_paths, staged_output, work_directory)
+        with staged_output.open("rb") as source, os.fdopen(os.dup(int(output_fd)), "wb") as destination:
+            shutil.copyfileobj(source, destination, length=1024 * 1024)
+            destination.flush()
+    return json.dumps({"game": game, "extension": result_extension})
 
 
 def patch_file_extension(patch_bytes, work_directory: str = "") -> str:
@@ -1559,9 +1653,11 @@ def validate_rom_input_fd(
         load_plando(bytes(patch_bytes))
         validate_iso_fd(input_fd)
         return
-    if not uses_component_patch_host(patch_bytes, work_directory):
+    from worlds.Files import AutoPatchRegister
+    standard_patch = AutoPatchRegister.patch_types.get(game) is not None
+    if not standard_patch and not uses_component_patch_host(patch_bytes, work_directory):
         raise ValueError(f"{game} does not use streamed ROM inputs")
-    _, requirements = _rom_requirements(game, work_directory, validated_only=False)
+    _, requirements = _rom_requirements(game, work_directory, validated_only=standard_patch)
     requirement = next((item for item in requirements if item["key"] == input_key), None)
     if requirement is None:
         raise ValueError(f"{game} did not request ROM input {input_key}")

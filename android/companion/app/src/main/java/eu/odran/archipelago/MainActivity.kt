@@ -1077,8 +1077,8 @@ class MainActivity : Activity() {
     private fun openBaseRomPicker(input: RomInputRequirement) {
         val picker = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
-            // GameCube ISOs are exposed under several provider-specific MIME
-            // types. Let SAF show all documents, then validate the GZLE01 header.
+            // ROM providers use many console-specific MIME types. Streamed
+            // inputs use a wildcard, then the upstream APWorld validates them.
             type = if (pendingRomRequirements?.streaming == true) "*/*" else "application/octet-stream"
         }
         val label = input.description.ifBlank { input.fileName.ifBlank { "clean ROM" } }
@@ -1256,7 +1256,7 @@ class MainActivity : Activity() {
         val session = pendingRomPatch ?: return
         val requirements = pendingRomRequirements ?: return
         val inputs = pendingRomInputUris.toMap()
-        inviteStatus.text = "Creating the patched ${session.game} ISO…"
+        inviteStatus.text = "Creating the patched ${session.game} ROM…"
         thread(name = "player-disc-patching") {
             runCatching {
                 OfflineGenerator.patchRomDocuments(this, session.patchBytes, inputs, destination)
@@ -1269,14 +1269,18 @@ class MainActivity : Activity() {
                     if (session.rememberForActiveRoom) {
                         rememberPatchedRom(name, destination, resultFlags, null)
                     }
-                    inviteStatus.text = "Saved $name · ready to load in Dolphin."
-                    offerDolphinLaunch(name, destination)
+                    if (DolphinLauncher.isSupportedDiscName(name)) {
+                        inviteStatus.text = "Saved $name · ready to load in Dolphin."
+                        offerDolphinLaunch(name, destination)
+                    } else {
+                        inviteStatus.text = "Saved patched ${session.game} ROM as $name."
+                    }
                 }
             }.onFailure { error ->
                 BaseRomCache.forget(this, requirements.game)
                 clearPendingRomPatch()
                 runOnUiThread {
-                    inviteStatus.text = "Could not patch the base ISO: ${error.message ?: error.javaClass.simpleName}"
+                    inviteStatus.text = "Could not patch the base ROM: ${error.message ?: error.javaClass.simpleName}"
                 }
             }
         }

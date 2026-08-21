@@ -1713,10 +1713,9 @@ class GeneratorActivity : Activity() {
     private fun openBaseRomPicker(input: RomInputRequirement) {
         val picker = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
-            // Android file providers commonly label GameCube ISOs as
-            // application/x-iso9660-image instead of application/octet-stream.
-            // A wildcard is required for consistent SAF interoperability; the
-            // official patcher still validates GZLE01 before accepting the file.
+            // ROM providers use many console-specific MIME types. Streamed
+            // inputs use a wildcard, then the upstream APWorld file setting
+            // validates the selected document before patching.
             type = if (pendingRomRequirements?.streaming == true) "*/*" else "application/octet-stream"
         }
         val label = input.description.ifBlank { input.fileName.ifBlank { "clean ROM" } }
@@ -1877,7 +1876,7 @@ class GeneratorActivity : Activity() {
     private fun patchRomDocuments(destination: Uri, resultFlags: Int) {
         val (selectedPatch, inputs) = pendingStreamingPatch ?: return
         val requirements = pendingRomRequirements ?: return
-        status.text = "Patching ${requirements.game} directly into the selected ISO…"
+        status.text = "Patching ${requirements.game} directly into the selected ROM document…"
         thread(name = "offline-disc-patching") {
             runCatching {
                 OfflineGenerator.patchRomDocuments(this, selectedPatch.readBytes(), inputs, destination)
@@ -1889,18 +1888,25 @@ class GeneratorActivity : Activity() {
                 pendingRomInputUris.clear()
                 patchButton.isEnabled = true
                 forgetBaseRomButton.isEnabled = true
-                lastDolphinRomUri = destination
-                lastDolphinRomName = DolphinLauncher.displayName(this, destination)
+                val savedName = DolphinLauncher.displayName(this, destination)
                     ?: "${selectedPatch.nameWithoutExtension}${requirements.resultExtension.ifBlank { ".iso" }}"
-                launchDolphinButton.visibility = View.VISIBLE
-                status.text = "Saved patched ${requirements.game} ISO."
+                if (DolphinLauncher.isSupportedDiscName(savedName)) {
+                    lastDolphinRomUri = destination
+                    lastDolphinRomName = savedName
+                    launchDolphinButton.visibility = View.VISIBLE
+                } else {
+                    lastDolphinRomUri = null
+                    lastDolphinRomName = null
+                    launchDolphinButton.visibility = View.GONE
+                }
+                status.text = "Saved patched ${requirements.game} ROM."
             } }.onFailure { error ->
                 BaseRomCache.forget(this, requirements.game)
                 pendingStreamingPatch = null
                 pendingRomRequirements = null
                 pendingRomInputUris.clear()
                 runOnUiThread { patchButton.isEnabled = true }
-                showError("Disc patching failed", error)
+                showError("ROM patching failed", error)
             }
         }
     }

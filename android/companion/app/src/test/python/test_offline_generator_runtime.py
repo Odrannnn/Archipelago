@@ -54,6 +54,65 @@ class OfflineGeneratorRuntimeTest(unittest.TestCase):
             # History repair is idempotent when the already-extracted file is identical.
             self.assertEqual(extracted, OFFLINE_GENERATOR._extract_player_containers(seed, output))
 
+    def test_accepts_registered_standard_patch_output_without_console_allowlist(self) -> None:
+        handler = SimpleNamespace(game="Paper Mario", result_file_ending=".z64")
+
+        self.assertEqual(".z64", OFFLINE_GENERATOR._standard_result_extension(handler))
+
+    def test_rejects_unsafe_registered_patch_output_suffix(self) -> None:
+        handler = SimpleNamespace(game="Unsafe World", result_file_ending="../../output.rom")
+
+        with self.assertRaisesRegex(ValueError, "invalid ROM output suffix"):
+            OFFLINE_GENERATOR._standard_result_extension(handler)
+
+    def test_standard_patch_streams_saf_descriptors_without_a_console_rule(self) -> None:
+        requirement = {
+            "key": "rom_file",
+            "file_name": "Example.z64",
+            "description": "clean example ROM",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.z64"
+            destination = root / "destination.z64"
+            source.write_bytes(b"clean-rom")
+            input_fd = os.open(source, os.O_RDONLY)
+            output_fd = os.open(destination, os.O_CREAT | os.O_TRUNC | os.O_WRONLY)
+
+            def run_patch(_patch_data, input_paths, output, _work_directory):
+                self.assertEqual(b"clean-rom", Path(input_paths["rom_file"]).read_bytes())
+                output.write_bytes(b"patched-z64")
+                return "Example Game"
+
+            try:
+                with patch.object(OFFLINE_GENERATOR, "_prepare_runtime"), \
+                        patch.object(OFFLINE_GENERATOR, "patch_game", return_value="Example Game"), \
+                        patch.object(
+                            OFFLINE_GENERATOR,
+                            "_standard_patch_registration",
+                            return_value=(
+                                "Example Game",
+                                object(),
+                                object(),
+                                ".z64",
+                                object(),
+                                [requirement],
+                            ),
+                        ), \
+                        patch.object(OFFLINE_GENERATOR, "_run_standard_patch", side_effect=run_patch):
+                    result = json.loads(OFFLINE_GENERATOR.patch_rom_documents(
+                        b"player-patch",
+                        json.dumps({"rom_file": input_fd}),
+                        output_fd,
+                        directory,
+                    ))
+            finally:
+                os.close(input_fd)
+                os.close(output_fd)
+
+            self.assertEqual({"game": "Example Game", "extension": ".z64"}, result)
+            self.assertEqual(b"patched-z64", destination.read_bytes())
+
     def test_resolves_registered_client_component_by_suffix_without_game_rule(self) -> None:
         launcher = ModuleType("worlds.LauncherComponents")
         launcher.Type = SimpleNamespace(CLIENT="CLIENT")

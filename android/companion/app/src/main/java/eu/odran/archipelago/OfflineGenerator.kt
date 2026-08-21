@@ -501,9 +501,9 @@ object OfflineGenerator {
                 paths.put(key, descriptor.fd)
             }
             openedOutput = context.contentResolver.openFileDescriptor(output, "rwt")
-                ?: error("Could not open the selected ISO destination")
+                ?: error("Could not open the selected ROM destination")
             python(context).getModule("offline_generator").callAttr(
-                "patch_rom",
+                "patch_rom_documents",
                 patch,
                 paths.toString(),
                 openedOutput.fd,
