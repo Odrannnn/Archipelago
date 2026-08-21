@@ -14,6 +14,8 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
 import android.text.InputType
+import android.text.TextUtils
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.Menu
 import android.view.View
@@ -287,8 +289,11 @@ class MainActivity : Activity() {
     }
 
     private fun mainHeader(): LinearLayout = LinearLayout(this).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.TOP
+        orientation = LinearLayout.VERTICAL
+        val iconRow = LinearLayout(this@MainActivity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
         val menuButton = ImageButton(this@MainActivity).apply {
             contentDescription = "Open app menu"
             setImageResource(R.drawable.ic_menu)
@@ -306,22 +311,49 @@ class MainActivity : Activity() {
             attributes.recycle()
             setOnClickListener(::showAppMenu)
         }
-        addView(menuButton, LinearLayout.LayoutParams(
+        iconRow.addView(menuButton, LinearLayout.LayoutParams(
             CompanionUi.dp(this@MainActivity, 48),
             CompanionUi.dp(this@MainActivity, 48),
         ).apply { marginEnd = CompanionUi.dp(this@MainActivity, 4) })
-        addView(
-            CompanionUi.pageTitle(
-                this@MainActivity,
-                "Archipelago Companion",
-                "Play, generate, host, and launch supported multiworlds from your phone.",
-            ),
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
-        )
-        addView(updateBell(), LinearLayout.LayoutParams(
+        iconRow.addView(TextView(this@MainActivity).apply {
+            text = "Archipelago Companion"
+            setTextColor(CompanionUi.text)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setSingleLine(true)
+            ellipsize = TextUtils.TruncateAt.END
+            setAutoSizeTextTypeUniformWithConfiguration(
+                18,
+                27,
+                1,
+                TypedValue.COMPLEX_UNIT_SP,
+            )
+            setPadding(
+                CompanionUi.dp(this@MainActivity, 4),
+                0,
+                CompanionUi.dp(this@MainActivity, 4),
+                0,
+            )
+        }, LinearLayout.LayoutParams(
+            0,
+            CompanionUi.dp(this@MainActivity, 48),
+            1f,
+        ))
+        iconRow.addView(updateBell(), LinearLayout.LayoutParams(
             CompanionUi.dp(this@MainActivity, 48),
             CompanionUi.dp(this@MainActivity, 48),
         ).apply { marginStart = CompanionUi.dp(this@MainActivity, 4) })
+        addView(iconRow, CompanionUi.fullWidth())
+        addView(TextView(this@MainActivity).apply {
+            text = "Play, generate, host, and launch supported multiworlds from your phone."
+            textSize = 15f
+            setTextColor(CompanionUi.textMuted)
+            setPadding(
+                CompanionUi.dp(this@MainActivity, 4),
+                CompanionUi.dp(this@MainActivity, 4),
+                CompanionUi.dp(this@MainActivity, 4),
+                CompanionUi.dp(this@MainActivity, 8),
+            )
+        }, CompanionUi.fullWidth())
     }
 
     private fun updateBell(): FrameLayout = FrameLayout(this).apply {
