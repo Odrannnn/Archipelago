@@ -648,6 +648,7 @@ class MainActivity : Activity() {
                     error("The selected APWorld is for ${installed.game}; this invitation requires $requiredGame.")
                 }
                 matchingWorldInstalled = true
+                val dependencies = provisionDependencies(installed)
                 val catalog = OfflineGenerator.refreshCatalog(this)
                 val capability = catalog.firstOrNull { it.game == requiredGame }
                     ?: error(OfflineGenerator.cachedWorldFailures()[installed.packageName]
@@ -658,12 +659,18 @@ class MainActivity : Activity() {
                 require(capability.liveBridge) {
                     "The installed $requiredGame APWorld does not provide compatible Android live synchronization."
                 }
-                installed
-            }.onSuccess { installed ->
+                installed to dependencies
+            }.onSuccess { (installed, dependencies) ->
                 pendingRequiredApWorldInvite = null
                 runOnUiThread {
-                    inviteStatus.text =
-                        "Installed ${installed.game} ${installed.worldVersion} · continuing invitation…"
+                    inviteStatus.text = buildString {
+                        append("Installed ${installed.game} ${installed.worldVersion}")
+                        if (dependencies.installed.isNotEmpty()) {
+                            append(" + ")
+                            append(dependencies.installed.joinToString { it.packageName })
+                        }
+                        append(" · continuing invitation…")
+                    }
                     resolveAndLoadRoom(invite)
                 }
             }.onFailure { error ->
@@ -809,6 +816,7 @@ class MainActivity : Activity() {
                     error("The selected APWorld is for ${installed.game}; this patch requires ${session.game}.")
                 }
                 matchingWorldInstalled = true
+                val dependencies = provisionDependencies(installed)
                 val capability = OfflineGenerator.refreshCatalog(this).firstOrNull { it.game == session.game }
                     ?: error(
                         OfflineGenerator.cachedWorldFailures()[installed.packageName]
@@ -820,11 +828,18 @@ class MainActivity : Activity() {
                 require(capability.liveBridge) {
                     "The installed ${session.game} APWorld does not provide compatible Android live synchronization."
                 }
-                installed
-            }.onSuccess { installed ->
+                installed to dependencies
+            }.onSuccess { (installed, dependencies) ->
                 pendingRequiredApWorldPatch = null
                 runOnUiThread {
-                    inviteStatus.text = "Installed ${installed.game} ${installed.worldVersion} · continuing patch…"
+                    inviteStatus.text = buildString {
+                        append("Installed ${installed.game} ${installed.worldVersion}")
+                        if (dependencies.installed.isNotEmpty()) {
+                            append(" + ")
+                            append(dependencies.installed.joinToString { it.packageName })
+                        }
+                        append(" · continuing patch…")
+                    }
                     startRomPatch(session)
                 }
             }.onFailure { error -> runOnUiThread {
@@ -1301,6 +1316,27 @@ class MainActivity : Activity() {
 
     private fun openWebUrl(url: String) {
         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    }
+
+    private fun provisionDependencies(world: ImportedApWorld): NativeDependencyProvisionResult {
+        return NativeDependencyProvisioner.installFor(
+            this,
+            listOf(world),
+            onStarting = { asset -> runOnUiThread {
+                inviteStatus.text =
+                    "Installing reviewed Android dependency ${asset.packageName} ${asset.version}…"
+            } },
+            onProgress = { asset, downloaded, total -> runOnUiThread {
+                inviteStatus.text =
+                    "Downloading ${asset.packageName}: ${formatDependencyBytes(downloaded)} / ${formatDependencyBytes(total)}"
+            } },
+        )
+    }
+
+    private fun formatDependencyBytes(bytes: Long): String = when {
+        bytes >= 1024L * 1024L -> String.format(java.util.Locale.ROOT, "%.1f MiB", bytes / (1024.0 * 1024.0))
+        bytes >= 1024L -> String.format(java.util.Locale.ROOT, "%.1f KiB", bytes / 1024.0)
+        else -> "$bytes B"
     }
 
     private fun matchWrapParams() = ViewGroup.LayoutParams(

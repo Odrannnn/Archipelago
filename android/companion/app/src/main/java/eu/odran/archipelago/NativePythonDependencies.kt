@@ -284,6 +284,74 @@ internal data class InstalledNativeDependency(
     val installedAt: Long,
 )
 
+internal data class NativeDependencyProvisionResult(
+    val catalog: NativeDependencyCatalogResult,
+    val required: List<NativeDependencyAsset>,
+    val installed: List<NativeDependencyAsset>,
+)
+
+/** Installs only dependencies assigned to reviewed APWorld/version ranges in the verified catalog. */
+internal object NativeDependencyProvisioner {
+    @Synchronized
+    fun installFor(
+        context: Context,
+        worlds: List<ImportedApWorld>,
+        onStarting: (NativeDependencyAsset) -> Unit = {},
+        onProgress: (NativeDependencyAsset, Long, Long) -> Unit = { _, _, _ -> },
+    ): NativeDependencyProvisionResult {
+        val catalog = runCatching { NativeDependencyCatalogClient(context).load(forceRefresh = false) }
+            .getOrElse { error ->
+                return NativeDependencyProvisionResult(
+                    NativeDependencyCatalogResult(
+                        assets = emptyList(),
+                        checkedAt = System.currentTimeMillis(),
+                        cached = false,
+                        warning = "Automatic Android dependency check unavailable: " +
+                            (error.message ?: error.javaClass.simpleName),
+                    ),
+                    required = emptyList(),
+                    installed = emptyList(),
+                )
+            }
+        return installFromCatalog(context, catalog, worlds, onStarting, onProgress)
+    }
+
+    @Synchronized
+    fun installFromCatalog(
+        context: Context,
+        catalog: NativeDependencyCatalogResult,
+        worlds: List<ImportedApWorld>,
+        onStarting: (NativeDependencyAsset) -> Unit = {},
+        onProgress: (NativeDependencyAsset, Long, Long) -> Unit = { _, _, _ -> },
+    ): NativeDependencyProvisionResult {
+        val required = requiredAssets(catalog.assets, worlds)
+        val installed = buildList {
+            required.forEach { asset ->
+                if (NativeDependencyStore.isInstalled(context, asset)) return@forEach
+                onStarting(asset)
+                NativeDependencyStore.downloadAndInstall(context, asset) { downloaded, total ->
+                    onProgress(asset, downloaded, total)
+                }
+                add(asset)
+            }
+        }
+        return NativeDependencyProvisionResult(catalog, required, installed)
+    }
+
+    internal fun requiredAssets(
+        assets: List<NativeDependencyAsset>,
+        worlds: List<ImportedApWorld>,
+    ): List<NativeDependencyAsset> = assets
+        .filter { asset -> asset.worlds.any { rule -> worlds.any(rule::matches) } }
+        .groupBy(NativeDependencyAsset::packageName)
+        .values
+        .map { candidates ->
+            candidates.maxWithOrNull { left, right -> ComponentVersion.compare(left.version, right.version) }
+                ?: error("Empty native dependency candidate group.")
+        }
+        .sortedBy(NativeDependencyAsset::packageName)
+}
+
 internal object NativeDependencyStore {
     private val packagePattern = Regex("[a-z0-9][a-z0-9._-]*")
 

@@ -145,12 +145,20 @@ class ApWorldManagerActivity : Activity() {
         thread(name = "apworld-install") {
             runCatching {
                 val installed = ImportedApWorldStore.install(this, uri)
+                val dependencies = provisionDependencies(listOf(installed))
                 val catalog = OfflineGenerator.refreshCatalog(this)
-                installed to catalog
-            }.onSuccess { (installed, catalog) ->
+                Triple(installed, catalog, dependencies)
+            }.onSuccess { (installed, catalog, dependencies) ->
                 runOnUiThread {
                     status.text = if (catalog.any { it.game == installed.game }) {
-                        "Installed and loaded ${installed.game} ${installed.worldVersion}."
+                        buildString {
+                            append("Installed and loaded ${installed.game} ${installed.worldVersion}.")
+                            if (dependencies.installed.isNotEmpty()) {
+                                append("\nAutomatically installed ")
+                                append(dependencies.installed.joinToString { "${it.packageName} ${it.version}" })
+                                append('.')
+                            }
+                        }
                     } else {
                         val failure = OfflineGenerator.cachedWorldFailures()[installed.packageName]
                         showLoadError(installed.game, failure ?: "No world class was registered.")
@@ -158,7 +166,6 @@ class ApWorldManagerActivity : Activity() {
                     }
                     renderWorlds()
                     renderDependencies()
-                    offerDependencies(installed)
                 }
             }.onFailure { error -> runOnUiThread { status.text = "Could not install APWorld:\n${error.message ?: error.javaClass.simpleName}" } }
         }
@@ -268,19 +275,46 @@ class ApWorldManagerActivity : Activity() {
             "Checking the curated Android dependency catalog…"
         }
         thread(name = "native-dependency-catalog") {
-            runCatching { NativeDependencyCatalogClient(this).load(force) }
-                .onSuccess { result -> runOnUiThread {
+            runCatching {
+                val result = NativeDependencyCatalogClient(this).load(force)
+                val provisioned = NativeDependencyProvisioner.installFromCatalog(
+                    this,
+                    result,
+                    ImportedApWorldStore.list(this),
+                    onStarting = { asset -> runOnUiThread {
+                        dependencyBusy = asset.packageName
+                        dependencyStatus.text = "Automatically installing ${asset.packageName} ${asset.version}…"
+                        renderDependencies()
+                    } },
+                    onProgress = { asset, downloaded, total -> runOnUiThread {
+                        dependencyStatus.text =
+                            "Downloading ${asset.packageName}: ${formatBytes(downloaded)} / ${formatBytes(total)}"
+                    } },
+                )
+                if (provisioned.installed.isNotEmpty()) OfflineGenerator.refreshCatalog(this)
+                provisioned
+            }.onSuccess { provisioned -> runOnUiThread {
+                    val result = provisioned.catalog
                     dependencyCatalog = result.assets
+                    dependencyBusy = null
                     dependencyStatus.text = buildString {
                         append("${result.assets.size} compatible package build")
                         if (result.assets.size != 1) append('s')
                         append(if (result.cached) " in the verified cache." else " verified from GitHub.")
+                        if (provisioned.installed.isNotEmpty()) {
+                            append("\nAutomatically installed ")
+                            append(provisioned.installed.joinToString { "${it.packageName} ${it.version}" })
+                            append(" for a reviewed APWorld version.")
+                        }
                         result.warning?.let { append("\n$it") }
                     }
+                    renderWorlds()
                     renderDependencies()
                 } }
                 .onFailure { error -> runOnUiThread {
-                    dependencyStatus.text = "Dependency catalog unavailable: ${error.message ?: error.javaClass.simpleName}"
+                    dependencyBusy = null
+                    dependencyStatus.text =
+                        "Could not prepare reviewed Android dependencies: ${error.message ?: error.javaClass.simpleName}"
                     renderDependencies()
                 } }
         }
@@ -365,20 +399,29 @@ class ApWorldManagerActivity : Activity() {
         }
     }
 
-    private fun offerDependencies(world: ImportedApWorld) {
-        val missing = dependencyCatalog.filter { asset ->
-            asset.worlds.any { it.matches(world) } && !NativeDependencyStore.isInstalled(this, asset)
+    private fun provisionDependencies(worlds: List<ImportedApWorld>): NativeDependencyProvisionResult {
+        try {
+            return NativeDependencyProvisioner.installFor(
+                this,
+                worlds,
+                onStarting = { asset -> runOnUiThread {
+                    dependencyBusy = asset.packageName
+                    dependencyStatus.text = "Automatically installing ${asset.packageName} ${asset.version}…"
+                    renderDependencies()
+                } },
+                onProgress = { asset, downloaded, total -> runOnUiThread {
+                    dependencyStatus.text =
+                        "Downloading ${asset.packageName}: ${formatBytes(downloaded)} / ${formatBytes(total)}"
+                } },
+            ).also { provisioned ->
+                dependencyCatalog = provisioned.catalog.assets
+                provisioned.catalog.warning?.let { warning -> runOnUiThread {
+                    dependencyStatus.text = warning
+                } }
+            }
+        } finally {
+            runOnUiThread { dependencyBusy = null }
         }
-        if (missing.isEmpty()) return
-        AlertDialog.Builder(this)
-            .setTitle("Android dependency available")
-            .setMessage(
-                "${world.game} can use ${missing.joinToString { "${it.packageName} ${it.version}" }}. " +
-                    "Install the reviewed Android build now?",
-            )
-            .setNegativeButton("Later", null)
-            .setPositiveButton("Install") { _, _ -> confirmInstallDependency(missing.first(), skipConfirmation = true) }
-            .show()
     }
 
     private fun confirmInstallDependency(asset: NativeDependencyAsset, skipConfirmation: Boolean = false) {

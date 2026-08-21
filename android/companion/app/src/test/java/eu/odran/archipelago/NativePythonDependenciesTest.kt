@@ -46,6 +46,33 @@ class NativePythonDependenciesTest {
         assertFalse(rule.matches(newer))
     }
 
+    @Test
+    fun `automatic provisioning selects only reviewed world versions`() {
+        val reviewed = dependency("py-randomprime", "1.31.1", "0.5.4")
+        val unrelated = dependency("other-native", "2.0.0", "0.6.0")
+
+        val selected = NativeDependencyProvisioner.requiredAssets(
+            listOf(reviewed, unrelated),
+            listOf(world("0.5.4")),
+        )
+
+        assertEquals(listOf(reviewed), selected)
+        assertTrue(NativeDependencyProvisioner.requiredAssets(listOf(reviewed), listOf(world("0.5.5"))).isEmpty())
+    }
+
+    @Test
+    fun `automatic provisioning chooses newest reviewed build per package`() {
+        val older = dependency("py-randomprime", "1.30.0", "0.5.4")
+        val current = dependency("py-randomprime", "1.31.1", "0.5.4")
+
+        val selected = NativeDependencyProvisioner.requiredAssets(
+            listOf(older, current),
+            listOf(world("0.5.4")),
+        )
+
+        assertEquals(listOf(current), selected)
+    }
+
     private fun world(version: String) = ImportedApWorld(
         packageName = "metroidprime",
         game = "Metroid Prime",
@@ -55,6 +82,22 @@ class NativePythonDependenciesTest {
         sourceName = "metroidprime.apworld",
         sha256 = "c".repeat(64),
         installedAt = 0,
+    )
+
+    private fun dependency(packageName: String, version: String, worldVersion: String) = NativeDependencyAsset(
+        packageName = packageName,
+        version = version,
+        moduleName = packageName.replace('-', '_'),
+        pythonAbi = "abi3",
+        androidAbi = "arm64-v8a",
+        minimumSdk = 26,
+        fileName = "$packageName-$version.zip",
+        downloadUrl = "https://github.com/Odrannnn/Archipelago/releases/download/android-python-dependencies/$packageName-$version.zip",
+        sha256 = "a".repeat(64),
+        byteCount = 1,
+        sourceUrl = "https://files.pythonhosted.org/$packageName-$version.tar.gz",
+        sourceSha256 = "b".repeat(64),
+        worlds = listOf(NativeDependencyWorld("Metroid Prime", worldVersion, worldVersion)),
     )
 
     private fun release(vararg assets: JSONObject) = JSONObject()
