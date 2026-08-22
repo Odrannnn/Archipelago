@@ -822,7 +822,8 @@ def world_catalog(work_directory: str) -> str:
     }
     from android_bizhawk_runtime import custom_client_games
     from android_dolphin_runtime import built_in_dolphin_games
-    custom_mgba_games = custom_client_games()
+    custom_mgba_games = custom_client_games({"GBA", "GB", "GBC"})
+    custom_n64_games = custom_client_games({"N64"})
     sni_games = set(AutoSNIClientRegister.game_handlers)
     dolphin_games = built_in_dolphin_games()
 
@@ -833,7 +834,7 @@ def world_catalog(work_directory: str) -> str:
         emulator_backends = _registered_client_backends(game)
         if game in standard_mgba_clients or game in custom_mgba_games:
             emulator_backends.add("mgba")
-        if game in standard_n64_clients:
+        if game in standard_n64_clients or game in custom_n64_games:
             emulator_backends.add("retroarch_n64")
         if game in sni_games:
             emulator_backends.add("sni")

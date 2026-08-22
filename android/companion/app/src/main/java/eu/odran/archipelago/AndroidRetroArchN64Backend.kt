@@ -1,5 +1,6 @@
 package eu.odran.archipelago
 
+import android.content.Context
 import android.util.Base64
 import org.json.JSONArray
 
@@ -41,13 +42,18 @@ class AndroidRetroArchN64Backend internal constructor(
     private data class DomainRange(val offset: Long, val length: Int, val domain: String)
     private data class DomainValue(val offset: Long, val value: ByteArray, val domain: String)
 
-    constructor(client: RetroArchNetworkClient) : this(NetworkCommandMemoryAccess(client))
+    private var ootConnector: AndroidOotLuaConnector? = null
+
+    constructor(client: RetroArchNetworkClient, context: Context) : this(NetworkCommandMemoryAccess(client)) {
+        ootConnector = AndroidOotLuaConnector(context, this)
+    }
 
     fun attach(client: RetroArchNetworkClient) {
         (access as? NetworkCommandMemoryAccess)?.attach(client)
             ?: error("This N64 backend does not support transport replacement")
         byteXorMask = null
         snapshotPages.clear()
+        ootConnector?.reset()
     }
 
     fun detach(client: RetroArchNetworkClient) {
@@ -112,6 +118,20 @@ class AndroidRetroArchN64Backend internal constructor(
     fun readRdram(offset: Long, length: Int): ByteArray = readDomain("RDRAM", offset, length)
 
     fun writeRdram(offset: Long, value: ByteArray) = writeDomain("RDRAM", offset, value)
+
+    fun readRom(offset: Long, length: Int): ByteArray = readDomain("ROM", offset, length)
+
+    fun isOotRom(): Boolean = checkNotNull(ootConnector) {
+        "The OoT connector was not configured for this N64 backend"
+    }.isOotRom()
+
+    fun ootIdentity(): String = checkNotNull(ootConnector) {
+        "The OoT connector was not configured for this N64 backend"
+    }.identity()
+
+    fun ootExchange(payloadJson: String): String = checkNotNull(ootConnector) {
+        "The OoT connector was not configured for this N64 backend"
+    }.exchange(payloadJson)
 
     private fun guardsMatch(guards: List<DomainValue>): Boolean = guards.all { guard ->
         readDomain(guard.domain, guard.offset, guard.value.size).contentEquals(guard.value)

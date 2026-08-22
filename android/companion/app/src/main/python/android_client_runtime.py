@@ -175,6 +175,16 @@ class AndroidClientCommandProcessor(CommandProcessor):
         )
         return True
 
+    def _cmd_deathlink(self) -> bool:
+        """Toggle DeathLink when the active upstream game client supports a local override."""
+        toggle = getattr(self.ctx.client_handler, "toggle_deathlink", None)
+        if not callable(toggle):
+            self.output("The active game client does not provide a local DeathLink toggle.")
+            return False
+        enabled = bool(toggle(self.ctx))
+        self.output(f"DeathLink {'enabled' if enabled else 'disabled'} for this client session.")
+        return True
+
     def _cmd_missing(self, filter_text: str = "") -> bool:
         """List missing location checks, optionally filtered by text."""
         if not self.ctx.game:

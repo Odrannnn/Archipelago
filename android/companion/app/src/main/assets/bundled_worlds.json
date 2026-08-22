@@ -8,6 +8,7 @@
   {"game": "Links Awakening DX", "package": "ladx", "platform": "GBC"},
   {"game": "Lufia II Ancient Cave", "package": "lufia2ac", "platform": "SNES"},
   {"game": "Mario & Luigi Superstar Saga", "package": "mlss", "platform": "GBA"},
+  {"game": "Ocarina of Time", "package": "oot", "platform": "N64"},
   {"game": "Pokemon Emerald", "package": "pokemon_emerald", "platform": "GBA"},
   {"game": "SMZ3", "package": "smz3", "platform": "SNES"},
   {"game": "Super Mario World", "package": "smw", "platform": "SNES"},

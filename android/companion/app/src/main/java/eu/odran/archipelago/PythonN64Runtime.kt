@@ -10,7 +10,7 @@ class PythonN64Runtime(
     context: Context,
     client: RetroArchNetworkClient,
 ) : PythonGameRuntime {
-    private val backend = AndroidRetroArchN64Backend(client)
+    private val backend = AndroidRetroArchN64Backend(client, context)
     private val runtime: PyObject = synchronized(OfflineGenerator.runtimeLock) {
         val module = OfflineGenerator.python(context).getModule("android_bizhawk_runtime")
         checkNotNull(module.get("AndroidBizHawkRuntime")) { "Android BizHawk runtime class is unavailable" }

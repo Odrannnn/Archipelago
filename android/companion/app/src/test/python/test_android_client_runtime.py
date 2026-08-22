@@ -201,6 +201,20 @@ class ClientConsoleTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/disconnect", text)
         self.assertIn("/ready", text)
 
+    async def test_deathlink_command_delegates_to_supporting_game_client(self) -> None:
+        class DeathLinkHandler(Handler):
+            def toggle_deathlink(self, ctx) -> bool:
+                ctx.outgoing.append({"cmd": "ConnectUpdate", "tags": ["DeathLink"]})
+                return True
+
+        ctx = AndroidClientContext(object())
+        ctx.client_handler = DeathLinkHandler()
+
+        result = await execute_console_command(ctx, "/deathlink")
+
+        self.assertEqual([{"cmd": "ConnectUpdate", "tags": ["DeathLink"]}], ctx.outgoing)
+        self.assertIn("enabled", result["console"][0]["text"])
+
     async def test_force_item_sync_requests_full_history_without_touching_rom(self) -> None:
         ctx = AndroidClientContext(object())
         ctx.game = "Test Game"

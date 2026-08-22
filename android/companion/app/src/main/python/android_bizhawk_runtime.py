@@ -316,13 +316,149 @@ class AndroidLadxClient:
             await ctx.send_msgs([{"cmd": "Sync"}])
 
 
+class AndroidOotClient:
+    """Upstream OoTClient packet semantics over embedded connector_oot.lua."""
+
+    game = "Ocarina of Time"
+    _item_id_base = 66_000
+    _script_version = 3
+
+    def __init__(self) -> None:
+        self.auth = ""
+        self.location_table: dict[str, bool] = {}
+        self.collectible_table: dict[str, bool] = {}
+        self.collectible_override_flags_address = 0
+        self.collectible_offsets: dict = {}
+        self.deathlink_enabled = False
+        self.deathlink_pending = False
+        self.deathlink_sent_this_death = False
+        self.deathlink_client_override = False
+
+    async def validate_rom(self, ctx: "AndroidClientContext") -> bool:
+        if not bool(ctx.backend.isOotRom()):
+            return False
+        auth = str(ctx.backend.ootIdentity())
+        if not auth:
+            return False
+        self.auth = auth
+        ctx.game = self.game
+        ctx.items_handling = 0b001
+        ctx.want_slot_data = True
+        return True
+
+    async def validate_identity(self, ctx: "AndroidClientContext", auth: str) -> bool:
+        return (
+            bool(ctx.backend.isOotRom())
+            and str(ctx.backend.ootIdentity()) == auth
+        )
+
+    async def set_auth(self, ctx: "AndroidClientContext") -> None:
+        if not self.auth:
+            self.auth = str(ctx.backend.ootIdentity())
+        if not self.auth:
+            raise RuntimeError("The running OoT ROM has no embedded Archipelago player name")
+        ctx.auth = self.auth
+
+    def on_package(self, ctx: "AndroidClientContext", cmd: str, args: dict) -> None:
+        if cmd == "Connected":
+            slot_data = args.get("slot_data") or {}
+            self.collectible_override_flags_address = int(
+                slot_data.get("collectible_override_flags", 0)
+            )
+            self.collectible_offsets = slot_data.get("collectible_flag_offsets", {}) or {}
+        elif cmd == "Bounced" and "DeathLink" in args.get("tags", []):
+            data = args.get("data", {})
+            if data.get("source") != ctx.auth and float(data.get("time", 0)) >= ctx.last_death_link:
+                self.deathlink_pending = True
+
+    def toggle_deathlink(self, ctx: "AndroidClientContext") -> bool:
+        self.deathlink_client_override = True
+        self.deathlink_enabled = not self.deathlink_enabled
+        if self.deathlink_enabled:
+            ctx.tags.add("DeathLink")
+        else:
+            ctx.tags.discard("DeathLink")
+        ctx.outgoing.append({"cmd": "ConnectUpdate", "tags": sorted(ctx.tags)})
+        return self.deathlink_enabled
+
+    def _outgoing_payload(self, ctx: "AndroidClientContext") -> str:
+        trigger_death = self.deathlink_enabled and self.deathlink_pending
+        if trigger_death:
+            self.deathlink_sent_this_death = True
+        return json.dumps({
+            "items": [int(item.item) - self._item_id_base for item in ctx.items_received],
+            "playerNames": [name for player, name in ctx.player_names.items() if player != 0],
+            "triggerDeath": trigger_death,
+            "collectibleOverrides": self.collectible_override_flags_address,
+            "collectibleOffsets": self.collectible_offsets,
+        })
+
+    async def game_watcher(self, ctx: "AndroidClientContext") -> None:
+        payload = json.loads(str(ctx.backend.ootExchange(self._outgoing_payload(ctx))))
+        reported_version = int(payload.get("scriptVersion", 0))
+        if reported_version < self._script_version:
+            raise RuntimeError(
+                f"OoT connector protocol {reported_version} is older than required "
+                f"version {self._script_version}"
+            )
+
+        player_name = str(payload.get("playerName", ""))
+        if player_name != ctx.auth:
+            raise RuntimeError("ROM change or unavailable OoT game client detected")
+
+        if payload.get("deathlinkActive") and not self.deathlink_enabled \
+                and not self.deathlink_client_override:
+            await ctx.update_death_link(True)
+            self.deathlink_enabled = True
+
+        if payload.get("gameComplete") and not ctx.finished_game:
+            await ctx.send_msgs([{"cmd": "StatusUpdate", "status": 30}])
+
+        locations = payload.get("locations", {})
+        collectibles = payload.get("collectibles", {})
+        if not isinstance(locations, dict):
+            locations = {}
+        if not isinstance(collectibles, dict):
+            collectibles = {}
+        if self.location_table != locations or self.collectible_table != collectibles:
+            self.location_table = locations
+            self.collectible_table = collectibles
+            from worlds import network_data_package
+            location_ids = network_data_package["games"][self.game]["location_name_to_id"]
+            checked = {
+                int(location_ids[name])
+                for name, completed in locations.items()
+                if completed and name in location_ids
+            }
+            checked.update(
+                int(location)
+                for location, completed in collectibles.items()
+                if completed
+            )
+            await ctx.check_locations(checked)
+
+        if self.deathlink_enabled:
+            if payload.get("isDead"):
+                self.deathlink_pending = False
+                if not self.deathlink_sent_this_death:
+                    self.deathlink_sent_this_death = True
+                    await ctx.send_death()
+            else:
+                self.deathlink_sent_this_death = False
+
+
 _CUSTOM_CLIENT_ADAPTERS = (
     (frozenset({"GB", "GBC"}), AndroidLadxClient),
+    (frozenset({"N64"}), AndroidOotClient),
 )
 
 
-def custom_client_games() -> set[str]:
-    return {adapter.game for _, adapter in _CUSTOM_CLIENT_ADAPTERS}
+def custom_client_games(compatible_systems: set[str] | None = None) -> set[str]:
+    return {
+        adapter.game
+        for systems, adapter in _CUSTOM_CLIENT_ADAPTERS
+        if compatible_systems is None or not systems.isdisjoint(compatible_systems)
+    }
 
 
 class AndroidBizHawkRuntime:
@@ -411,7 +547,7 @@ class AndroidBizHawkRuntime:
         """Recheck ROM identity without mutating the active handler's state."""
         if self.handler is None:
             return False
-        if isinstance(self.handler, AndroidLadxClient):
+        if hasattr(self.handler, "validate_identity"):
             ctx = AndroidClientContext(self.backend)
             try:
                 return self._run(self.handler.validate_identity(ctx, auth)) and game == self.handler.game

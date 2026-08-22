@@ -14,7 +14,7 @@ N64_DECLARATION = re.compile(r"system\s*=\s*[\"']N64[\"']")
 
 
 class BundledN64ClientTest(unittest.TestCase):
-    def test_every_listed_n64_world_declares_the_standard_bizhawk_api(self) -> None:
+    def test_every_listed_n64_world_has_an_android_runtime(self) -> None:
         entries = [
             entry
             for entry in json.loads(BUNDLED_WORLD_MANIFEST.read_text(encoding="utf-8"))
@@ -24,6 +24,13 @@ class BundledN64ClientTest(unittest.TestCase):
         self.assertGreater(len(entries), 0)
         for entry in entries:
             package = REPOSITORY_ROOT / "worlds" / entry["package"]
+            if entry["game"] == "Ocarina of Time":
+                self.assertTrue((REPOSITORY_ROOT / "data" / "lua" / "connector_oot.lua").is_file())
+                android_runtime = (
+                    APP_ROOT / "src" / "main" / "python" / "android_bizhawk_runtime.py"
+                ).read_text(encoding="utf-8")
+                self.assertIn("class AndroidOotClient", android_runtime)
+                continue
             sources = "\n".join(
                 source.read_text(encoding="utf-8")
                 for source in package.rglob("*.py")

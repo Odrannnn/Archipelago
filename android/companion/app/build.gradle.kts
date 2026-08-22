@@ -29,13 +29,15 @@ val n64SystemDeclaration = Regex("""system\s*=\s*[\"']N64[\"']""")
 val bundledN64Worlds = desktopWorldsRoot.listFiles()
     .orEmpty()
     .filter { worldDirectory ->
-        worldDirectory.isDirectory && worldDirectory.walkTopDown()
-            .filter { it.isFile && it.extension.equals("py", ignoreCase = true) }
-            .any { clientSource ->
-                clientSource.readText().let { source ->
-                    "BizHawkClient" in source && n64SystemDeclaration.containsMatchIn(source)
+        worldDirectory.isDirectory && (
+            worldDirectory.name == "oot" || worldDirectory.walkTopDown()
+                .filter { it.isFile && it.extension.equals("py", ignoreCase = true) }
+                .any { clientSource ->
+                    clientSource.readText().let { source ->
+                        "BizHawkClient" in source && n64SystemDeclaration.containsMatchIn(source)
+                    }
                 }
-            }
+        )
     }
     .sortedBy(File::getName)
 
@@ -48,6 +50,14 @@ val syncBundledN64Worlds = tasks.register<Sync>("syncBundledN64Worlds") {
             exclude("test/**", "src/**", "**/__pycache__/**")
         }
     }
+}
+
+val generatedOotLua = layout.buildDirectory.dir("generated/ootLuaAssets")
+val syncOotLuaConnector = tasks.register<Sync>("syncOotLuaConnector") {
+    from(rootProject.file("../../data/lua")) {
+        include("common.lua", "connector_oot.lua", "json.lua", "lua_5_3_compat.lua")
+    }
+    into(generatedOotLua.map { it.dir("oot_lua") })
 }
 
 android {
@@ -91,6 +101,8 @@ android {
             signingConfig = signingConfigs.getByName("release")
         }
     }
+
+    sourceSets.getByName("main").assets.srcDir(syncOotLuaConnector)
 }
 
 chaquopy {
@@ -131,6 +143,7 @@ kotlin {
 dependencies {
     implementation("androidx.core:core:1.15.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("org.luaj:luaj-jse:3.0.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
 }

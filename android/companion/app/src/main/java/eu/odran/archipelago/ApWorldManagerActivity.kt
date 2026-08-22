@@ -78,7 +78,7 @@ class ApWorldManagerActivity : Activity() {
             addView(CompanionUi.card(
                 this@ApWorldManagerActivity,
                 "Built-in N64 live sync",
-                "Standard upstream BizHawk clients included with the companion. RetroArch nightly Network Commands and Mupen64Plus-Next provide the shared ROM and RDRAM transport.",
+                "Upstream N64 clients included with the companion. Standard BizHawk clients use the shared memory adapter; OoT runs its upstream Lua connector semantics directly. RetroArch nightly Network Commands and Mupen64Plus-Next provide ROM and RDRAM access.",
             ).apply {
                 addView(TextView(this@ApWorldManagerActivity).apply {
                     text = OfflineGenerator.bundledWorlds(this@ApWorldManagerActivity)
