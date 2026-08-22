@@ -73,6 +73,7 @@ class MainActivity : Activity() {
     private val pendingRomInputs = linkedMapOf<String, ByteArray>()
     private val pendingRomInputUris = linkedMapOf<String, Uri>()
     private var pendingStreamingDestinationName: String? = null
+    private val attemptedPlayerArtifactRepairs = mutableSetOf<String>()
     private val refreshStatus = object : Runnable {
         override fun run() {
             val activeRoom = renderedRoom
@@ -1343,6 +1344,9 @@ class MainActivity : Activity() {
         val linkedPlayerFiles = linkedPlayerFiles(room)
         val playerFileHandler = PlayerFileLauncher.handlerForGame(room.gameName)
             ?: linkedPlayerFiles.firstNotNullOfOrNull { PlayerFileLauncher.handlerFor(it.name) }
+        if (playerFileHandler != null && linkedPlayerFiles.isEmpty()) {
+            repairLinkedPlayerFiles(room)
+        }
         val popTrackerButton = if (isSohRoom) null else Button(this).apply {
             val playerName = room.playerName
             text = when {
@@ -1600,6 +1604,23 @@ class MainActivity : Activity() {
             exact.isNotEmpty() -> exact
             candidates.size == 1 -> candidates
             else -> emptyList()
+        }
+    }
+
+    private fun repairLinkedPlayerFiles(room: JoinedRoom) {
+        val historyId = HostedRoomHistoryLinks.historyId(this, room.roomId) ?: return
+        if (!attemptedPlayerArtifactRepairs.add(historyId)) return
+        thread(name = "seed-player-artifact-repair") {
+            val repaired = SeedHistoryStore.repairGeneratedArtifacts(this, historyId)
+            handler.post {
+                val activeRoom = JoinedRoomStore.load(this)
+                if (activeRoom?.roomId == room.roomId && repaired != null) {
+                    renderJoinedRoom(activeRoom)
+                    if (linkedPlayerFiles(activeRoom).isNotEmpty()) {
+                        inviteStatus.text = "Recovered the generated player file from the saved seed."
+                    }
+                }
+            }
         }
     }
 

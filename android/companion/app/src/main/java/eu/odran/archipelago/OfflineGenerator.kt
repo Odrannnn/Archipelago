@@ -455,6 +455,24 @@ object OfflineGenerator {
         }
     }
 
+    fun extractSeedArtifacts(
+        context: Context,
+        seedArchive: File,
+        outputDirectory: File,
+    ): List<GeneratedArtifact> = synchronized(runtimeLock) {
+        val result = JSONArray(
+            python(context).getModule("offline_generator").callAttr(
+                "extract_seed_artifacts",
+                seedArchive.absolutePath,
+                outputDirectory.absolutePath,
+            ).toString(),
+        )
+        List(result.length()) { index ->
+            val item = result.getJSONObject(index)
+            GeneratedArtifact(item.getString("name"), item.getString("path"), item.getString("kind"))
+        }
+    }
+
     fun patchRom(
         context: Context,
         patch: ByteArray,

@@ -29,6 +29,7 @@ SNES_ROM_EXTENSIONS = frozenset({".sfc", ".smc"})
 MAX_FILL_ATTEMPTS = 50
 MAX_REPEATED_FILL_FAILURES = 20
 MAX_PLAYER_MANIFEST_BYTES = 1024 * 1024
+MAX_GENERATED_ARTIFACT_BYTES = 256 * 1024 * 1024
 COMPONENT_OUTPUT_STABLE_SECONDS = 30.0
 COMPONENT_OUTPUT_POLL_SECONDS = 0.5
 
@@ -112,36 +113,43 @@ def _player_container_manifest(source) -> dict[str, object] | None:
     return manifest
 
 
-def _extract_player_containers(seed_archive: Path, output: Path) -> list[Path]:
-    """Extract every APWorld-created player container from a host seed archive."""
+def _extract_seed_artifacts(seed_archive: Path, output: Path) -> list[tuple[Path, str]]:
+    """Extract all distributable APWorld outputs from a host seed archive."""
     extracted = []
     with zipfile.ZipFile(seed_archive, "r") as archive:
         for member in archive.infolist():
-            if member.is_dir():
+            if member.is_dir() or member.file_size <= 0:
                 continue
+            file_name = Path(member.filename).name
+            if not file_name or Path(file_name).suffix.lower() in {".archipelago", ".apworld"}:
+                continue
+            if member.file_size > MAX_GENERATED_ARTIFACT_BYTES:
+                raise RuntimeError(f"Generated player artifact is too large: {file_name}")
             try:
                 with archive.open(member) as candidate:
                     # ZipExtFile seeking differs between the Android and desktop
                     # zipfile implementations. Player containers are small, so
                     # give the nested ZipFile an ordinary seekable buffer.
-                    manifest = _player_container_manifest(BytesIO(candidate.read()))
+                    data = candidate.read()
+                    manifest = _player_container_manifest(BytesIO(data))
             except (OSError, ValueError, zipfile.BadZipFile):
                 continue
-            if manifest is None:
-                continue
-            file_name = Path(member.filename).name
-            if not file_name:
-                continue
-            patch_path = output / file_name
-            if patch_path.exists():
-                with archive.open(member) as source:
-                    if patch_path.read_bytes() != source.read():
-                        raise RuntimeError(f"Generated player container name is duplicated: {file_name}")
+            artifact_path = output / file_name
+            if artifact_path.exists():
+                if artifact_path.read_bytes() != data:
+                    raise RuntimeError(f"Generated player artifact name is duplicated: {file_name}")
             else:
-                with archive.open(member) as source, patch_path.open("wb") as target:
-                    shutil.copyfileobj(source, target)
-            extracted.append(patch_path)
+                artifact_path.write_bytes(data)
+            extracted.append((artifact_path, "patch" if manifest is not None else "player"))
     return extracted
+
+
+def _extract_player_containers(seed_archive: Path, output: Path) -> list[Path]:
+    """Compatibility wrapper returning only standard APPlayerContainer outputs."""
+    return [
+        path for path, kind in _extract_seed_artifacts(seed_archive, output)
+        if kind == "patch"
+    ]
 
 
 def extract_player_containers(seed_archive: str, output_directory: str) -> str:
@@ -154,6 +162,19 @@ def extract_player_containers(seed_archive: str, output_directory: str) -> str:
     return json.dumps([
         {"name": path.name, "path": str(path), "kind": "patch"}
         for path in extracted
+    ])
+
+
+def extract_seed_artifacts(seed_archive: str, output_directory: str) -> str:
+    """Recover every player-facing output retained inside a saved host seed ZIP."""
+    seed = Path(seed_archive).resolve()
+    output = Path(output_directory).resolve()
+    if not seed.is_file() or not output.is_dir():
+        raise FileNotFoundError("The saved seed archive or history directory is missing")
+    extracted = _extract_seed_artifacts(seed, output)
+    return json.dumps([
+        {"name": path.name, "path": str(path), "kind": kind}
+        for path, kind in extracted
     ])
 
 
@@ -1022,10 +1043,14 @@ def generate(yaml_text: str, work_directory: str, seed: str = "") -> str:
             continue
         files.append({"name": path.name, "path": str(path), "kind": "seed"})
         if path.suffix.lower() == ".zip":
-            for patch_path in _extract_player_containers(path, output):
-                patch_info = {"name": patch_path.name, "path": str(patch_path), "kind": "patch"}
-                patches.append(patch_info)
-                files.append(patch_info)
+            known_paths = {file["path"] for file in files}
+            for artifact_path, kind in _extract_seed_artifacts(path, output):
+                artifact_info = {"name": artifact_path.name, "path": str(artifact_path), "kind": kind}
+                if kind == "patch":
+                    patches.append(artifact_info)
+                if str(artifact_path) not in known_paths:
+                    files.append(artifact_info)
+                    known_paths.add(str(artifact_path))
 
     if not any(Path(file["path"]).suffix.lower() == ".zip" for file in files):
         raise RuntimeError("Generation completed, but no hostable Archipelago seed ZIP was produced")

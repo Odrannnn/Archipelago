@@ -54,6 +54,25 @@ class OfflineGeneratorRuntimeTest(unittest.TestCase):
             # History repair is idempotent when the already-extracted file is identical.
             self.assertEqual(extracted, OFFLINE_GENERATOR._extract_player_containers(seed, output))
 
+    def test_extracts_plain_native_player_output_from_seed_archive(self) -> None:
+        manifest = json.dumps({
+            "game": "Links Awakening DX HD",
+            "seed_name": "ExampleSeed",
+            "slot_name": "Tester",
+        }).encode()
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            seed = output / "seed.zip"
+            with zipfile.ZipFile(seed, "w") as archive:
+                archive.writestr("AP_1.archipelago", b"host data")
+                archive.writestr("nested/AP_1_P1_Tester.apladxhd", manifest)
+
+            extracted = OFFLINE_GENERATOR._extract_seed_artifacts(seed, output)
+
+            self.assertEqual([(output / "AP_1_P1_Tester.apladxhd", "player")], extracted)
+            self.assertEqual(manifest, extracted[0][0].read_bytes())
+            self.assertFalse((output / "AP_1.archipelago").exists())
+
     def test_accepts_registered_standard_patch_output_without_console_allowlist(self) -> None:
         handler = SimpleNamespace(game="Paper Mario", result_file_ending=".z64")
 
