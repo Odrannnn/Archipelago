@@ -24,6 +24,32 @@ val releaseSigningProperties = Properties().apply {
     }
 }
 
+val desktopWorldsRoot = rootProject.file("../../worlds")
+val n64SystemDeclaration = Regex("""system\s*=\s*[\"']N64[\"']""")
+val bundledN64Worlds = desktopWorldsRoot.listFiles()
+    .orEmpty()
+    .filter { worldDirectory ->
+        worldDirectory.isDirectory && worldDirectory.walkTopDown()
+            .filter { it.isFile && it.extension.equals("py", ignoreCase = true) }
+            .any { clientSource ->
+                clientSource.readText().let { source ->
+                    "BizHawkClient" in source && n64SystemDeclaration.containsMatchIn(source)
+                }
+            }
+    }
+    .sortedBy(File::getName)
+
+val generatedN64Python = layout.buildDirectory.dir("generated/bundledN64Python")
+val syncBundledN64Worlds = tasks.register<Sync>("syncBundledN64Worlds") {
+    into(generatedN64Python)
+    bundledN64Worlds.forEach { worldDirectory ->
+        from(worldDirectory) {
+            into("worlds/${worldDirectory.name}")
+            exclude("test/**", "src/**", "**/__pycache__/**")
+        }
+    }
+}
+
 android {
     namespace = "eu.odran.archipelago"
     compileSdk = 35
@@ -68,6 +94,11 @@ android {
 }
 
 chaquopy {
+    sourceSets {
+        getByName("main") {
+            srcDir(syncBundledN64Worlds)
+        }
+    }
     defaultConfig {
         version = "3.12"
         // Archipelago discovers APWorlds with os.scandir and the MARS patcher

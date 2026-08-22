@@ -1,6 +1,7 @@
 [
   {"game": "A Link to the Past", "package": "alttp", "platform": "SNES"},
   {"game": "Castlevania - Circle of the Moon", "package": "cvcotm", "platform": "GBA"},
+  {"game": "Castlevania 64", "package": "cv64", "platform": "N64"},
   {"game": "EarthBound", "package": "earthbound", "platform": "SNES"},
   {"game": "Final Fantasy Mystic Quest", "package": "ffmq", "platform": "SNES"},
   {"game": "Kirby's Dream Land 3", "package": "kdl3", "platform": "SNES"},
