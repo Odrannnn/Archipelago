@@ -1625,10 +1625,17 @@ class MainActivity : Activity() {
     }
 
     private fun launchNativePlayerFile(playerFile: File) {
-        runCatching { PlayerFileLauncher.launch(this, playerFile) }
+        val room = JoinedRoomStore.load(this)
+        val options = PlayerFileLaunchOptions(
+            serverAddress = room?.serverAddress(),
+            password = password.text.toString(),
+            saveSlot = 0,
+        )
+        runCatching { PlayerFileLauncher.launch(this, playerFile, options) }
             .onSuccess {
                 val appName = PlayerFileLauncher.handlerFor(playerFile.name)?.appName ?: "the game"
-                inviteStatus.text = "Opened ${playerFile.name} in $appName. Enter the room address and choose its save position there."
+                val server = room?.serverAddress() ?: "the selected server"
+                inviteStatus.text = "Sent ${playerFile.name}, $server, and save position 1 to $appName."
             }
             .onFailure { error ->
                 inviteStatus.text = "Could not open ${playerFile.name}: ${error.message ?: error.javaClass.simpleName}"
@@ -1655,9 +1662,15 @@ class MainActivity : Activity() {
             inviteStatus.text = "Select the ${expectedHandler?.extension ?: "native player file"} required by this room."
             return
         }
-        runCatching { PlayerFileLauncher.launch(this, uri, name) }
+        val options = PlayerFileLaunchOptions(
+            serverAddress = room?.serverAddress(),
+            password = password.text.toString(),
+            saveSlot = 0,
+        )
+        runCatching { PlayerFileLauncher.launch(this, uri, name, options) }
             .onSuccess {
-                inviteStatus.text = "Opened $name in ${selectedHandler.appName}. Enter the room address and choose its save position there."
+                val server = room?.serverAddress() ?: "the selected server"
+                inviteStatus.text = "Sent $name, $server, and save position 1 to ${selectedHandler.appName}."
             }
             .onFailure { error ->
                 inviteStatus.text = "Could not open $name: ${error.message ?: error.javaClass.simpleName}"

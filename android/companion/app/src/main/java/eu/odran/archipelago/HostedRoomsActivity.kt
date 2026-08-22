@@ -191,12 +191,21 @@ class HostedRoomsActivity : Activity() {
                         text = PlayerFileLauncher.actionLabel(playerFile.name)
                         CompanionUi.stylePrimary(this)
                         setOnClickListener {
-                            runCatching { PlayerFileLauncher.launch(this@HostedRoomsActivity, playerFile) }
+                            val serverAddress = room.lastPort.takeIf { it > 0 }
+                                ?.let { "archipelago.gg:$it" }
+                            runCatching {
+                                PlayerFileLauncher.launch(
+                                    this@HostedRoomsActivity,
+                                    playerFile,
+                                    PlayerFileLaunchOptions(serverAddress = serverAddress, saveSlot = 0),
+                                )
+                            }
                                 .onSuccess {
-                                    val address = room.lastPort.takeIf { it > 0 }
-                                        ?.let { "archipelago.gg:$it" }
-                                        ?: "the room address"
-                                    status.text = "Opened ${playerFile.name}. Enter $address in LADXHD and choose its save position."
+                                    status.text = if (serverAddress == null) {
+                                        "Opened ${playerFile.name} in LADXHD. The room has no current server port."
+                                    } else {
+                                        "Sent ${playerFile.name}, $serverAddress, and save position 1 to LADXHD."
+                                    }
                                 }
                                 .onFailure { showError("Could not open ${playerFile.name}", it) }
                         }

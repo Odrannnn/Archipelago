@@ -35,4 +35,12 @@ class PlayerFileLauncherTest {
             file.delete()
         }
     }
+
+    @Test
+    fun normalizesRoomAddressForLadxHdExtra() {
+        assertEquals(
+            "archipelago.gg:45678",
+            PlayerFileLauncher.normalizedServerAddress("wss://archipelago.gg:45678/room"),
+        )
+    }
 }
