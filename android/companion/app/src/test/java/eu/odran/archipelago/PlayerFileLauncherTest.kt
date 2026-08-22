@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class PlayerFileLauncherTest {
     @Test
@@ -22,5 +23,16 @@ class PlayerFileLauncherTest {
     fun doesNotClaimStandardSeedOrPatchFiles() {
         assertNull(PlayerFileLauncher.handlerFor("seed.zip"))
         assertFalse(PlayerFileLauncher.supports("player.apmc"))
+    }
+
+    @Test
+    fun readsEmbeddedLadxHdPlayerName() {
+        val file = File.createTempFile("player", ".apladxhd")
+        try {
+            file.writeText("""{"game":"Links Awakening DX HD","slot_name":"Marin"}""")
+            assertEquals("Marin", PlayerFileLauncher.embeddedPlayerName(file))
+        } finally {
+            file.delete()
+        }
     }
 }

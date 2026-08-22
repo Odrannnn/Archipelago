@@ -492,6 +492,9 @@ class MainActivity : Activity() {
                 pendingRequiredApWorldPatch = null
                 inviteStatus.text = "APWorld import canceled · player patch not opened."
             }
+            if (requestCode == REQUEST_OPEN_NATIVE_PLAYER_FILE) {
+                inviteStatus.text = "Player-file selection canceled."
+            }
             return
         }
         if (requestCode == REQUEST_MANAGE_ROOMS) {
@@ -513,6 +516,7 @@ class MainActivity : Activity() {
             REQUEST_SAVE_STREAMING_ROM -> patchRomDocuments(data.data!!, data.flags)
             REQUEST_INVITE_APWORLD -> installRequiredInviteApWorld(data.data!!)
             REQUEST_PATCH_APWORLD -> installRequiredPatchApWorld(data.data!!)
+            REQUEST_OPEN_NATIVE_PLAYER_FILE -> openNativePlayerFile(data.data!!)
             REQUEST_SELECT_PATCHED_ROM -> rememberExistingPatchedRom(data.data!!, data.flags)
             REQUEST_SAVE_PATCHED_ROM -> {
                 val export = pendingPatchedRom ?: return
@@ -1336,6 +1340,9 @@ class MainActivity : Activity() {
         }, matchWrapParams())
 
         val isSohRoom = SohLauncher.isGame(room.gameName)
+        val linkedPlayerFiles = linkedPlayerFiles(room)
+        val playerFileHandler = PlayerFileLauncher.handlerForGame(room.gameName)
+            ?: linkedPlayerFiles.firstNotNullOfOrNull { PlayerFileLauncher.handlerFor(it.name) }
         val popTrackerButton = if (isSohRoom) null else Button(this).apply {
             val playerName = room.playerName
             text = when {
@@ -1386,6 +1393,36 @@ class MainActivity : Activity() {
                     )
                 }
             }, matchWrapParams())
+        }
+
+        if (playerFileHandler != null) {
+            joinedRoomContainer.addView(Button(this).apply {
+                text = "Import into ${playerFileHandler.appName}"
+                CompanionUi.stylePrimary(this)
+                setOnClickListener {
+                    when (linkedPlayerFiles.size) {
+                        0 -> chooseNativePlayerFile(playerFileHandler)
+                        1 -> launchNativePlayerFile(linkedPlayerFiles.single())
+                        else -> AlertDialog.Builder(this@MainActivity)
+                            .setTitle("Choose ${playerFileHandler.appName} player")
+                            .setItems(linkedPlayerFiles.map { file ->
+                                PlayerFileLauncher.embeddedPlayerName(file)?.let { "$it · ${file.name}" }
+                                    ?: file.name
+                            }.toTypedArray()) { _, index ->
+                                launchNativePlayerFile(linkedPlayerFiles[index])
+                            }
+                            .setNegativeButton("Cancel", null)
+                            .show()
+                    }
+                }
+            }, matchWrapParams())
+            if (linkedPlayerFiles.isEmpty()) {
+                joinedRoomContainer.addView(TextView(this).apply {
+                    text = "The room is not linked to a local ${playerFileHandler.extension} yet; " +
+                        "the import button will let you choose one."
+                    CompanionUi.styleMuted(this)
+                }, CompanionUi.insetTop(View(this), this, 4))
+            }
         }
 
         if (!isSohRoom && !room.patchedRomUri.isNullOrBlank()) {
@@ -1545,6 +1582,67 @@ class MainActivity : Activity() {
                     "dolphin" in capability.emulatorBackends
             }
 
+    private fun linkedPlayerFiles(room: JoinedRoom): List<File> {
+        val historyId = HostedRoomHistoryLinks.historyId(this, room.roomId) ?: return emptyList()
+        val entry = SeedHistoryStore.list(this).firstOrNull { it.id == historyId } ?: return emptyList()
+        val candidates = entry.files
+            .map { File(it.path) }
+            .filter { file ->
+                file.isFile && PlayerFileLauncher.handlerFor(file.name)?.let { handler ->
+                    room.gameName.isBlank() || handler.gameName.equals(room.gameName, ignoreCase = true)
+                } == true
+            }
+        val playerName = room.playerName?.takeIf { it.isNotBlank() } ?: return candidates
+        val exact = candidates.filter {
+            PlayerFileLauncher.embeddedPlayerName(it).equals(playerName, ignoreCase = true)
+        }
+        return when {
+            exact.isNotEmpty() -> exact
+            candidates.size == 1 -> candidates
+            else -> emptyList()
+        }
+    }
+
+    private fun launchNativePlayerFile(playerFile: File) {
+        runCatching { PlayerFileLauncher.launch(this, playerFile) }
+            .onSuccess {
+                val appName = PlayerFileLauncher.handlerFor(playerFile.name)?.appName ?: "the game"
+                inviteStatus.text = "Opened ${playerFile.name} in $appName. Enter the room address and choose its save position there."
+            }
+            .onFailure { error ->
+                inviteStatus.text = "Could not open ${playerFile.name}: ${error.message ?: error.javaClass.simpleName}"
+            }
+    }
+
+    private fun chooseNativePlayerFile(handler: PlayerFileHandler) {
+        inviteStatus.text = "Choose the ${handler.extension} for this room."
+        startActivityForResult(
+            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "*/*"
+            },
+            REQUEST_OPEN_NATIVE_PLAYER_FILE,
+        )
+    }
+
+    private fun openNativePlayerFile(uri: Uri) {
+        val room = JoinedRoomStore.load(this)
+        val expectedHandler = PlayerFileLauncher.handlerForGame(room?.gameName)
+        val name = queryDisplayName(uri)?.let { File(it).name }.orEmpty()
+        val selectedHandler = PlayerFileLauncher.handlerFor(name)
+        if (expectedHandler == null || selectedHandler != expectedHandler) {
+            inviteStatus.text = "Select the ${expectedHandler?.extension ?: "native player file"} required by this room."
+            return
+        }
+        runCatching { PlayerFileLauncher.launch(this, uri, name) }
+            .onSuccess {
+                inviteStatus.text = "Opened $name in ${selectedHandler.appName}. Enter the room address and choose its save position there."
+            }
+            .onFailure { error ->
+                inviteStatus.text = "Could not open $name: ${error.message ?: error.javaClass.simpleName}"
+            }
+    }
+
     private fun openWebUrl(url: String) {
         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
     }
@@ -1606,6 +1704,7 @@ class MainActivity : Activity() {
         private const val REQUEST_OPEN_PLAYER_PATCH = 307
         private const val REQUEST_PATCH_APWORLD = 308
         private const val REQUEST_SAVE_STREAMING_ROM = 309
+        private const val REQUEST_OPEN_NATIVE_PLAYER_FILE = 310
         private const val MENU_DOWNLOADS_UPDATES = 400
         private const val MENU_DOLPHIN_SOCKET = 401
         private const val MENU_BACKUP_RESTORE = 402

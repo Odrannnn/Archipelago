@@ -5,6 +5,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
+import org.json.JSONObject
 import java.io.File
 
 data class PlayerFileHandler(
@@ -33,6 +34,10 @@ object PlayerFileLauncher {
         fileName.endsWith(handler.extension, ignoreCase = true)
     }
 
+    fun handlerForGame(gameName: String?): PlayerFileHandler? = handlers.firstOrNull { handler ->
+        gameName.equals(handler.gameName, ignoreCase = true)
+    }
+
     fun supports(fileName: String): Boolean = handlerFor(fileName) != null
 
     fun actionLabel(fileName: String): String = handlerFor(fileName)?.let { handler ->
@@ -44,16 +49,62 @@ object PlayerFileLauncher {
         val handler = requireNotNull(handlerFor(playerFile.name)) {
             "No Android game is registered for ${playerFile.extension.ifBlank { "this player file" }}."
         }
+        launchSharedFile(context, playerFile, handler)
+    }
+
+    fun launch(context: Context, source: android.net.Uri, fileName: String) {
+        val safeName = File(fileName).name
+        require(safeName.isNotBlank() && safeName == fileName) { "The selected player filename is invalid." }
+        val handler = requireNotNull(handlerFor(safeName)) {
+            "Select a supported native player file."
+        }
         val sharedDirectory = File(context.cacheDir, "game_imports").apply {
             check(isDirectory || mkdirs()) { "Could not prepare the player-file sharing directory." }
         }
-        val safeName = playerFile.name.takeIf { File(it).name == it && it.isNotBlank() }
-            ?: "player${handler.extension}"
         val sharedFile = File(sharedDirectory, safeName)
-        if (playerFile.canonicalFile != sharedFile.canonicalFile) {
-            playerFile.copyTo(sharedFile, overwrite = true)
+        context.contentResolver.openInputStream(source)?.buffered()?.use { input ->
+            sharedFile.outputStream().buffered().use { output ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                var copied = 0L
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    if (count == 0) continue
+                    copied += count
+                    require(copied <= MAX_PLAYER_FILE_BYTES) { "The selected player file is too large." }
+                    output.write(buffer, 0, count)
+                }
+                require(copied > 0) { "The selected player file is empty." }
+            }
+        } ?: error("Could not open the selected player file.")
+        launchSharedFile(context, sharedFile, handler)
+    }
+
+    fun embeddedPlayerName(playerFile: File): String? {
+        val handler = handlerFor(playerFile.name) ?: return null
+        return when (handler.extension) {
+            ".apladxhd" -> runCatching {
+                JSONObject(playerFile.readText(Charsets.UTF_8)).optString("slot_name").trim()
+                    .takeIf { it.isNotBlank() }
+            }.getOrNull()
+            else -> null
         }
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", sharedFile)
+    }
+
+    private fun launchSharedFile(context: Context, sharedFile: File, handler: PlayerFileHandler) {
+        val stagedFile = if (sharedFile.parentFile == File(context.cacheDir, "game_imports")) {
+            sharedFile
+        } else {
+            val directory = File(context.cacheDir, "game_imports").apply {
+                check(isDirectory || mkdirs()) { "Could not prepare the player-file sharing directory." }
+            }
+            File(directory, sharedFile.name).also { destination ->
+                if (sharedFile.canonicalFile != destination.canonicalFile) {
+                    sharedFile.copyTo(destination, overwrite = true)
+                }
+            }
+        }
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", stagedFile)
         val intent = Intent(Intent.ACTION_VIEW).apply {
             component = ComponentName(handler.packageName, handler.activityName)
             setDataAndType(uri, handler.mimeType)
@@ -70,4 +121,6 @@ object PlayerFileLauncher {
         context.grantUriPermission(handler.packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         context.startActivity(intent)
     }
+
+    private const val MAX_PLAYER_FILE_BYTES = 64L * 1024 * 1024
 }
