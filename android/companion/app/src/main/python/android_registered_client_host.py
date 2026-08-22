@@ -22,6 +22,7 @@ from android_client_runtime import (
     plain,
     process_packet,
     reset_connection,
+    set_force_local_items as set_context_force_local_items,
 )
 
 
@@ -210,6 +211,16 @@ class RegisteredClientHost:
         if ctx is None:
             return
         self._call_soon(self._deliver_packet, ctx, packet_json)
+
+    def set_force_local_items(self, enabled: bool) -> int:
+        ctx = self.ctx
+        if ctx is None:
+            return 0b111 | (0b010 if enabled else 0)
+
+        async def apply() -> int:
+            return set_context_force_local_items(ctx, bool(enabled))
+
+        return int(self._submit(apply()))
 
     def _call_soon(self, callback: Any, *args: Any) -> None:
         loop = self.loop

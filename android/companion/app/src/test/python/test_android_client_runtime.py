@@ -20,6 +20,7 @@ from android_client_runtime import (
     execute_console_command,
     process_packet,
     reset_connection,
+    set_force_local_items,
 )
 
 
@@ -147,6 +148,32 @@ class EmulatorLifecycleTest(unittest.TestCase):
             [{"cmd": "Sync"}, {"cmd": "LocationChecks", "locations": [42]}],
             ctx.outgoing,
         )
+
+
+class LocalItemHandlingOverrideTest(unittest.TestCase):
+    def test_override_adds_only_local_item_delivery_and_restores_upstream_value(self) -> None:
+        ctx = AndroidClientContext(object())
+        ctx.items_handling = 0b101
+
+        self.assertEqual(0b111, set_force_local_items(ctx, True))
+        self.assertEqual(0b111, ctx.items_handling)
+        self.assertEqual(0b101, set_force_local_items(ctx, False))
+
+    def test_override_survives_upstream_recalculation_after_connected(self) -> None:
+        ctx = AndroidClientContext(object())
+        ctx.items_handling = 0b101
+        set_force_local_items(ctx, True)
+
+        class RecalculatingHandler(Handler):
+            def on_package(self, packet_ctx, cmd, args) -> None:
+                super().on_package(packet_ctx, cmd, args)
+                packet_ctx.items_handling = 0b001
+
+        process_packet(ctx, RecalculatingHandler(), json.dumps({"cmd": "Connected"}))
+
+        self.assertEqual(0b011, ctx.items_handling)
+        self.assertEqual(0b001, ctx.android_upstream_items_handling)
+        self.assertEqual(0b001, set_force_local_items(ctx, False))
 
 
 class ClientConsoleTest(unittest.IsolatedAsyncioTestCase):

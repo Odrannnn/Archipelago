@@ -309,6 +309,7 @@ data class JoinedRoom(
     val patchedRomUri: String? = null,
     val gameName: String = "",
     val patchedRomSha256: String? = null,
+    val forceLocalItemsFromServer: Boolean = false,
 )
 
 object JoinedRoomStore {
@@ -340,6 +341,7 @@ object JoinedRoomStore {
             previousPlayerRom?.patchedRomUri,
             selectedGame,
             previousPlayerRom?.patchedRomSha256,
+            previous?.forceLocalItemsFromServer == true,
         )
         rooms.removeAll { it.roomId == joined.roomId }
         rooms += joined
@@ -360,6 +362,15 @@ object JoinedRoomStore {
         )
         val rooms = loadAll(context).filterNot { it.roomId == updated.roomId } + updated
         persist(context, rooms, updated.roomId)
+        return updated
+    }
+
+    @Synchronized
+    fun setForceLocalItemsFromServer(context: Context, roomId: String, enabled: Boolean): JoinedRoom? {
+        val current = loadAll(context).firstOrNull { it.roomId == roomId } ?: return null
+        val updated = current.copy(forceLocalItemsFromServer = enabled)
+        val rooms = loadAll(context).filterNot { it.roomId == roomId } + updated
+        persist(context, rooms, roomId)
         return updated
     }
 
@@ -439,6 +450,7 @@ object JoinedRoomStore {
         put("patchedRomUri", patchedRomUri)
         put("gameName", gameName)
         put("patchedRomSha256", patchedRomSha256)
+        put("forceLocalItemsFromServer", forceLocalItemsFromServer)
     }
 
     private fun roomFromJson(data: JSONObject) = JoinedRoom(
@@ -459,6 +471,7 @@ object JoinedRoomStore {
         data.optString("patchedRomSha256")
             .takeIf { SHA256_PATTERN.matches(it) }
             ?.lowercase(),
+        data.optBoolean("forceLocalItemsFromServer", false),
     )
 
     private val SHA256_PATTERN = Regex("[0-9a-fA-F]{64}")

@@ -946,6 +946,10 @@ class BridgeService : Service() {
                             settings,
                             runtime,
                             detected,
+                            HostedRoomReconnectPolicy.matchingRoom(
+                                settings.address,
+                                JoinedRoomStore.load(this),
+                            )?.forceLocalItemsFromServer == true,
                             ::publishServerDetails,
                             ::publishServerState,
                         )

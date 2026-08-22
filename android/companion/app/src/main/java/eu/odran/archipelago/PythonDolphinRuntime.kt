@@ -58,6 +58,10 @@ class PythonDolphinRuntime(
         runtime.callAttr("validate_active", info.game, info.auth, client.gameId()).toBoolean()
     }
 
+    override fun setForceLocalItems(enabled: Boolean): Int = synchronized(OfflineGenerator.runtimeLock) {
+        runtime.callAttr("set_force_local_items", enabled).toInt()
+    }
+
     override fun processPacket(packet: JSONObject) = synchronized(OfflineGenerator.runtimeLock) {
         runtime.callAttr("process_packet", packet.toString())
         Unit

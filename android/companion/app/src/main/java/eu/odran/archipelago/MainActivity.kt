@@ -26,6 +26,7 @@ import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -1541,6 +1542,63 @@ class MainActivity : Activity() {
             }, matchWrapParams())
         }
         if (!isSohRoom) {
+            moreRoomActions.addView(Switch(this).apply {
+                text = "Force server delivery of local items"
+                isChecked = room.forceLocalItemsFromServer
+                var changingProgrammatically = false
+                setOnCheckedChangeListener { _, enabled ->
+                    if (changingProgrammatically) return@setOnCheckedChangeListener
+
+                    fun applySetting(value: Boolean) {
+                        val updated = JoinedRoomStore.setForceLocalItemsFromServer(
+                            this@MainActivity,
+                            room.roomId,
+                            value,
+                        ) ?: return
+                        renderJoinedRoom(updated)
+                        startForegroundService(
+                            Intent(this@MainActivity, BridgeService::class.java)
+                                .setAction(BridgeService.ACTION_RECONNECT),
+                        )
+                        inviteStatus.text = if (value) {
+                            "Local-item server delivery enabled · reconnecting the active client."
+                        } else {
+                            "Strict upstream item handling restored · reconnecting the active client."
+                        }
+                    }
+
+                    if (!enabled) {
+                        applySetting(false)
+                        return@setOnCheckedChangeListener
+                    }
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Force local items through the server?")
+                        .setMessage(
+                            "This optional compatibility enhancement overrides the game client's upstream " +
+                                "local-items handling for this room. Archipelago will include self-owned " +
+                                "items in ReceivedItems so the client can restore them after a save rollback.\n\n" +
+                                "A ROM which already awards those items locally may grant them twice, " +
+                                "especially consumables. Leave this off for strict desktop-client behavior.",
+                        )
+                        .setNegativeButton("Cancel") { _, _ ->
+                            changingProgrammatically = true
+                            isChecked = false
+                            changingProgrammatically = false
+                        }
+                        .setPositiveButton("Enable override") { _, _ -> applySetting(true) }
+                        .setOnCancelListener {
+                            changingProgrammatically = true
+                            isChecked = false
+                            changingProgrammatically = false
+                        }
+                        .show()
+                }
+            }, CompanionUi.insetTop(View(this), this, 4))
+            moreRoomActions.addView(TextView(this).apply {
+                text = "Off keeps upstream desktop behavior. On requests self-owned items from the server too."
+                CompanionUi.styleMuted(this)
+                setPadding(0, CompanionUi.dp(this@MainActivity, 2), 0, CompanionUi.dp(this@MainActivity, 6))
+            }, matchWrapParams())
             moreRoomActions.addView(Button(this).apply {
                 text = "Force item sync from server"
                 CompanionUi.styleQuiet(this)

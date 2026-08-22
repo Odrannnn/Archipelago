@@ -44,6 +44,8 @@ internal fun JSONObject.runtimeActions(): List<JSONObject> {
 interface PythonGameRuntime : AutoCloseable {
     fun probe(): DetectedGameInfo?
     fun validateActive(info: DetectedGameInfo): Boolean
+    /** Opt-in compatibility override for AP clients whose ROM normally owns local item delivery. */
+    fun setForceLocalItems(enabled: Boolean): Int
     fun processPacket(packet: JSONObject)
     fun executeCommand(command: String): GameRuntimeCommandResult
     fun tick(emulatorAvailable: Boolean = true): GameRuntimeTick

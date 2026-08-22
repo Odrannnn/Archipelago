@@ -17,6 +17,7 @@ from android_client_runtime import (
     plain as _plain,
     process_packet as process_common_packet,
     reset_connection as reset_common_connection,
+    set_force_local_items as set_context_force_local_items,
 )
 
 
@@ -443,6 +444,11 @@ class AndroidBizHawkRuntime:
         if self.ctx is None or self.handler is None:
             return
         process_common_packet(self.ctx, self.handler, packet_json)
+
+    def set_force_local_items(self, enabled: bool) -> int:
+        if self.ctx is None:
+            return 0b111 | (0b010 if enabled else 0)
+        return set_context_force_local_items(self.ctx, bool(enabled))
 
     def execute_command(self, raw: str) -> str:
         if self.ctx is None or self.handler is None:

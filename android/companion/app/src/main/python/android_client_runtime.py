@@ -293,6 +293,8 @@ class AndroidClientContext:
         )
         if self.items_handling is None:
             self.items_handling = 0b111
+        self.android_upstream_items_handling = int(self.items_handling)
+        self.android_force_local_items = False
         self.want_slot_data = bool(
             getattr(type(self), "want_slot_data", True) if desktop_signature else True
         )
@@ -447,6 +449,32 @@ def update_players(ctx: AndroidClientContext, players: list[dict]) -> None:
         ctx.player_names[slot] = player.get("alias") or player.get("name") or str(slot)
 
 
+LOCAL_ITEMS_HANDLING_BIT = 0b010
+
+
+def set_force_local_items(ctx: Any, enabled: bool) -> int:
+    """Apply Android's opt-in local-item delivery policy without changing the upstream default."""
+    current = int(getattr(ctx, "items_handling", 0b111) or 0)
+    was_forced = bool(getattr(ctx, "android_force_local_items", False))
+    if not hasattr(ctx, "android_upstream_items_handling") or not was_forced:
+        ctx.android_upstream_items_handling = current
+    ctx.android_force_local_items = bool(enabled)
+    upstream = int(ctx.android_upstream_items_handling)
+    ctx.items_handling = upstream | LOCAL_ITEMS_HANDLING_BIT if enabled else upstream
+    return int(ctx.items_handling)
+
+
+def _preserve_forced_local_items(ctx: Any, handling_before: int) -> None:
+    """Keep the override active when an upstream handler recalculates handling after login."""
+    handling_after = int(getattr(ctx, "items_handling", handling_before) or 0)
+    if bool(getattr(ctx, "android_force_local_items", False)):
+        if handling_after != handling_before:
+            ctx.android_upstream_items_handling = handling_after
+        ctx.items_handling = handling_after | LOCAL_ITEMS_HANDLING_BIT
+    else:
+        ctx.android_upstream_items_handling = handling_after
+
+
 def process_packet(
     ctx: AndroidClientContext,
     handler: Any,
@@ -556,7 +584,9 @@ def process_packet(
         if float(data.get("time", 0)) > ctx.last_death_link:
             ctx.on_deathlink(data)
 
+    handling_before = int(getattr(ctx, "items_handling", 0b111) or 0)
     handler.on_package(ctx, cmd, args)
+    _preserve_forced_local_items(ctx, handling_before)
     return cmd, args
 
 

@@ -19,6 +19,7 @@ class PythonArchipelagoSession(
     private val settings: ServerSettings,
     private val runtime: PythonGameRuntime,
     private val romInfo: DetectedGameInfo,
+    private val forceLocalItemsFromServer: Boolean,
     private val onStatus: (String) -> Unit,
     private val onConnectionState: (RoomConnectionState, String?) -> Unit,
 ) : WebSocketListener(), RoomSession {
@@ -37,6 +38,7 @@ class PythonArchipelagoSession(
     private var triedSecureFallback = false
     private var lastRuntimeError = ""
     private var lastRuntimeDiagnostic = ""
+    private var effectiveItemsHandling = romInfo.itemsHandling
     @Volatile private var handshakeDeadline = Long.MAX_VALUE
 
     override val connectedSlot: Int?
@@ -47,6 +49,14 @@ class PythonArchipelagoSession(
         automaticRetryAllowed = true
         triedSecureFallback = settings.address.startsWith("wss://", ignoreCase = true)
         runtime.resetConnection()
+        effectiveItemsHandling = runtime.setForceLocalItems(forceLocalItemsFromServer)
+        if (forceLocalItemsFromServer) {
+            ClientConsoleStore.append(
+                "status",
+                "Compatibility override active · the server will deliver self-owned local items " +
+                    "(items_handling=$effectiveItemsHandling).",
+            )
+        }
         open(settings.address)
     }
 
@@ -216,7 +226,7 @@ class PythonArchipelagoSession(
             put("AP")
             romInfo.tags.filterNot { it == "AP" }.forEach(::put)
         })
-        .put("items_handling", romInfo.itemsHandling)
+        .put("items_handling", effectiveItemsHandling)
         .put("uuid", settings.clientId)
         .put("game", romInfo.game)
         .put("slot_data", romInfo.wantSlotData)
