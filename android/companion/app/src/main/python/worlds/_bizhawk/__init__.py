@@ -1,7 +1,7 @@
 """Android implementation of Archipelago's standard BizHawk connector API.
 
-The imported game client stays unchanged. Calls are forwarded to the companion
-and executed atomically by the custom mGBA core on its emulation thread.
+Imported game clients stay unchanged. Calls are forwarded to the active
+Android emulator-memory backend (custom mGBA or RetroArch Network Commands).
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ class SyncError(Exception):
 def _backend(ctx: Any) -> Any:
     backend = getattr(ctx, "backend", None)
     if backend is None:
-        raise NotConnectedError("The Android mGBA bridge is not connected")
+        raise NotConnectedError("The Android emulator memory bridge is not connected")
     return backend
 
 

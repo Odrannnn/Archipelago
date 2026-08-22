@@ -33,7 +33,7 @@ internal fun preferredSniTransportOrder(preferSnesFallback: Boolean = false): Li
  * threads while RetroArch is in the foreground.
  */
 class BridgeService : Service() {
-    private enum class EmulatorTransport { MGBA, SNI, DOLPHIN }
+    private enum class EmulatorTransport { MGBA, N64, SNI, DOLPHIN }
 
     private data class ActiveEmulator(
         val transport: EmulatorTransport,
@@ -53,6 +53,7 @@ class BridgeService : Service() {
     @Volatile private var running = false
     @Volatile private var stopping = false
     @Volatile private var activeBridge: MGBABridgeClient? = null
+    @Volatile private var activeN64Client: RetroArchNetworkClient? = null
     @Volatile private var activeSniClient: SniMemoryClient? = null
     @Volatile private var activeDolphinClient: DolphinMemoryClient? = null
     @Volatile private var activeSession: RoomSession? = null
@@ -74,6 +75,7 @@ class BridgeService : Service() {
             stopping = true
             running = false
             activeBridge?.close()
+            activeN64Client?.close()
             activeSniClient?.close()
             activeDolphinClient?.close()
             activeSession?.close()
@@ -86,6 +88,7 @@ class BridgeService : Service() {
             reconnectRequested = true
             activeSession?.close()
             activeBridge?.close()
+            activeN64Client?.close()
             activeSniClient?.close()
         }
         if (!running) {
@@ -102,6 +105,8 @@ class BridgeService : Service() {
         running = false
         activeBridge?.close()
         activeBridge = null
+        activeN64Client?.close()
+        activeN64Client = null
         activeSniClient?.close()
         activeSniClient = null
         activeDolphinClient?.close()
@@ -141,6 +146,9 @@ class BridgeService : Service() {
         var mgbaBridge: MGBABridgeClient? = null
         var gbaRuntime: PythonGbaRuntime? = null
         var gbaGame: DetectedGameInfo? = null
+        var n64Client: RetroArchNetworkClient? = null
+        var n64Runtime: PythonN64Runtime? = null
+        var n64Game: DetectedGameInfo? = null
         var sniClient: SniMemoryClient? = null
         var sniRuntime: PythonSniRuntime? = null
         var sniGame: DetectedGameInfo? = null
@@ -165,9 +173,11 @@ class BridgeService : Service() {
         var roomWakeAttempt: Future<Result<HostedRoom>>? = null
         var roomWakeRoomId: String? = null
         var nextMgbaAttempt = 0L
+        var nextN64Attempt = 0L
         var nextSniAttempt = 0L
         var preferSnesFallback = false
         var nextGbaProbe = 0L
+        var nextN64Probe = 0L
         var nextSniProbe = 0L
         var nextSessionAttempt = 0L
         val roomReconnectBackoff = RoomReconnectBackoff()
@@ -178,6 +188,7 @@ class BridgeService : Service() {
         var dolphinPeakRequestRate = 0.0
         var dolphinPeakBandwidth = 0.0
         var lastDolphinUnavailableLog = 0L
+        var n64ProbeHealthy = false
         var sniMemoryAttached = false
         var sniResetGeneration: Long? = null
         var sniProbeHealthy = false
@@ -187,13 +198,17 @@ class BridgeService : Service() {
             RETROARCH_CONSECUTIVE_FAILURE_LIMIT,
             RETROARCH_OUTAGE_LIMIT_MILLIS,
         )
+        val n64FailureGate = TransportFailureGate(
+            RETROARCH_CONSECUTIVE_FAILURE_LIMIT,
+            RETROARCH_OUTAGE_LIMIT_MILLIS,
+        )
         var serverPaused = false
         var snesPaused = false
 
         try {
             publish(
                 "Waiting for an Archipelago emulator bridge…",
-                "SNES games use RetroArch nightly Network Commands on UDP 127.0.0.1:${RetroArchNetworkClient.DEFAULT_PORT}; " +
+                "N64 and SNES games use RetroArch nightly Network Commands on UDP 127.0.0.1:${RetroArchNetworkClient.DEFAULT_PORT}; " +
                     "the optional custom SNES9x bridge on TCP 127.0.0.1:${Snes9xBridgeClient.DEFAULT_PORT} is a fallback. Dolphin Archipelago " +
                     "uses its dedicated localhost memory service on TCP 127.0.0.1:${DolphinSocketClient.DEFAULT_PORT}.",
             )
@@ -655,7 +670,95 @@ class BridgeService : Service() {
                     }
                 }
 
-                if (!snesPaused && sniClient == null && now >= nextSniAttempt) {
+                if (n64Client == null && now >= nextN64Attempt) {
+                    var candidate: RetroArchNetworkClient? = null
+                    try {
+                        candidate = RetroArchNetworkClient()
+                        val version = candidate.version()
+                        val content = candidate.contentStatus()
+                        require(content.isPlaying && content.isNintendo64) {
+                            "RetroArch is not running Nintendo 64 content"
+                        }
+                        val existing = n64Runtime
+                        if (existing == null) {
+                            n64Runtime = PythonN64Runtime(this, candidate)
+                        } else {
+                            existing.attach(candidate)
+                            existing.emulatorReattached()
+                        }
+                        n64Client = candidate
+                        activeN64Client = candidate
+                        n64ProbeHealthy = false
+                        n64FailureGate.reset()
+                        nextN64Probe = 0L
+
+                        // The same RetroArch command port may previously have been
+                        // inspected as SNES. Once GET_STATUS identifies N64 content,
+                        // detach that interpretation and keep one authoritative runtime.
+                        val oldSni = sniClient
+                        if (oldSni != null) {
+                            sniRuntime?.detach(oldSni)
+                            oldSni.close()
+                            if (activeSniClient === oldSni) activeSniClient = null
+                            sniClient = null
+                            sniGame = null
+                            sniMemoryAttached = false
+                            sniProbeHealthy = false
+                        }
+                        publish(
+                            "RetroArch $version connected · Nintendo 64 · inspecting BizHawk-compatible ROM…",
+                        )
+                        Log.i(TAG, "Connected generic N64 transport for ${content.content}")
+                    } catch (_: Exception) {
+                        candidate?.close()
+                        if (activeN64Client === candidate) activeN64Client = null
+                        nextN64Attempt = now + TimeUnit.SECONDS.toMillis(1)
+                    }
+                }
+
+                val connectedN64 = n64Client
+                val currentN64Runtime = n64Runtime
+                if (connectedN64 != null && currentN64Runtime != null && now >= nextN64Probe) {
+                    try {
+                        val content = connectedN64.contentStatus()
+                        require(content.isPlaying && content.isNintendo64) {
+                            "Nintendo 64 content is no longer active"
+                        }
+                        n64Game = if (n64Game?.let(currentN64Runtime::validateActive) == true) {
+                            n64Game
+                        } else {
+                            currentN64Runtime.probe()
+                        }
+                        n64ProbeHealthy = true
+                        n64FailureGate.reset()
+                        nextN64Probe = now + TimeUnit.SECONDS.toMillis(1)
+                    } catch (error: Exception) {
+                        val failedAt = System.currentTimeMillis()
+                        n64ProbeHealthy = false
+                        val keepRuntime = !connectedN64.isClosed &&
+                            !n64FailureGate.recordFailure(failedAt)
+                        if (keepRuntime) {
+                            nextN64Probe = failedAt + RETROARCH_PROBE_RETRY_MILLIS
+                            Log.w(
+                                TAG,
+                                "RetroArch N64 transient failure " +
+                                    "${n64FailureGate.consecutiveFailures}/" +
+                                    "$RETROARCH_CONSECUTIVE_FAILURE_LIMIT; preserving runtime",
+                                error,
+                            )
+                        } else {
+                            n64FailureGate.reset()
+                            currentN64Runtime.detach(connectedN64)
+                            connectedN64.close()
+                            if (activeN64Client === connectedN64) activeN64Client = null
+                            n64Client = null
+                            nextN64Attempt = failedAt + TimeUnit.SECONDS.toMillis(1)
+                            Log.w(TAG, "Nintendo 64 memory bridge paused after sustained failure", error)
+                        }
+                    }
+                }
+
+                if (!snesPaused && n64Client == null && sniClient == null && now >= nextSniAttempt) {
                     var candidate: SniMemoryClient? = null
                     try {
                         val connected = connectPreferredSniClient(preferSnesFallback)
@@ -806,6 +909,9 @@ class BridgeService : Service() {
                 val gbaCandidate = gbaGame?.takeIf { mgbaBridge != null }?.let {
                     ActiveEmulator(EmulatorTransport.MGBA, checkNotNull(gbaRuntime), it)
                 }
+                val n64Candidate = n64Game?.takeIf { n64Client != null }?.let {
+                    ActiveEmulator(EmulatorTransport.N64, checkNotNull(n64Runtime), it)
+                }
                 val sniCandidate = sniGame?.takeIf { sniClient != null }?.let {
                     ActiveEmulator(EmulatorTransport.SNI, checkNotNull(sniRuntime), it)
                 }
@@ -814,18 +920,21 @@ class BridgeService : Service() {
                 }
                 val currentCandidate = when (activeTransport) {
                     EmulatorTransport.MGBA -> gbaCandidate
+                    EmulatorTransport.N64 -> n64Candidate
                     EmulatorTransport.SNI -> sniCandidate
                     EmulatorTransport.DOLPHIN -> dolphinCandidate
                     null -> null
                 }
                 val alternateCandidate = when (activeTransport) {
-                    EmulatorTransport.MGBA -> sniCandidate ?: dolphinCandidate
-                    EmulatorTransport.SNI -> gbaCandidate ?: dolphinCandidate
-                    EmulatorTransport.DOLPHIN -> sniCandidate ?: gbaCandidate
-                    null -> dolphinCandidate ?: sniCandidate ?: gbaCandidate
+                    EmulatorTransport.MGBA -> n64Candidate ?: sniCandidate ?: dolphinCandidate
+                    EmulatorTransport.N64 -> gbaCandidate ?: sniCandidate ?: dolphinCandidate
+                    EmulatorTransport.SNI -> n64Candidate ?: gbaCandidate ?: dolphinCandidate
+                    EmulatorTransport.DOLPHIN -> n64Candidate ?: sniCandidate ?: gbaCandidate
+                    null -> dolphinCandidate ?: n64Candidate ?: sniCandidate ?: gbaCandidate
                 }
                 val activeTransportUnavailable = when (activeTransport) {
                     EmulatorTransport.MGBA -> mgbaBridge == null
+                    EmulatorTransport.N64 -> n64Client == null
                     EmulatorTransport.SNI -> sniClient == null
                     EmulatorTransport.DOLPHIN -> dolphinClient == null
                     null -> false
@@ -865,6 +974,7 @@ class BridgeService : Service() {
                     } else {
                         val emulator = when (desired.transport) {
                             EmulatorTransport.MGBA -> "mGBA"
+                            EmulatorTransport.N64 -> "RetroArch N64"
                             EmulatorTransport.SNI -> "SNES emulator"
                             EmulatorTransport.DOLPHIN -> "Dolphin"
                         }
@@ -877,6 +987,7 @@ class BridgeService : Service() {
                 if (detected != null && runtime != null) {
                     val emulatorAvailable = when (activeTransport) {
                         EmulatorTransport.MGBA -> mgbaBridge != null
+                        EmulatorTransport.N64 -> n64Client != null && n64ProbeHealthy
                         EmulatorTransport.SNI -> sniClient != null && sniProbeHealthy
                         EmulatorTransport.DOLPHIN -> dolphinClient != null
                         null -> false
@@ -1003,7 +1114,7 @@ class BridgeService : Service() {
                     }
                 }
 
-                if (mgbaBridge != null || sniClient != null || dolphinClient != null || session != null) {
+                if (mgbaBridge != null || n64Client != null || sniClient != null || dolphinClient != null || session != null) {
                     TimeUnit.MILLISECONDS.sleep(125)
                 } else {
                     TimeUnit.MILLISECONDS.sleep(500)
@@ -1022,9 +1133,11 @@ class BridgeService : Service() {
             runCatching { oldSession?.close() }
             if (activeSession === oldSession) activeSession = null
             runCatching { gbaRuntime?.close() }
+            runCatching { n64Runtime?.close() }
             runCatching { sniRuntime?.close() }
             runCatching { dolphinRuntime?.close() }
             runCatching { mgbaBridge?.close() }
+            runCatching { n64Client?.close() }
             runCatching { sniClient?.close() }
             runCatching { pendingDolphinClient?.close() }
             dolphinAttempt?.cancel(true)
@@ -1032,6 +1145,7 @@ class BridgeService : Service() {
             runCatching { dolphinClient?.close() }
             dolphinProbe?.cancel(true)
             if (activeBridge === mgbaBridge) activeBridge = null
+            if (activeN64Client === n64Client) activeN64Client = null
             if (activeSniClient === sniClient) activeSniClient = null
             if (activeDolphinClient === dolphinClient || activeDolphinClient === pendingDolphinClient) {
                 activeDolphinClient = null

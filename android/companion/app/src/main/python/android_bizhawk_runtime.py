@@ -1,4 +1,4 @@
-"""Run supported Archipelago clients over the companion's mGBA bridge."""
+"""Run standard Archipelago BizHawk clients over Android memory backends."""
 
 from __future__ import annotations
 
@@ -336,8 +336,8 @@ class AndroidBizHawkRuntime:
         self._load_worlds()
 
     def _load_worlds(self) -> None:
-        from offline_generator import _load_standard_mgba_clients
-        _load_standard_mgba_clients(self.work_directory)
+        from offline_generator import _load_standard_bizhawk_clients
+        _load_standard_bizhawk_clients(self.work_directory)
 
     def _run(self, awaitable):
         result = self.loop.run_until_complete(awaitable)
@@ -345,12 +345,12 @@ class AndroidBizHawkRuntime:
         return result
 
     def probe(self) -> str:
-        """Find the supported client which accepts the active mGBA ROM."""
+        """Find the supported standard BizHawk client which accepts the active ROM."""
         from worlds._bizhawk.client import AutoBizHawkClientRegister
 
         self.last_error = ""
         system = str(self.backend.getSystem())
-        compatible_systems = {"GBA"} if system == "GBA" else {"GB", "GBC"}
+        compatible_systems = {system}
 
         for systems, handlers in AutoBizHawkClientRegister.game_handlers.items():
             if compatible_systems.isdisjoint(systems):
@@ -370,7 +370,7 @@ class AndroidBizHawkRuntime:
                 self.ctx = ctx
                 return json.dumps({
                     "matched": True,
-                    "game": ctx.game or getattr(handler, "game", "Imported mGBA game"),
+                    "game": ctx.game or getattr(handler, "game", f"Imported {system} game"),
                     "auth": ctx.auth or "",
                     "items_handling": int(ctx.items_handling),
                     "want_slot_data": bool(ctx.want_slot_data),
@@ -453,7 +453,7 @@ class AndroidBizHawkRuntime:
     def execute_command(self, raw: str) -> str:
         if self.ctx is None or self.handler is None:
             return json.dumps({
-                "console": [{"kind": "error", "text": "No mGBA game client is active."}],
+                "console": [{"kind": "error", "text": "No BizHawk-compatible game client is active."}],
                 "actions": [],
             })
         with capture_console_logs(self.ctx):
@@ -461,7 +461,7 @@ class AndroidBizHawkRuntime:
 
     def tick(self, watch_game: bool = True) -> str:
         if self.ctx is None or self.handler is None:
-            return json.dumps({"messages": [], "disconnect": False, "error": "No mGBA client is active"})
+            return json.dumps({"messages": [], "disconnect": False, "error": "No BizHawk-compatible client is active"})
         error = ""
         self.ctx.emulator_lifecycle.begin_tick(watch_game)
         if watch_game:

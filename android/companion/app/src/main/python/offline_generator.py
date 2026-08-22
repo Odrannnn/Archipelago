@@ -530,9 +530,14 @@ def _load_emulator_clients(work_directory: str):
     return worlds, registry
 
 
-def _load_standard_mgba_clients(work_directory: str):
-    """Register conventional GBA, GB, and GBC BizHawk clients."""
+def _load_standard_bizhawk_clients(work_directory: str):
+    """Register conventional BizHawk clients without naming individual games."""
     return _load_emulator_clients(work_directory)
+
+
+def _load_standard_mgba_clients(work_directory: str):
+    """Backward-compatible alias for older Android runtime callers."""
+    return _load_standard_bizhawk_clients(work_directory)
 
 
 def _load_standard_sni_clients(work_directory: str):
@@ -797,7 +802,7 @@ def yaml_from_player_forms(players_json: str) -> str:
 
 def world_catalog(work_directory: str) -> str:
     """Describe loaded world capabilities without promising a live adapter."""
-    worlds, registry = _load_standard_mgba_clients(work_directory)
+    worlds, registry = _load_standard_bizhawk_clients(work_directory)
     _load_standard_sni_clients(work_directory)
     from worlds.Files import AutoPatchRegister
     from worlds.AutoSNIClient import AutoSNIClientRegister
@@ -807,6 +812,12 @@ def world_catalog(work_directory: str) -> str:
         game
         for systems, handlers in AutoBizHawkClientRegister.game_handlers.items()
         if not {"GBA", "GB", "GBC"}.isdisjoint(systems)
+        for game in handlers
+    }
+    standard_n64_clients = {
+        game
+        for systems, handlers in AutoBizHawkClientRegister.game_handlers.items()
+        if "N64" in systems
         for game in handlers
     }
     from android_bizhawk_runtime import custom_client_games
@@ -822,6 +833,8 @@ def world_catalog(work_directory: str) -> str:
         emulator_backends = _registered_client_backends(game)
         if game in standard_mgba_clients or game in custom_mgba_games:
             emulator_backends.add("mgba")
+        if game in standard_n64_clients:
+            emulator_backends.add("retroarch_n64")
         if game in sni_games:
             emulator_backends.add("sni")
         if game in dolphin_games:

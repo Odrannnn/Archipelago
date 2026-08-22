@@ -31,6 +31,31 @@ class RetroArchNetworkClientTest {
     }
 
     @Test
+    fun parsesNintendo64ContentStatus() = withServer { server, executor ->
+        val exchange = executor.submit(Callable {
+            val request = receive(server)
+            respond(
+                server,
+                request.packet,
+                "GET_STATUS PLAYING Nintendo 64,Paper Mario Player1.z64,mupen64plus_next_gles3\n",
+            )
+            request.text
+        })
+
+        RetroArchNetworkClient(
+            port = server.localPort,
+            steadyCommandTimeoutMs = 80,
+            recoveryCommandTimeoutMs = 80,
+        ).use { client ->
+            val status = client.contentStatus()
+            assertEquals("GET_STATUS\n", exchange.get(2, TimeUnit.SECONDS))
+            assertTrue(status.isPlaying)
+            assertTrue(status.isNintendo64)
+            assertEquals("Paper Mario Player1.z64", status.content)
+        }
+    }
+
+    @Test
     fun timeoutRotatesSocketAndRetriesSafeVersionQuery() = withServer { server, executor ->
         val exchange = executor.submit(Callable {
             val first = receive(server)

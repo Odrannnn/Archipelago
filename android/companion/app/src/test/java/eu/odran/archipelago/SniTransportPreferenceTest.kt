@@ -33,4 +33,12 @@ class SniTransportPreferenceTest {
             RetroArchLauncher.coreFileNameFor(snes = true),
         )
     }
+
+    @Test
+    fun `direct N64 launch selects Mupen64Plus Next`() {
+        assertEquals(
+            "mupen64plus_next_gles3_libretro_android.so",
+            RetroArchLauncher.coreFileNameFor("Paper Mario Player1.z64"),
+        )
+    }
 }

@@ -18,6 +18,7 @@ object RetroArchLauncher {
     private const val ACTIVITY_NAME = "com.retroarch.browser.retroactivity.RetroActivityFuture"
     private const val MGBA_CORE_FILE_NAME = "mgba_apbridge_v9_libretro_android.so"
     internal const val SNES_CORE_FILE_NAME = "bsnes_mercury_performance_libretro_android.so"
+    internal const val N64_CORE_FILE_NAME = "mupen64plus_next_gles3_libretro_android.so"
     private const val EXTERNAL_STORAGE_AUTHORITY = "com.android.externalstorage.documents"
     private const val DOWNLOADS_AUTHORITY = "com.android.providers.downloads.documents"
 
@@ -41,7 +42,7 @@ object RetroArchLauncher {
         val externalFiles = File(storage, "Android/data/$PACKAGE_NAME/files")
         val configPath = File(externalFiles, "retroarch.cfg").absolutePath
         val romReference = localPath(context, savedRom) ?: savedRom.toString()
-        val coreFileName = coreFileNameFor(isSnesRom(context, savedRom))
+        val coreFileName = coreFileNameFor(context, savedRom)
         val corePath = File(app.dataDir, "cores/$coreFileName").absolutePath
         val resumeExisting = isRunningRom(gameName, playerSlot, serverAddress)
 
@@ -153,9 +154,37 @@ object RetroArchLauncher {
     }.getOrNull()
 
     fun isSnesRom(context: Context, uri: Uri): Boolean {
-        val name = queryDisplayName(context, uri) ?: uri.lastPathSegment.orEmpty()
+        val name = displayName(context, uri)
         return name.endsWith(".sfc", ignoreCase = true) || name.endsWith(".smc", ignoreCase = true)
     }
+
+    fun isN64Rom(context: Context, uri: Uri): Boolean {
+        val name = displayName(context, uri)
+        return name.endsWith(".z64", ignoreCase = true) ||
+            name.endsWith(".n64", ignoreCase = true) ||
+            name.endsWith(".v64", ignoreCase = true)
+    }
+
+    fun coreDescription(context: Context, uri: Uri): String = when {
+        isSnesRom(context, uri) -> "the bsnes-mercury Performance core and Network Commands."
+        isN64Rom(context, uri) -> "the Mupen64Plus-Next GLES3 core and Network Commands."
+        else -> "the custom mGBA Archipelago core."
+    }
+
+    private fun coreFileNameFor(context: Context, uri: Uri): String =
+        coreFileNameFor(displayName(context, uri))
+
+    internal fun coreFileNameFor(fileName: String): String = when {
+        fileName.endsWith(".sfc", ignoreCase = true) ||
+            fileName.endsWith(".smc", ignoreCase = true) -> SNES_CORE_FILE_NAME
+        fileName.endsWith(".z64", ignoreCase = true) ||
+            fileName.endsWith(".n64", ignoreCase = true) ||
+            fileName.endsWith(".v64", ignoreCase = true) -> N64_CORE_FILE_NAME
+        else -> MGBA_CORE_FILE_NAME
+    }
+
+    private fun displayName(context: Context, uri: Uri): String =
+        queryDisplayName(context, uri) ?: uri.lastPathSegment.orEmpty()
 
     internal fun coreFileNameFor(snes: Boolean): String =
         if (snes) SNES_CORE_FILE_NAME else MGBA_CORE_FILE_NAME

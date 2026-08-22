@@ -24,6 +24,21 @@ internal data class RetroArchNetworkMetrics(
     val maxRttMs: Double,
 )
 
+internal data class RetroArchContentStatus(
+    val state: String,
+    val system: String,
+    val content: String,
+) {
+    val isPlaying: Boolean get() = state.equals("PLAYING", ignoreCase = true)
+    val isNintendo64: Boolean get() =
+        system.contains("Nintendo 64", ignoreCase = true) ||
+            content.let { name ->
+                name.endsWith(".z64", ignoreCase = true) ||
+                    name.endsWith(".n64", ignoreCase = true) ||
+                    name.endsWith(".v64", ignoreCase = true)
+            }
+}
+
 private class RetroArchTransportException(message: String, cause: Throwable) :
     IllegalStateException(message, cause)
 
@@ -91,19 +106,50 @@ class RetroArchNetworkClient internal constructor(
         }
     }
 
+    @Synchronized
+    internal fun contentStatus(): RetroArchContentStatus = safeQuery("GET_STATUS") { response ->
+        val prefix = "GET_STATUS "
+        if (!response.startsWith(prefix)) {
+            throw RetroArchUnexpectedResponseException("Unexpected RetroArch GET_STATUS response: $response")
+        }
+        val value = response.removePrefix(prefix).trim()
+        if (value.equals("CONTENTLESS", ignoreCase = true)) {
+            RetroArchContentStatus("CONTENTLESS", "", "")
+        } else {
+            val state = value.substringBefore(' ').trim()
+            val fields = value.substringAfter(' ', "").split(',', limit = 3)
+            RetroArchContentStatus(
+                state = state,
+                system = fields.getOrElse(0) { "" }.trim(),
+                content = fields.getOrElse(1) { "" }.trim(),
+            ).also {
+                if (it.state.isBlank()) {
+                    throw RetroArchUnexpectedResponseException(
+                        "Unexpected RetroArch GET_STATUS response: $response",
+                    )
+                }
+            }
+        }
+    }
+
     override fun checkStatus(): SniTransportStatus =
         SniTransportStatus("RetroArch ${version()} Network Commands")
 
     @Synchronized
     override fun readSni(address: Long, length: Int): ByteArray {
+        return readCoreMemory(addressMapper.toBusAddress(address), length)
+    }
+
+    @Synchronized
+    internal fun readCoreMemory(address: Long, length: Int): ByteArray {
+        require(address in 0..0xffff_ffffL) { "RetroArch core-memory address is outside the 32-bit bus" }
         require(length in 1..MAX_READ_SIZE) { "RetroArch read length must be 1..$MAX_READ_SIZE" }
-        val busAddress = addressMapper.toBusAddress(address)
         return safeQuery(
-            "READ_CORE_MEMORY ${busAddress.toString(16).padStart(6, '0')} $length",
+            "READ_CORE_MEMORY ${address.toString(16).padStart(8, '0')} $length",
         ) { response ->
-            val parts = memoryResponseParts(response, "READ_CORE_MEMORY", busAddress)
+            val parts = memoryResponseParts(response, "READ_CORE_MEMORY", address)
             if (parts[2] == "-1") {
-                error("RetroArch could not read SNES memory: ${parts.drop(3).joinToString(" ")}")
+                error("RetroArch could not read core memory: ${parts.drop(3).joinToString(" ")}")
             }
             if (parts.size != length + 2) {
                 throw RetroArchUnexpectedResponseException(
@@ -124,21 +170,27 @@ class RetroArchNetworkClient internal constructor(
 
     @Synchronized
     override fun writeSni(address: Long, data: ByteArray) {
+        writeCoreMemory(addressMapper.toBusAddress(address), data)
+    }
+
+    @Synchronized
+    internal fun writeCoreMemory(address: Long, data: ByteArray) {
+        require(address in 0..0xffff_ffffL) { "RetroArch core-memory address is outside the 32-bit bus" }
         require(data.isNotEmpty()) { "RetroArch writes may not be empty" }
         var offset = 0
         while (offset < data.size) {
             val chunkSize = minOf(MAX_WRITE_CHUNK_SIZE, data.size - offset)
-            writeChunk(address + offset, data, offset, chunkSize)
+            writeCoreChunk(address + offset, data, offset, chunkSize)
             offset += chunkSize
         }
     }
 
-    private fun writeChunk(address: Long, data: ByteArray, offset: Int, length: Int) {
-        val busAddress = addressMapper.toBusAddress(address)
+    private fun writeCoreChunk(address: Long, data: ByteArray, offset: Int, length: Int) {
+        val busAddress = address
         val payload = (offset until offset + length).joinToString(" ") { index ->
             "%02x".format(data[index].toInt() and 0xff)
         }
-        val command = "WRITE_CORE_MEMORY ${busAddress.toString(16).padStart(6, '0')} $payload"
+        val command = "WRITE_CORE_MEMORY ${busAddress.toString(16).padStart(8, '0')} $payload"
         val response = try {
             commandOnce(command)
         } catch (error: RetroArchTransportException) {
@@ -160,7 +212,7 @@ class RetroArchNetworkClient internal constructor(
             )
         }
         if (parts[2] == "-1") {
-            error("RetroArch could not write SNES memory: ${parts.drop(3).joinToString(" ")}")
+            error("RetroArch could not write core memory: ${parts.drop(3).joinToString(" ")}")
         }
         if (parts[2].toIntOrNull() != length) {
             unrecoveredFailures++

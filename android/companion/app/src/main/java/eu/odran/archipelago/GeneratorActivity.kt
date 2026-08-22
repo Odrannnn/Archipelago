@@ -2050,8 +2050,11 @@ class GeneratorActivity : Activity() {
                     if (export.first.endsWith(".gba", ignoreCase = true) ||
                         export.first.endsWith(".gbc", ignoreCase = true) ||
                         export.first.endsWith(".gb", ignoreCase = true) ||
-                        export.first.endsWith(".sfc", ignoreCase = true) ||
-                        export.first.endsWith(".smc", ignoreCase = true)
+                         export.first.endsWith(".sfc", ignoreCase = true) ||
+                         export.first.endsWith(".smc", ignoreCase = true) ||
+                         export.first.endsWith(".z64", ignoreCase = true) ||
+                         export.first.endsWith(".n64", ignoreCase = true) ||
+                         export.first.endsWith(".v64", ignoreCase = true)
                     ) {
                         offerRetroArchLaunch(export.first, destination)
                     }
@@ -2062,12 +2065,7 @@ class GeneratorActivity : Activity() {
     }
 
     private fun offerRetroArchLaunch(name: String, uri: Uri) {
-        val snes = name.endsWith(".sfc", ignoreCase = true) || name.endsWith(".smc", ignoreCase = true)
-        val coreDescription = if (snes) {
-            "the bsnes-mercury Performance core and Network Commands."
-        } else {
-            "the custom mGBA Archipelago core."
-        }
+        val coreDescription = RetroArchLauncher.coreDescription(this, uri)
         AlertDialog.Builder(this)
             .setTitle("ROM ready")
             .setMessage("Saved $name. Launch it now in RetroArch with $coreDescription")

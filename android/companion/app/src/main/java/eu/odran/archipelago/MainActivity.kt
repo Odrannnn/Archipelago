@@ -683,11 +683,7 @@ class MainActivity : Activity() {
         playerSlot: Int? = null,
         serverAddress: String? = null,
     ) {
-        val coreDescription = if (RetroArchLauncher.isSnesRom(this, uri)) {
-            "the bsnes-mercury Performance core and Network Commands."
-        } else {
-            "the custom mGBA Archipelago core."
-        }
+        val coreDescription = RetroArchLauncher.coreDescription(this, uri)
         AlertDialog.Builder(this)
             .setTitle("ROM ready")
             .setMessage("Saved $name. Launch it now in RetroArch with $coreDescription")
