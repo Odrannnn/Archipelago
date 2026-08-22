@@ -5,6 +5,7 @@
         <package android:name="io.github.poptracker.android" />
         <package android:name="eu.odran.dolphin.archipelago" />
         <package android:name="eu.odran.dolphin.archipelago.debug" />
+        <package android:name="com.zelda.ladxhd" />
     </queries>
 
     <uses-permission android:name="android.permission.INTERNET" />

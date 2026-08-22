@@ -79,6 +79,7 @@ class GeneratorActivity : Activity() {
     private var seedFile: File? = null
     private var patchFile: File? = null
     private var availablePatches: List<File> = emptyList()
+    private var availablePlayerFiles: List<File> = emptyList()
     private var pendingExport: Pair<String, ByteArray>? = null
     private var historySettingsLoaded = false
     private var currentHistoryId: String? = null
@@ -1448,6 +1449,9 @@ class GeneratorActivity : Activity() {
             ?.let { File(it.path) }
             ?.takeIf { it.isFile }
         availablePatches = entry.patches.map { File(it.path) }.filter { it.isFile }
+        availablePlayerFiles = entry.files
+            .map { File(it.path) }
+            .filter { it.isFile && PlayerFileLauncher.supports(it.name) }
         patchFile = availablePatches.firstOrNull()
         currentTemplateGame = gameFromYaml(entry.yaml) ?: selectedPatchGame()
         exportSeedButton.isEnabled = seedFile != null
@@ -1476,33 +1480,72 @@ class GeneratorActivity : Activity() {
 
     private fun renderPatchChoicesContent() {
         patchesContainer.removeAllViews()
-        if (availablePatches.isEmpty()) return
-        patchesContainer.addView(TextView(this).apply {
-            val heading = if (availablePatches.size == 1) {
-                "ROM patch: ${availablePatches.first().name}"
-            } else {
-                "Choose which player's ROM to create:"
+        availablePlayerFiles.forEachIndexed { index, playerFile ->
+            if (index == 0) patchesContainer.addView(TextView(this).apply {
+                text = "Native game player file"
+                CompanionUi.styleMuted(this)
+            })
+            val importButton = Button(this).apply {
+                text = PlayerFileLauncher.actionLabel(playerFile.name)
+                CompanionUi.stylePrimary(this)
+                setOnClickListener { launchPlayerFile(playerFile) }
             }
-            text = if (canPatchSelectedRom()) heading else "$heading\nThis world's output is export-only in the companion."
-        })
-        if (availablePatches.size > 1) {
-            availablePatches.forEach { patch ->
-                patchesContainer.addView(Button(this).apply {
-                    text = patch.nameWithoutExtension
-                    isEnabled = patch != patchFile
-                    setOnClickListener {
-                        patchFile = patch
-                        patchButton.isEnabled = canPatchSelectedRom()
-                        forgetBaseRomButton.isEnabled = BaseRomCache.isPresent(
-                            this@GeneratorActivity,
-                            selectedPatchGame(),
-                        )
-                        renderPatchChoices()
-                        status.text = "Selected ${patch.name}"
-                    }
-                }, matchWrapParams())
+            patchesContainer.addView(
+                importButton,
+                CompanionUi.insetTop(importButton, this@GeneratorActivity, 4),
+            )
+            val fileNameView = TextView(this).apply {
+                text = playerFile.name
+                CompanionUi.styleMuted(this)
+            }
+            patchesContainer.addView(
+                fileNameView,
+                CompanionUi.insetTop(fileNameView, this@GeneratorActivity, 2),
+            )
+        }
+        if (availablePatches.isNotEmpty()) {
+            val patchHeading = TextView(this).apply {
+                val heading = if (availablePatches.size == 1) {
+                    "ROM patch: ${availablePatches.first().name}"
+                } else {
+                    "Choose which player's ROM to create:"
+                }
+                text = if (canPatchSelectedRom()) heading else "$heading\nThis world's output is export-only in the companion."
+            }
+            patchesContainer.addView(
+                patchHeading,
+                if (availablePlayerFiles.isEmpty()) matchWrapParams()
+                else CompanionUi.insetTop(patchHeading, this@GeneratorActivity, 8),
+            )
+            if (availablePatches.size > 1) {
+                availablePatches.forEach { patch ->
+                    patchesContainer.addView(Button(this).apply {
+                        text = patch.nameWithoutExtension
+                        isEnabled = patch != patchFile
+                        setOnClickListener {
+                            patchFile = patch
+                            patchButton.isEnabled = canPatchSelectedRom()
+                            forgetBaseRomButton.isEnabled = BaseRomCache.isPresent(
+                                this@GeneratorActivity,
+                                selectedPatchGame(),
+                            )
+                            renderPatchChoices()
+                            status.text = "Selected ${patch.name}"
+                        }
+                    }, matchWrapParams())
+                }
             }
         }
+    }
+
+    private fun launchPlayerFile(playerFile: File) {
+        runCatching { PlayerFileLauncher.launch(this, playerFile) }
+            .onSuccess {
+                val handler = PlayerFileLauncher.handlerFor(playerFile.name)
+                status.text = "Opened ${playerFile.name} in ${handler?.appName ?: "the game"}. " +
+                    "Enter the room address and choose the matching save position there."
+            }
+            .onFailure { showError("Could not open ${playerFile.name}", it) }
     }
 
     private fun renderHistory() = preserveScrollPosition { renderHistoryContent() }
@@ -1532,6 +1575,9 @@ class GeneratorActivity : Activity() {
             }
             val zipAvailable = zipArtifact != null
             val availablePatches = entry.patches.count { File(it.path).isFile }
+            val playerFiles = entry.files
+                .map { File(it.path) }
+                .filter { it.isFile && PlayerFileLauncher.supports(it.name) }
             val selected = entry.id == currentHistoryId
             val playerGames = playerGamesFromYaml(entry.yaml)
             val patchGames = entry.patches.mapIndexed { index, patch ->
@@ -1576,7 +1622,9 @@ class GeneratorActivity : Activity() {
                 }, CompanionUi.insetTop(this, this@GeneratorActivity, 4))
                 addView(TextView(this@GeneratorActivity).apply {
                     val playerCount = entry.players.size
-                    val patchSummary = if (entry.patches.isEmpty()) {
+                    val patchSummary = if (playerFiles.isNotEmpty()) {
+                        "${playerFiles.size} native player file${if (playerFiles.size == 1) "" else "s"}"
+                    } else if (entry.patches.isEmpty()) {
                         "no player patch · hosting only"
                     } else {
                         "$availablePatches/${entry.patches.size} patches"
@@ -1591,6 +1639,13 @@ class GeneratorActivity : Activity() {
                     CompanionUi.styleSecondary(this)
                     setOnClickListener { openHistoryEntry(entry, loadSettings = true) }
                 }, CompanionUi.insetTop(this, this@GeneratorActivity, 10))
+                playerFiles.forEach { playerFile ->
+                    addView(Button(this@GeneratorActivity).apply {
+                        text = PlayerFileLauncher.actionLabel(playerFile.name)
+                        CompanionUi.stylePrimary(this)
+                        setOnClickListener { launchPlayerFile(playerFile) }
+                    }, CompanionUi.insetTop(this, this@GeneratorActivity, 4))
+                }
                 addView(LinearLayout(this@GeneratorActivity).apply {
                     orientation = LinearLayout.HORIZONTAL
                     addView(Button(this@GeneratorActivity).apply {
@@ -1686,6 +1741,7 @@ class GeneratorActivity : Activity() {
         seedFile = null
         patchFile = null
         availablePatches = emptyList()
+        availablePlayerFiles = emptyList()
         exportSeedButton.isEnabled = false
         hostSeedButton.isEnabled = false
         patchButton.isEnabled = false

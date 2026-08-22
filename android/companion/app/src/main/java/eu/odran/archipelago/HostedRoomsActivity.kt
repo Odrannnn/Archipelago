@@ -154,6 +154,10 @@ class HostedRoomsActivity : Activity() {
             val patchlessChoices = patchlessInviteChoices(room)
             val linkedSeedCanShareInvite = linkedEntry?.let(::inviteChoices)?.isNotEmpty()
             val sohPlayers = SohLauncher.players(room.players)
+            val nativePlayerFiles = linkedEntry?.files
+                ?.map { File(it.path) }
+                ?.filter { it.isFile && PlayerFileLauncher.supports(it.name) }
+                .orEmpty()
             val panel = CompanionUi.panel(this).apply {
                 addView(TextView(this@HostedRoomsActivity).apply {
                     text = when {
@@ -182,6 +186,22 @@ class HostedRoomsActivity : Activity() {
                     CompanionUi.stylePrimary(this)
                     setOnClickListener { chooseSohPlayer(room, sohPlayers) }
                 }, CompanionUi.insetTop(this, this@HostedRoomsActivity, 8))
+                nativePlayerFiles.forEach { playerFile ->
+                    addView(Button(this@HostedRoomsActivity).apply {
+                        text = PlayerFileLauncher.actionLabel(playerFile.name)
+                        CompanionUi.stylePrimary(this)
+                        setOnClickListener {
+                            runCatching { PlayerFileLauncher.launch(this@HostedRoomsActivity, playerFile) }
+                                .onSuccess {
+                                    val address = room.lastPort.takeIf { it > 0 }
+                                        ?.let { "archipelago.gg:$it" }
+                                        ?: "the room address"
+                                    status.text = "Opened ${playerFile.name}. Enter $address in LADXHD and choose its save position."
+                                }
+                                .onFailure { showError("Could not open ${playerFile.name}", it) }
+                        }
+                    }, CompanionUi.insetTop(this, this@HostedRoomsActivity, 8))
+                }
                 addView(Button(this@HostedRoomsActivity).apply {
                     text = if (linkedSeedCanShareInvite == false && patchlessChoices.isEmpty()) {
                         "Player invite unavailable"
