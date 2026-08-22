@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import logging
 import time
 from typing import Any
 
@@ -19,6 +21,7 @@ from android_client_runtime import (
 
 
 _SYSTEM_BUS = "System Bus"
+_ladx_telemetry = logging.getLogger("LADXTelemetry")
 
 
 class _LadxCheck:
@@ -40,10 +43,20 @@ class AndroidLadxClient:
     game = "Links Awakening DX"
     _slot_name = 0x0134
     _gameplay_type = 0xDB95
+    _gameplay_subtype = 0xDB96
     _link_status = 0xDDF7
     _link_health = 0xDB5A
     _give_item = 0xDDF8
     _recv_index = 0xDDFD
+    _player_state = 0xC11C
+    _room_transition = 0xC124
+    _dialog = 0xC19F
+    _interaction_block = 0xFFA1
+    _inventory_start = 0xDB00
+    _inventory_size = 0x80
+    _custom_items_start = 0xDDDA
+    _custom_items_size = 0x26
+    _savedata_size = 0x8000
     _safety_address = 0xC0FB
     _safety_value = bytes(4)
     _base_id = 10_000_000
@@ -55,6 +68,8 @@ class AndroidLadxClient:
         self.start_location = next(check.location_id for check in self.checks if check.check_id == "0x2A3")
         self.last_health = None
         self.last_sync = 0.0
+        self._telemetry_state = None
+        self._telemetry_events: list[str] = []
 
     @staticmethod
     def _build_checks() -> list[_LadxCheck]:
@@ -133,16 +148,44 @@ class AndroidLadxClient:
         ctx.auth = self.auth.hex()
 
     def on_package(self, ctx: "AndroidClientContext", cmd: str, args: dict) -> None:
-        pass
+        if cmd == "ReceivedItems":
+            index = int(args.get("index", 0))
+            count = len(args.get("items", ()))
+            self._telemetry_events.append(
+                f"server-items index={index} count={count} total={len(ctx.items_received)}"
+            )
 
     def bridge_reconnected(self) -> None:
         # The desktop client recreates its tracker after an emulator reconnect.
         self.remaining_checks = list(self.checks)
         self.last_health = None
+        self._telemetry_state = None
+        self._telemetry_events.append("bridge-reconnected; receive cache will be resynced")
+
+    @staticmethod
+    def _telemetry_digest(*parts: bytes) -> str:
+        digest = hashlib.sha256()
+        for part in parts:
+            digest.update(part)
+        return digest.hexdigest()[:16]
+
+    async def _savedata_digest(self, ctx: "AndroidClientContext") -> str:
+        from worlds import _bizhawk as bizhawk
+
+        try:
+            savedata = await bizhawk.read_savedata(ctx.bizhawk_ctx, 0, self._savedata_size)
+        except Exception as exc:
+            return f"unavailable:{type(exc).__name__}"
+        return self._telemetry_digest(savedata)
+
+    def _flush_telemetry_events(self) -> None:
+        while self._telemetry_events:
+            _ladx_telemetry.info("LADX telemetry · %s", self._telemetry_events.pop(0))
 
     async def game_watcher(self, ctx: "AndroidClientContext") -> None:
         from worlds import _bizhawk as bizhawk
 
+        self._flush_telemetry_events()
         if ctx.slot is None:
             return
         addresses = sorted({
@@ -153,9 +196,17 @@ class AndroidLadxClient:
         })
         reads = [
             (self._gameplay_type, 1, _SYSTEM_BUS),
+            (self._gameplay_subtype, 1, _SYSTEM_BUS),
             (self._link_health, 1, _SYSTEM_BUS),
             (self._link_status, 1, _SYSTEM_BUS),
+            (self._give_item, 2, _SYSTEM_BUS),
             (self._recv_index, 2, _SYSTEM_BUS),
+            (self._player_state, 1, _SYSTEM_BUS),
+            (self._room_transition, 1, _SYSTEM_BUS),
+            (self._dialog, 1, _SYSTEM_BUS),
+            (self._interaction_block, 1, _SYSTEM_BUS),
+            (self._inventory_start, self._inventory_size, _SYSTEM_BUS),
+            (self._custom_items_start, self._custom_items_size, _SYSTEM_BUS),
             *((address, 1, _SYSTEM_BUS) for address in addresses),
         ]
         result = await bizhawk.guarded_read(
@@ -166,13 +217,41 @@ class AndroidLadxClient:
         if result is None:
             return
         gameplay = result[0][0]
+        gameplay_subtype = result[1][0]
+        health = result[2][0]
+        status = result[3][0]
+        pending_item = result[4]
+        recv_index_bytes = result[5]
+        recv_index = int.from_bytes(recv_index_bytes, "big")
+        player_state = result[6][0]
+        room_transition = result[7][0]
+        dialog = result[8][0]
+        interaction_block = result[9][0]
+        inventory = result[10]
+        custom_items = result[11]
+        telemetry_state = (gameplay, gameplay_subtype, status & 1, recv_index)
+        if telemetry_state != self._telemetry_state:
+            previous = self._telemetry_state
+            self._telemetry_state = telemetry_state
+            savedata_digest = await self._savedata_digest(ctx)
+            _ladx_telemetry.info(
+                "LADX telemetry · state %s -> %s pending=%s from=%s player_state=%02x "
+                "transition=%02x dialog=%02x blocked=%02x inventory=%s sram=%s server_items=%d",
+                previous,
+                telemetry_state,
+                pending_item[0] if pending_item else -1,
+                pending_item[1] if len(pending_item) > 1 else -1,
+                player_state,
+                room_transition,
+                dialog,
+                interaction_block,
+                self._telemetry_digest(inventory, custom_items),
+                savedata_digest,
+                len(ctx.items_received),
+            )
         if not self._ready(gameplay):
             return
-        health = result[1][0]
-        status = result[2][0]
-        recv_index_bytes = result[3]
-        recv_index = int.from_bytes(recv_index_bytes, "big")
-        memory = {address: value[0] for address, value in zip(addresses, result[4:])}
+        memory = {address: value[0] for address, value in zip(addresses, result[12:])}
 
         found = []
         still_missing = []
@@ -218,6 +297,18 @@ class AndroidLadxClient:
             ctx.diagnostic = (
                 f"LADX delivery index={recv_index} item={local_item:#04x} "
                 f"items={len(ctx.items_received)} written={delivered}"
+            )
+            _ladx_telemetry.info(
+                "LADX telemetry · queue index=%d->%d item=%02x from=%d written=%s "
+                "gameplay=%02x/%02x inventory=%s",
+                recv_index,
+                recv_index + 1,
+                local_item,
+                from_player,
+                delivered,
+                gameplay,
+                gameplay_subtype,
+                self._telemetry_digest(inventory, custom_items),
             )
         elif recv_index > len(ctx.items_received) and time.time() - self.last_sync >= 5.0:
             self.last_sync = time.time()

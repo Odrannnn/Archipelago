@@ -69,7 +69,25 @@ class FakeBizHawk:
         self.writes = []
 
     async def guarded_read(self, ctx, reads, guards):
-        return [b"\x06", b"\x10", b"\x00", b"\x00\x00", bytes((self.check_value,))]
+        values = {
+            0xDB95: b"\x06",
+            0xDB96: b"\x07",
+            0xDB5A: b"\x10",
+            0xDDF7: b"\x00",
+            0xDDF8: b"\x00\x00",
+            0xDDFD: b"\x00\x00",
+            0xC11C: b"\x00",
+            0xC124: b"\x00",
+            0xC19F: b"\x00",
+            0xFFA1: b"\x00",
+            0xDB00: bytes(0x80),
+            0xDDDA: bytes(0x26),
+            0xDAA3: bytes((self.check_value,)),
+        }
+        return [values.get(address, bytes(length)) for address, length, _domain in reads]
+
+    async def read_savedata(self, ctx, offset, length):
+        return bytes(length)
 
     async def guarded_write(self, ctx, writes, guards):
         self.writes.append(writes)
