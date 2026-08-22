@@ -1540,6 +1540,31 @@ class MainActivity : Activity() {
                 setOnClickListener { resolveAndLoadRoom(room.roomId) }
             }, matchWrapParams())
         }
+        if (!isSohRoom) {
+            moreRoomActions.addView(Button(this).apply {
+                text = "Force item sync from server"
+                CompanionUi.styleQuiet(this)
+                setOnClickListener {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Force item sync from server?")
+                        .setMessage(
+                            "This is an optional compatibility enhancement, not strict desktop behavior. " +
+                                "The companion will clear only its cached received-item history and ask " +
+                                "Archipelago for a complete replay. The active game client will compare " +
+                                "that history with the ROM's receive counter; ROM inventory and save data " +
+                                "are not overwritten. Use this after a rollback or suspected missing item.",
+                        )
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Force sync") { _, _ ->
+                            ClientConsoleStore.submit("/force_item_sync")
+                            startForegroundService(Intent(this@MainActivity, BridgeService::class.java))
+                            inviteStatus.text =
+                                "Forced item sync requested · open the client console for the result."
+                        }
+                        .show()
+                }
+            }, CompanionUi.insetTop(View(this), this, 4))
+        }
         if (!isSohRoom && room.playerSlot != null && room.patchedRomUri.isNullOrBlank()) {
             if (room.patchedRomSha256 != null) {
                 moreRoomActions.addView(Button(this).apply {

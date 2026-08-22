@@ -170,8 +170,36 @@ class ClientConsoleTest(unittest.IsolatedAsyncioTestCase):
         text = "\n".join(message["text"] for message in result["console"])
 
         self.assertIn("/received", text)
+        self.assertIn("/force_item_sync", text)
         self.assertIn("/disconnect", text)
         self.assertIn("/ready", text)
+
+    async def test_force_item_sync_requests_full_history_without_touching_rom(self) -> None:
+        ctx = AndroidClientContext(object())
+        ctx.game = "Test Game"
+        ctx.server = object()
+        ctx.items_received.extend([
+            SimpleNamespace(item=1),
+            SimpleNamespace(item=2),
+        ])
+
+        result = await execute_console_command(ctx, "/force_item_sync")
+
+        self.assertEqual([], ctx.items_received)
+        self.assertEqual([{"cmd": "Sync"}], ctx.outgoing)
+        self.assertFalse(ctx.received_items_synced)
+        self.assertIn("ROM memory unchanged", ctx.diagnostic)
+        self.assertIn("complete replay", result["console"][0]["text"])
+
+    async def test_force_item_sync_while_disconnected_preserves_cached_history(self) -> None:
+        ctx = AndroidClientContext(object())
+        ctx.items_received.append(SimpleNamespace(item=1))
+
+        result = await execute_console_command(ctx, "/force_item_sync")
+
+        self.assertEqual([1], [item.item for item in ctx.items_received])
+        self.assertEqual([], ctx.outgoing)
+        self.assertIn("disconnected", result["console"][0]["text"])
 
     async def test_print_json_resolves_player_item_and_location_names(self) -> None:
         ctx = AndroidClientContext(object())

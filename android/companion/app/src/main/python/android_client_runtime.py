@@ -147,6 +147,34 @@ class AndroidClientCommandProcessor(CommandProcessor):
             self.output(f"{index}. {item_name} from {location_name} by {player_name}")
         return True
 
+    def _cmd_force_item_sync(self) -> bool:
+        """Request a fresh full item history as an optional compatibility enhancement."""
+        if self.ctx.server is None:
+            self.output("Cannot force an item sync while Archipelago is disconnected.")
+            return False
+        now = time.monotonic()
+        retry_after = 10.0 - (now - self.ctx.last_forced_item_sync)
+        if retry_after > 0:
+            self.output(f"A forced item sync was already requested; wait {retry_after:.0f} seconds.")
+            return False
+
+        cached_items = len(self.ctx.items_received)
+        if not self.ctx.emulator_lifecycle.request_sync("manual compatibility item resync"):
+            self.output("Could not request a full item history from Archipelago.")
+            return False
+        self.ctx.items_received.clear()
+        self.ctx.received_items_synced = False
+        self.ctx.last_forced_item_sync = now
+        self.ctx.diagnostic = (
+            f"{self.ctx.game or 'Emulator'} compatibility: requested full server item history; "
+            f"cleared {cached_items} cached entries; ROM memory unchanged"
+        )
+        self.output(
+            "Forced item sync requested. The companion cleared its cached history and asked the server "
+            "for a complete replay; the active game client will compare it with the ROM's receive counter."
+        )
+        return True
+
     def _cmd_missing(self, filter_text: str = "") -> bool:
         """List missing location checks, optionally filtered by text."""
         if not self.ctx.game:
@@ -303,6 +331,7 @@ class AndroidClientContext:
         self.diagnostic = ""
         self.sync_requests = 0
         self.full_item_syncs = 0
+        self.last_forced_item_sync = 0.0
         self.emulator_io_failures = 0
         self.emulator_writes = 0
         self.emulator_write_bytes = 0
