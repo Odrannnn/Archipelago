@@ -5,6 +5,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Button
 import android.widget.LinearLayout
@@ -59,7 +60,7 @@ class DownloadsUpdatesActivity : Activity() {
                 CompanionUi.pageTitle(
                     this@DownloadsUpdatesActivity,
                     "Downloads and updates",
-                    "Update the companion and install its emulator, tracker, and custom core components.",
+                    "Update companion components and discover related Archipelago projects.",
                 ),
                 CompanionUi.fullWidth(),
             )
@@ -84,7 +85,7 @@ class DownloadsUpdatesActivity : Activity() {
                 )
             }, CompanionUi.cardParams(this@DownloadsUpdatesActivity))
 
-            ManagedComponent.entries.forEach { component ->
+            fun addComponent(component: ManagedComponent) {
                 val componentStatus = TextView(this@DownloadsUpdatesActivity).apply {
                     text = "Waiting for release information…"
                     CompanionUi.styleBody(this)
@@ -103,8 +104,28 @@ class DownloadsUpdatesActivity : Activity() {
                 ).apply {
                     addView(componentStatus, CompanionUi.fullWidth())
                     addView(action, CompanionUi.insetTop(action, this@DownloadsUpdatesActivity, 8))
+                    component.projectUrl?.let { projectUrl ->
+                        addView(Button(this@DownloadsUpdatesActivity).apply {
+                            text = "View project on GitHub"
+                            CompanionUi.styleSecondary(this)
+                            setOnClickListener {
+                                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(projectUrl)))
+                            }
+                        }, CompanionUi.insetTop(this, this@DownloadsUpdatesActivity, 8))
+                    }
                 }, CompanionUi.cardParams(this@DownloadsUpdatesActivity))
             }
+            ManagedComponent.entries
+                .filter { it.section == ComponentSection.COMPANION_COMPONENTS }
+                .forEach(::addComponent)
+            addView(CompanionUi.card(
+                this@DownloadsUpdatesActivity,
+                "Extra projects",
+                "Other Android Archipelago projects by Odrannnn. Their releases are checked and downloaded with the same GitHub SHA-256 verification as companion components.",
+            ), CompanionUi.cardParams(this@DownloadsUpdatesActivity))
+            ManagedComponent.entries
+                .filter { it.section == ComponentSection.EXTRA_PROJECTS }
+                .forEach(::addComponent)
         }
         val scroll = ScrollView(this).apply { addView(content) }
         SystemBarInsets.apply(window, scroll)
@@ -279,18 +300,21 @@ class DownloadsUpdatesActivity : Activity() {
             if (component.kind == ComponentKind.APK) {
                 val installed = apkStates[component]
                 val debugSelfUpdate = component == ManagedComponent.COMPANION && isDebugBuild
+                val releaseLabel = if (
+                    component.section == ComponentSection.EXTRA_PROJECTS && asset.releaseTag.isNotBlank()
+                ) asset.releaseTag else asset.version
                 views.status.text = when {
                     debugSelfUpdate ->
                         "Installed debug build ${installed?.versionName.orEmpty()} · published release " +
-                            "${asset.version}. Self-update is available from release builds."
-                    installed == null -> "Not installed · available ${asset.version} · ${formatBytes(asset.byteCount)}"
+                            "$releaseLabel. Self-update is available from release builds."
+                    installed == null -> "Not installed · available $releaseLabel · ${formatBytes(asset.byteCount)}"
                     installed.alternateBuild ->
-                        "Installed debug build ${installed.versionName}. Release ${asset.version} will install alongside it."
+                        "Installed alternate build ${installed.versionName}. Release $releaseLabel will install alongside it."
                     installed.versionName == asset.version ->
-                        "Installed ${installed.versionName} · up to date · ${formatBytes(asset.byteCount)}"
+                        "Installed ${installed.versionName} · current release $releaseLabel · ${formatBytes(asset.byteCount)}"
                     ComponentVersion.isNewer(asset.version, installed.versionName) ->
-                        "Installed ${installed.versionName} · update ${asset.version} available · ${formatBytes(asset.byteCount)}"
-                    else -> "Installed ${installed.versionName} · newer than published ${asset.version}"
+                        "Installed ${installed.versionName} · update $releaseLabel available · ${formatBytes(asset.byteCount)}"
+                    else -> "Installed ${installed.versionName} · newer than published $releaseLabel"
                 }
                 views.action.text = when {
                     debugSelfUpdate -> "Release builds only"
@@ -381,6 +405,8 @@ class DownloadsUpdatesActivity : Activity() {
             "Custom GBA, GB, and GBC core with atomic upstream BizHawk-client operations."
         ManagedComponent.SNES9X_CORE ->
             "Optional mapper-independent SNI fallback for supported SNES clients."
+        ManagedComponent.LADXHD_ARCHIPELAGO ->
+            "Assetless Android port of LADXHD with native Archipelago multiworld integration. Import a generated .apladxhd directly from an active companion room."
     }
 
     private fun formatBytes(bytes: Long): String = when {

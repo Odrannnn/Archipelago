@@ -15,6 +15,8 @@ internal enum class ManagedComponent(
     val packageName: String? = null,
     val alternatePackageName: String? = null,
     val coreFamilyPattern: Regex? = null,
+    val section: ComponentSection = ComponentSection.COMPANION_COMPONENTS,
+    val projectUrl: String? = null,
 ) {
     COMPANION(
         "companion",
@@ -51,6 +53,16 @@ internal enum class ManagedComponent(
         ComponentKind.CORE,
         Regex("^snes9x_apbridge_(v[0-9]+)_libretro_android\\.so$"),
         coreFamilyPattern = Regex("^snes9x_apbridge_v[0-9]+_libretro_android\\.so$"),
+    ),
+    LADXHD_ARCHIPELAGO(
+        "ladxhd-archipelago",
+        "LADXHD Archipelago",
+        ComponentKind.APK,
+        Regex("^LADXHD-Archipelago-v?([0-9]+(?:\\.[0-9]+){2})(?:-ap[0-9]+)?\\.apk$"),
+        "com.zelda.ladxhd.archipelago",
+        "com.zelda.ladxhd",
+        section = ComponentSection.EXTRA_PROJECTS,
+        projectUrl = "https://github.com/Odrannnn/LADXHD-Archipelago",
     );
 
     fun versionFrom(fileName: String): String? = assetPattern.matchEntire(fileName)?.groupValues?.get(1)
@@ -61,6 +73,8 @@ internal enum class ManagedComponent(
 }
 
 internal enum class ComponentKind { APK, CORE }
+
+internal enum class ComponentSection { COMPANION_COMPONENTS, EXTRA_PROJECTS }
 
 internal data class ComponentAsset(
     val component: ManagedComponent,
@@ -108,7 +122,11 @@ internal data class ComponentAsset(
 }
 
 internal object ComponentReleaseParser {
-    fun parse(companionReleases: String, popTrackerReleases: String): List<ComponentAsset> = buildList {
+    fun parse(
+        companionReleases: String,
+        popTrackerReleases: String,
+        ladxhdReleases: String,
+    ): List<ComponentAsset> = buildList {
         val companion = JSONArray(companionReleases)
         addFirstMatch(companion, ManagedComponent.COMPANION, allowPrerelease = false)?.let(::add)
         addFirstMatch(companion, ManagedComponent.DOLPHIN, allowPrerelease = false)?.let(::add)
@@ -118,6 +136,11 @@ internal object ComponentReleaseParser {
             JSONArray(popTrackerReleases),
             ManagedComponent.POPTRACKER,
             allowPrerelease = true,
+        )?.let(::add)
+        addFirstMatch(
+            JSONArray(ladxhdReleases),
+            ManagedComponent.LADXHD_ARCHIPELAGO,
+            allowPrerelease = false,
         )?.let(::add)
     }
 
@@ -237,7 +260,8 @@ internal class ComponentReleaseClient(private val context: Context) {
         return runCatching {
             val companionJson = get(COMPANION_RELEASES_URL)
             val popTrackerJson = get(POPTRACKER_RELEASES_URL)
-            val assets = ComponentReleaseParser.parse(companionJson, popTrackerJson)
+            val ladxhdJson = get(LADXHD_RELEASES_URL)
+            val assets = ComponentReleaseParser.parse(companionJson, popTrackerJson, ladxhdJson)
             require(assets.map { it.component }.toSet() == ManagedComponent.entries.toSet()) {
                 "The release catalog did not contain every required Android component."
             }
@@ -293,6 +317,8 @@ internal class ComponentReleaseClient(private val context: Context) {
             "https://api.github.com/repos/Odrannnn/Archipelago/releases?per_page=10"
         private const val POPTRACKER_RELEASES_URL =
             "https://api.github.com/repos/Odrannnn/PopTracker-Android/releases?per_page=10"
+        private const val LADXHD_RELEASES_URL =
+            "https://api.github.com/repos/Odrannnn/LADXHD-Archipelago/releases?per_page=10"
         private val HTTP_CLIENT = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)

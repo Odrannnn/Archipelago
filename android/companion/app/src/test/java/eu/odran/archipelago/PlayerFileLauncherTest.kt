@@ -13,7 +13,8 @@ class PlayerFileLauncherTest {
         val handler = PlayerFileLauncher.handlerFor("AP_Seed_P1_Player1.APLADXHD")
 
         assertEquals("Links Awakening DX HD", handler?.gameName)
-        assertEquals("com.zelda.ladxhd", handler?.packageName)
+        assertEquals("com.zelda.ladxhd.archipelago", handler?.packageName)
+        assertEquals(listOf("com.zelda.ladxhd"), handler?.alternatePackageNames)
         assertEquals("application/x-apladxhd", handler?.mimeType)
         assertEquals("Import into LADXHD", PlayerFileLauncher.actionLabel("seed.apladxhd"))
         assertTrue(PlayerFileLauncher.supports("seed.apladxhd"))

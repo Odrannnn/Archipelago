@@ -23,8 +23,17 @@ class ComponentUpdatesTest {
             prerelease = true,
             asset("PopTracker-Android-0.35.4-android.1.apk", 'd', 130_000_000),
         ))
+        val ladxhd = JSONArray().put(release(
+            "archipelago-v2.0.5-ap1",
+            prerelease = false,
+            asset("LADXHD-Archipelago-v2.0.5-ap1.apk", 'f', 45_000_000),
+        ))
 
-        val assets = ComponentReleaseParser.parse(companion.toString(), popTracker.toString())
+        val assets = ComponentReleaseParser.parse(
+            companion.toString(),
+            popTracker.toString(),
+            ladxhd.toString(),
+        )
             .associateBy { it.component }
 
         assertEquals(ManagedComponent.entries.toSet(), assets.keys)
@@ -33,6 +42,15 @@ class ComponentUpdatesTest {
         assertEquals("0.35.4-android.1", assets.getValue(ManagedComponent.POPTRACKER).version)
         assertEquals("v9", assets.getValue(ManagedComponent.MGBA_CORE).version)
         assertEquals("v1", assets.getValue(ManagedComponent.SNES9X_CORE).version)
+        assertEquals("2.0.5", assets.getValue(ManagedComponent.LADXHD_ARCHIPELAGO).version)
+        assertEquals(
+            ComponentSection.EXTRA_PROJECTS,
+            assets.getValue(ManagedComponent.LADXHD_ARCHIPELAGO).component.section,
+        )
+        assertEquals(
+            "https://github.com/Odrannnn/LADXHD-Archipelago",
+            ManagedComponent.LADXHD_ARCHIPELAGO.projectUrl,
+        )
         assertEquals("a".repeat(64), assets.getValue(ManagedComponent.DOLPHIN).sha256)
     }
 
@@ -50,7 +68,7 @@ class ComponentUpdatesTest {
                 asset("Dolphin-Archipelago-2603-49-arm64-v8a-x86_64-release.apk", 'b', 10),
             ))
 
-        val result = ComponentReleaseParser.parse(companion.toString(), "[]")
+        val result = ComponentReleaseParser.parse(companion.toString(), "[]", "[]")
 
         assertEquals(1, result.size)
         assertEquals("2603-49", result.single().version)
@@ -125,14 +143,18 @@ class ComponentUpdatesTest {
         val popTracker = componentAsset(ManagedComponent.POPTRACKER, "0.36.0")
         val mgba = componentAsset(ManagedComponent.MGBA_CORE, "v10")
         val snes9x = componentAsset(ManagedComponent.SNES9X_CORE, "v2")
+        val ladxhd = componentAsset(ManagedComponent.LADXHD_ARCHIPELAGO, "2.0.5")
 
         val updates = ComponentUpdateResolver.resolve(
-            listOf(companion, dolphin, popTracker, mgba, snes9x),
+            listOf(companion, dolphin, popTracker, mgba, snes9x, ladxhd),
             apkStates = mapOf(
                 ManagedComponent.COMPANION to InstalledApkState("companion", "1.0.0", 1),
                 ManagedComponent.DOLPHIN to InstalledApkState("dolphin", "2603-50", 2),
                 // An optional component which is not installed is not an update notification.
                 ManagedComponent.POPTRACKER to null,
+                ManagedComponent.LADXHD_ARCHIPELAGO to InstalledApkState(
+                    "com.zelda.ladxhd.archipelago", "2.0.4", 204,
+                ),
             ),
             coreStates = mapOf(
                 ManagedComponent.MGBA_CORE to InstalledCoreState(
@@ -149,7 +171,11 @@ class ComponentUpdatesTest {
         )
 
         assertEquals(
-            listOf(ManagedComponent.COMPANION, ManagedComponent.MGBA_CORE),
+            listOf(
+                ManagedComponent.COMPANION,
+                ManagedComponent.MGBA_CORE,
+                ManagedComponent.LADXHD_ARCHIPELAGO,
+            ),
             updates.map { it.component },
         )
     }

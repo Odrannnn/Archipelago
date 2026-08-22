@@ -6,6 +6,7 @@
         <package android:name="eu.odran.dolphin.archipelago" />
         <package android:name="eu.odran.dolphin.archipelago.debug" />
         <package android:name="com.zelda.ladxhd" />
+        <package android:name="com.zelda.ladxhd.archipelago" />
     </queries>
 
     <uses-permission android:name="android.permission.INTERNET" />
