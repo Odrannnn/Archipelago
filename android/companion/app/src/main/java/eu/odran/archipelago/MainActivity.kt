@@ -735,7 +735,10 @@ class MainActivity : Activity() {
             )
             .setMessage(
                 buildString {
-                    if (invite.hasPlayerPatch) {
+                    if (invite.hasNativePlayerFile) {
+                        append("This invite is for player slot ${invite.playerSlot} and contains ${invite.patchName}. ")
+                        append("The game import screen will confirm the player file and save position. ")
+                    } else if (invite.hasPlayerPatch) {
                         append("This invite is for player slot ${invite.playerSlot} and contains ${invite.patchName}. ")
                     } else if (invite.hasPlayerIdentity) {
                         append("This invite is for ${invite.playerName}, slot ${invite.playerSlot}, in ${invite.gameName}. ")
@@ -745,7 +748,9 @@ class MainActivity : Activity() {
                     }
                     append("The companion will verify room ${invite.roomId.take(10)}… on archipelago.gg, wake its ")
                     append("server if necessary, and load its current connection address. ")
-                    if (invite.hasPlayerPatch) {
+                    if (invite.hasNativePlayerFile) {
+                        append("It will pass the player file and current server address to the installed game. ")
+                    } else if (invite.hasPlayerPatch) {
                         append("It will use your cached clean ${invite.gameName} base ROM or ask for it once. ")
                     } else if (invite.hasPlayerIdentity) {
                         append("It will load the player connection and make the game's launch action available. ")
@@ -756,6 +761,7 @@ class MainActivity : Activity() {
             .setNegativeButton("Cancel", null)
             .setPositiveButton(
                 when {
+                    invite.hasNativePlayerFile -> "Load and open game"
                     invite.hasPlayerPatch -> "Load and patch"
                     invite.hasPlayerIdentity -> "Load player"
                     else -> "Load room"
@@ -767,7 +773,7 @@ class MainActivity : Activity() {
     }
 
     private fun loadInviteAfterApWorldCheck(invite: RoomInvite) {
-        if (!invite.hasPlayerPatch) {
+        if (!invite.hasPlayerPatch || invite.hasNativePlayerFile) {
             resolveAndLoadRoom(invite)
             return
         }
@@ -888,10 +894,12 @@ class MainActivity : Activity() {
                             ServerSettings.save(this, serverAddress, "")
                             address.setText(serverAddress)
                             password.setText("")
-                            startForegroundService(
-                                Intent(this, BridgeService::class.java)
-                                    .setAction(BridgeService.ACTION_RECONNECT),
-                            )
+                            if (!invite.hasNativePlayerFile) {
+                                startForegroundService(
+                                    Intent(this, BridgeService::class.java)
+                                        .setAction(BridgeService.ACTION_RECONNECT),
+                                )
+                            }
                             inviteStatus.text = "Invitation loaded · connecting to $serverAddress"
                         } else {
                             inviteStatus.text = if (room.lastPort < 0) {
@@ -900,7 +908,29 @@ class MainActivity : Activity() {
                                 "The invitation was saved, but the room is still starting. Tap Refresh room."
                             }
                         }
-                        if (invite.hasPlayerPatch) {
+                        if (invite.hasNativePlayerFile) {
+                            val playerFileName = invite.patchName ?: return@runOnUiThread
+                            val playerFileBytes = invite.patchBytes ?: return@runOnUiThread
+                            runCatching {
+                                PlayerFileLauncher.launch(
+                                    this,
+                                    playerFileName,
+                                    playerFileBytes,
+                                    PlayerFileLaunchOptions(
+                                        serverAddress = room.lastPort.takeIf { it > 0 }
+                                            ?.let { "archipelago.gg:$it" },
+                                        password = "",
+                                        saveSlot = 0,
+                                    ),
+                                )
+                            }.onSuccess {
+                                inviteStatus.text = "Invitation loaded · opening $playerFileName in the game…"
+                            }.onFailure { error ->
+                                inviteStatus.text =
+                                    "Invitation loaded, but the game could not be opened: " +
+                                        (error.message ?: error.javaClass.simpleName)
+                            }
+                        } else if (invite.hasPlayerPatch) {
                             startRomPatch(
                                 RomPatchSession(
                                     patchName = invite.patchName ?: "Player${invite.playerSlot}.patch",
@@ -1619,7 +1649,7 @@ class MainActivity : Activity() {
                 }
             }, CompanionUi.insetTop(View(this), this, 4))
         }
-        if (!isSohRoom && room.playerSlot != null && room.patchedRomUri.isNullOrBlank()) {
+        if (!isSohRoom && playerFileHandler == null && room.playerSlot != null && room.patchedRomUri.isNullOrBlank()) {
             if (room.patchedRomSha256 != null) {
                 moreRoomActions.addView(Button(this).apply {
                     text = "Choose matching patched ROM"

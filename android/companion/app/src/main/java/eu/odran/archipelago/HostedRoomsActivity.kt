@@ -406,7 +406,11 @@ class HostedRoomsActivity : Activity() {
             .setItems(choices.map { choice ->
                 buildString {
                     append("Player ${choice.slot} · ${choice.playerName} · ${choice.game}")
-                    if (choice.patch == null) append(" · no patch needed")
+                    when {
+                        choice.patch?.let { PlayerFileLauncher.supports(it.name) } == true ->
+                            append(" · native player file included")
+                        choice.patch == null -> append(" · no patch needed")
+                    }
                 }
             }.toTypedArray()) { _, index ->
                 val choice = choices[index]
@@ -432,7 +436,11 @@ class HostedRoomsActivity : Activity() {
                                         patchBytes,
                                     )
                                 }.onSuccess {
-                                    status.text = "Player-specific invitation ready for ${choice.playerName}."
+                                    status.text = if (PlayerFileLauncher.supports(patch.name)) {
+                                        "Invitation with ${patch.name} ready for ${choice.playerName}."
+                                    } else {
+                                        "Player-specific invitation ready for ${choice.playerName}."
+                                    }
                                 }.onFailure { showError("Could not share player invitation", it) }
                             } }
                             .onFailure { showError("Could not read ${patch.name}", it) }
@@ -445,9 +453,12 @@ class HostedRoomsActivity : Activity() {
 
     private fun inviteChoices(entry: SeedHistoryEntry): List<HostedInviteChoice> {
         val playerGames = playerGamesFromYaml(entry.yaml)
-        val patchesBySlot = entry.patches.mapIndexedNotNull { index, patch ->
-            File(patch.path).takeIf { it.isFile }?.let { file ->
-                playerSlotFromPatchName(patch.name, index) to file
+        val playerFiles = (
+            entry.patches + entry.files.filter { PlayerFileLauncher.supports(it.name) }
+        ).distinctBy { it.path }
+        val patchesBySlot = playerFiles.mapIndexedNotNull { index, playerFile ->
+            File(playerFile.path).takeIf { it.isFile }?.let { file ->
+                playerSlotFromPatchName(playerFile.name, index) to file
             }
         }.toMap()
         val catalog = OfflineGenerator.cachedCatalog().associateBy { it.game }
@@ -457,6 +468,9 @@ class HostedRoomsActivity : Activity() {
             val game = playerGames.getOrNull(index)
                 ?: patch?.let(::gameFromPatchFile)
                 ?: return@mapIndexedNotNull null
+            if (PlayerFileLauncher.handlerForGame(game) != null && patch == null) {
+                return@mapIndexedNotNull null
+            }
             if (patch == null && !SohLauncher.isGame(game) && catalog[game]?.romPatch != false) {
                 return@mapIndexedNotNull null
             }
@@ -468,6 +482,7 @@ class HostedRoomsActivity : Activity() {
         val catalog = OfflineGenerator.cachedCatalog().associateBy { it.game }
         return room.players.mapIndexedNotNull { index, displayName ->
             val game = hostedPlayerGame(displayName) ?: return@mapIndexedNotNull null
+            if (PlayerFileLauncher.handlerForGame(game) != null) return@mapIndexedNotNull null
             if (!SohLauncher.isGame(game) && catalog[game]?.romPatch != false) return@mapIndexedNotNull null
             HostedInviteChoice(index + 1, hostedPlayerName(displayName), game, null)
         }
@@ -491,6 +506,9 @@ class HostedRoomsActivity : Activity() {
             ?: (fallbackIndex + 1)
 
     private fun gameFromPatchFile(patch: File): String? = runCatching {
+        if (PlayerFileLauncher.supports(patch.name)) {
+            return@runCatching PlayerFileLauncher.declaredGame(patch.name, patch.readBytes())
+        }
         ZipFile(patch).use { archive ->
             val manifest = archive.getEntry("archipelago.json") ?: return@use null
             archive.getInputStream(manifest).bufferedReader(Charsets.UTF_8).use { reader ->

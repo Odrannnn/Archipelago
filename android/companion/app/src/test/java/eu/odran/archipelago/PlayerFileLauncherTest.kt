@@ -3,6 +3,7 @@ package eu.odran.archipelago
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -34,6 +35,21 @@ class PlayerFileLauncherTest {
             assertEquals("Marin", PlayerFileLauncher.embeddedPlayerName(file))
         } finally {
             file.delete()
+        }
+    }
+
+    @Test
+    fun readsAndValidatesEmbeddedPlayerGame() {
+        val valid = """{"game":"Links Awakening DX HD","slot_name":"Marin"}""".toByteArray()
+        assertEquals(
+            "Links Awakening DX HD",
+            PlayerFileLauncher.declaredGame("seed.apladxhd", valid),
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            PlayerFileLauncher.declaredGame(
+                "seed.apladxhd",
+                """{"game":"Links Awakening DX"}""".toByteArray(),
+            )
         }
     }
 

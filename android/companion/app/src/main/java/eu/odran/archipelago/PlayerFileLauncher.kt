@@ -100,6 +100,42 @@ object PlayerFileLauncher {
         launchSharedFile(context, sharedFile, handler, options)
     }
 
+    fun launch(
+        context: Context,
+        fileName: String,
+        bytes: ByteArray,
+        options: PlayerFileLaunchOptions = PlayerFileLaunchOptions(),
+    ) {
+        val safeName = File(fileName).name
+        require(safeName.isNotBlank() && safeName == fileName) { "The player filename is invalid." }
+        val handler = requireNotNull(handlerFor(safeName)) {
+            "No Android game is registered for this player file."
+        }
+        require(bytes.isNotEmpty()) { "The player file is empty." }
+        require(bytes.size <= MAX_PLAYER_FILE_BYTES) { "The player file is too large." }
+        require(declaredGame(safeName, bytes) == handler.gameName) {
+            "The player file is for a different game."
+        }
+        val sharedDirectory = File(context.cacheDir, "game_imports").apply {
+            check(isDirectory || mkdirs()) { "Could not prepare the player-file sharing directory." }
+        }
+        val sharedFile = File(sharedDirectory, safeName).apply { writeBytes(bytes) }
+        launchSharedFile(context, sharedFile, handler, options)
+    }
+
+    internal fun declaredGame(fileName: String, bytes: ByteArray): String? {
+        val handler = handlerFor(fileName) ?: return null
+        return when (handler.extension) {
+            ".apladxhd" -> JSONObject(bytes.toString(Charsets.UTF_8)).optString("game").trim().let { game ->
+                require(game.equals(handler.gameName, ignoreCase = true)) {
+                    "The LADXHD seed manifest declares an invalid game."
+                }
+                handler.gameName
+            }
+            else -> null
+        }
+    }
+
     fun embeddedPlayerName(playerFile: File): String? {
         val handler = handlerFor(playerFile.name) ?: return null
         return when (handler.extension) {

@@ -298,13 +298,15 @@ available from the dedicated **Hosted rooms** screen on the main page. Room
 creation itself remains in the seed generator. **Share multiplayer invite** first
 selects a player slot, then opens Android's share sheet with a player-specific
 `.apinvite` package. The package contains the public room identifiers and that
-player's locally stored APWorld patch, protected by an integrity hash; it
+player's locally stored APWorld patch or required native player file, protected by an integrity hash; it
 never contains a website-session credential or base ROM. On a second device,
 opening the invite verifies and wakes the public room, loads its current port,
 remembers the selected player, and reuses cached legally supplied clean ROM
 inputs or asks for each missing file. The embedded generator applies the patch
 locally and prompts the recipient to save the ready-to-run `.gba`, `.gbc`, `.gb`, `.sfc`, or `.smc`.
-Only player-specific version 3 invites are accepted. **Open multiplayer invite**
+For `Links Awakening DX HD`, it instead forwards the embedded `.apladxhd` manifest
+and resolved server address to the game's native import screen. Player-specific
+version 3 and 4 invites are accepted. **Open multiplayer invite**
 provides a file-picker fallback when a receiving app
 does not open the attachment directly. **Sync website session** is separate and
 its secret link must not be shared.
