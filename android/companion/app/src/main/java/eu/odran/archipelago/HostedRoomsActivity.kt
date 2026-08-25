@@ -108,7 +108,13 @@ class HostedRoomsActivity : Activity() {
         val scrollView = ScrollView(this).apply { addView(content) }
         SystemBarInsets.apply(window, scrollView)
         setContentView(scrollView)
-        renderHostedRooms(webHostClient.cachedRooms())
+        val cachedRooms = webHostClient.cachedRooms()
+        renderHostedRooms(cachedRooms)
+        intent.getStringExtra(EXTRA_SHARE_ROOM_ID)?.let { roomId ->
+            intent.removeExtra(EXTRA_SHARE_ROOM_ID)
+            cachedRooms.firstOrNull { it.roomId == roomId }?.let(::shareHostedRoom)
+                ?: run { status.text = "The active room is not available in the hosted-room list yet." }
+        }
     }
 
     override fun onResume() {
@@ -147,7 +153,9 @@ class HostedRoomsActivity : Activity() {
             }, matchWrapParams())
             return
         }
+        val activeRoomId = JoinedRoomStore.load(this)?.roomId
         rooms.forEachIndexed { index, room ->
+            val isActive = room.roomId == activeRoomId
             val linkedEntry = HostedRoomHistoryLinks.historyId(this, room.roomId)?.let { linkedId ->
                 SeedHistoryStore.list(this).firstOrNull { it.id == linkedId }
             }
@@ -158,15 +166,17 @@ class HostedRoomsActivity : Activity() {
                 ?.map { File(it.path) }
                 ?.filter { it.isFile && PlayerFileLauncher.supports(it.name) }
                 .orEmpty()
-            val panel = CompanionUi.panel(this).apply {
+            val panel = CompanionUi.panel(this, active = isActive).apply {
                 addView(TextView(this@HostedRoomsActivity).apply {
                     text = when {
+                        isActive && room.lastPort > 0 -> "Active · online at archipelago.gg:${room.lastPort}"
+                        isActive -> "Active · server starting or sleeping"
                         room.lastPort > 0 -> "Online · archipelago.gg:${room.lastPort}"
                         room.lastPort < 0 -> "Server error"
                         else -> "Starting or sleeping"
                     }
                     textSize = 17f
-                    setTextColor(CompanionUi.text)
+                    setTextColor(if (isActive) CompanionUi.active else CompanionUi.text)
                 }, matchWrapParams())
                 addView(TextView(this@HostedRoomsActivity).apply {
                     text = buildString {
@@ -180,6 +190,12 @@ class HostedRoomsActivity : Activity() {
                     }
                     CompanionUi.styleMuted(this)
                 }, CompanionUi.insetTop(this, this@HostedRoomsActivity, 4))
+                addView(Button(this@HostedRoomsActivity).apply {
+                    text = if (isActive) "Currently active" else "Load as active room"
+                    isEnabled = !isActive
+                    if (isActive) CompanionUi.styleQuiet(this) else CompanionUi.stylePrimary(this)
+                    setOnClickListener { activateHostedRoom(room) }
+                }, CompanionUi.insetTop(this, this@HostedRoomsActivity, 8))
                 if (sohPlayers.isNotEmpty()) addView(Button(this@HostedRoomsActivity).apply {
                     text = if (room.lastPort > 0) "Launch Ship of Harkinian" else "SoH unavailable until server starts"
                     isEnabled = room.lastPort > 0
@@ -259,6 +275,14 @@ class HostedRoomsActivity : Activity() {
                 CompanionUi.insetTop(panel, this, if (index == 0) 0 else 10),
             )
         }
+    }
+
+    private fun activateHostedRoom(room: HostedRoom) {
+        val joined = JoinedRoomStore.save(this, room)
+        webHostClient.rememberRoom(room)
+        joined.serverAddress()?.let { ServerSettings.save(this, it, "") }
+        setResult(RESULT_OK)
+        finish()
     }
 
     private fun confirmDismissHostedRoom(room: HostedRoom) {
@@ -566,4 +590,14 @@ class HostedRoomsActivity : Activity() {
         ViewGroup.LayoutParams.MATCH_PARENT,
         ViewGroup.LayoutParams.WRAP_CONTENT,
     )
+
+    private fun JoinedRoom.serverAddress(): String? =
+        port.takeIf { it > 0 }?.let(HostedRoomReconnectPolicy::serverAddress)
+
+    companion object {
+        private const val EXTRA_SHARE_ROOM_ID = "share_room_id"
+
+        fun shareIntent(context: Context, roomId: String) =
+            Intent(context, HostedRoomsActivity::class.java).putExtra(EXTRA_SHARE_ROOM_ID, roomId)
+    }
 }

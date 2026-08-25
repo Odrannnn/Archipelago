@@ -245,6 +245,7 @@ class BridgeService : Service() {
                                 selectedRoom,
                             ) != null
                         if (stillSelected && resolvedRoom.lastPort > 0) {
+                            ArchipelagoWebHostClient(this).rememberRoom(resolvedRoom)
                             JoinedRoomStore.save(this, resolvedRoom)
                             val refreshedAddress = HostedRoomReconnectPolicy.serverAddress(
                                 resolvedRoom.lastPort,

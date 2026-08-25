@@ -42,6 +42,22 @@ internal fun orderedHostedRooms(rooms: List<HostedRoom>): List<HostedRoom> =
 internal fun visibleHostedRooms(rooms: List<HostedRoom>, hiddenRoomIds: Set<String>): List<HostedRoom> =
     orderedHostedRooms(rooms.filterNot { it.roomId in hiddenRoomIds })
 
+internal fun mergeHostedRoom(previous: HostedRoom?, refreshed: HostedRoom): HostedRoom = refreshed.copy(
+    seedId = refreshed.seedId.ifBlank { previous?.seedId.orEmpty() },
+    creationTime = refreshed.creationTime.ifBlank { previous?.creationTime.orEmpty() },
+)
+
+internal fun mergeHostedRoomLists(
+    websiteRooms: List<HostedRoom>,
+    rememberedRoomIds: Set<String>,
+    cachedRooms: List<HostedRoom>,
+): List<HostedRoom> {
+    val websiteIds = websiteRooms.mapTo(mutableSetOf()) { it.roomId }
+    return orderedHostedRooms(
+        websiteRooms + cachedRooms.filter { it.roomId in rememberedRoomIds && it.roomId !in websiteIds },
+    )
+}
+
 /** Uploads locally generated seed packages using one persistent archipelago.gg website session. */
 class ArchipelagoWebHostClient(context: Context) {
     private val preferences = context.applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
@@ -132,7 +148,10 @@ class ArchipelagoWebHostClient(context: Context) {
                 players = playersBySeed[seedId].orEmpty(),
             )
         }
-        val visibleRooms = visibleHostedRooms(rooms, hiddenRoomIds())
+        val visibleRooms = visibleHostedRooms(
+            mergeHostedRoomLists(rooms, rememberedRoomIds(), cachedRooms()),
+            hiddenRoomIds(),
+        )
         saveCachedRooms(visibleRooms)
         return visibleRooms
     }
@@ -141,11 +160,26 @@ class ArchipelagoWebHostClient(context: Context) {
         orderedHostedRooms(parseRooms(JSONArray(preferences.getString(ROOM_CACHE, "[]"))))
     }.getOrDefault(emptyList())
 
+    /** Keeps an invite-resolved public room in the local hosted-room list. */
+    fun rememberRoom(room: HostedRoom): List<HostedRoom> {
+        require(ROOM_ID_PATTERN.matches(room.roomId)) { "Invalid room identifier." }
+        val cached = cachedRooms()
+        val merged = mergeHostedRoom(cached.firstOrNull { it.roomId == room.roomId }, room)
+        val rooms = orderedHostedRooms(cached.filterNot { it.roomId == room.roomId } + merged)
+        preferences.edit()
+            .putStringSet(REMEMBERED_ROOMS, rememberedRoomIds() + room.roomId)
+            .putStringSet(HIDDEN_ROOMS, hiddenRoomIds() - room.roomId)
+            .apply()
+        saveCachedRooms(rooms)
+        return rooms
+    }
+
     /** Hides a website-hosted room locally without deleting or stopping it on archipelago.gg. */
     fun dismissRoom(roomId: String): List<HostedRoom> {
         require(ROOM_ID_PATTERN.matches(roomId)) { "Invalid room identifier." }
         preferences.edit()
             .putStringSet(HIDDEN_ROOMS, hiddenRoomIds() + roomId)
+            .putStringSet(REMEMBERED_ROOMS, rememberedRoomIds() - roomId)
             .apply()
         return visibleHostedRooms(cachedRooms(), setOf(roomId)).also(::saveCachedRooms)
     }
@@ -166,25 +200,17 @@ class ArchipelagoWebHostClient(context: Context) {
         var resolved: HostedRoom? = null
         for (delaySeconds in listOf(0L, 2L, 4L, 8L)) {
             if (delaySeconds > 0) Thread.sleep(TimeUnit.SECONDS.toMillis(delaySeconds))
-            val status = execute(
-                Request.Builder().url("$BASE_URL/api/room_status/$roomId").get().build(),
-            ).use { response ->
-                if (!response.isSuccessful) error("Could not read the shared room (HTTP ${response.code}).")
-                JSONObject(response.body?.string() ?: error("The shared room returned an empty response."))
-            }
-            resolved = HostedRoom(
-                roomId = roomId,
-                seedId = "",
-                creationTime = "",
-                lastActivity = status.optString("last_activity"),
-                lastPort = status.optInt("last_port", 0),
-                timeoutSeconds = status.optInt("timeout", 0),
-                trackerId = status.optString("tracker"),
-                players = parsePlayers(status.optJSONArray("players")),
-            )
+            resolved = readPublicRoomStatus(roomId)
             if (resolved.lastPort != 0) break
         }
         return resolved ?: error("Could not resolve the shared room.")
+    }
+
+    /** Checks a room without waking it, then wakes it only if its server is sleeping. */
+    fun refreshPublicRoom(roomId: String): HostedRoom {
+        require(ROOM_ID_PATTERN.matches(roomId)) { "Invalid room identifier." }
+        val status = readPublicRoomStatus(roomId)
+        return if (status.lastPort == 0) resolvePublicRoom(roomId) else status
     }
 
     fun sessionSyncUrl(): String = "$BASE_URL/session/$websiteSessionId"
@@ -213,6 +239,25 @@ class ArchipelagoWebHostClient(context: Context) {
     ).use { response ->
         if (!response.isSuccessful) error("archipelago.gg returned HTTP ${response.code} for $path.")
         JSONArray(response.body?.string() ?: error("archipelago.gg returned an empty response for $path."))
+    }
+
+    private fun readPublicRoomStatus(roomId: String): HostedRoom {
+        val status = execute(
+            Request.Builder().url("$BASE_URL/api/room_status/$roomId").get().build(),
+        ).use { response ->
+            if (!response.isSuccessful) error("Could not read the shared room (HTTP ${response.code}).")
+            JSONObject(response.body?.string() ?: error("The shared room returned an empty response."))
+        }
+        return HostedRoom(
+            roomId = roomId,
+            seedId = "",
+            creationTime = "",
+            lastActivity = status.optString("last_activity"),
+            lastPort = status.optInt("last_port", 0),
+            timeoutSeconds = status.optInt("timeout", 0),
+            trackerId = status.optString("tracker"),
+            players = parsePlayers(status.optJSONArray("players")),
+        )
     }
 
     private fun execute(request: Request): okhttp3.Response {
@@ -250,6 +295,9 @@ class ArchipelagoWebHostClient(context: Context) {
 
     private fun hiddenRoomIds(): Set<String> =
         preferences.getStringSet(HIDDEN_ROOMS, emptySet())?.toSet().orEmpty()
+
+    private fun rememberedRoomIds(): Set<String> =
+        preferences.getStringSet(REMEMBERED_ROOMS, emptySet())?.toSet().orEmpty()
 
     private fun parseRooms(data: JSONArray) = List(data.length()) { index ->
         val room = data.getJSONObject(index)
@@ -308,6 +356,7 @@ class ArchipelagoWebHostClient(context: Context) {
         private const val SESSION_COOKIE = "website_session_cookie"
         private const val ROOM_CACHE = "hosted_room_cache"
         private const val HIDDEN_ROOMS = "hidden_hosted_rooms"
+        private const val REMEMBERED_ROOMS = "remembered_public_rooms"
         private val SESSION_COOKIE_PATTERN = Regex("(?:^|;\\s*)session=([^;]+)")
         val ROOM_ID_PATTERN = Regex("[A-Za-z0-9_-]{16,64}")
     }

@@ -18,6 +18,9 @@ object CompanionUi {
     val surface: Int = Color.WHITE
     val primary: Int = Color.rgb(49, 87, 164)
     val primarySoft: Int = Color.rgb(232, 238, 250)
+    val active: Int = Color.rgb(24, 117, 76)
+    val activeSoft: Int = Color.rgb(230, 246, 238)
+    val activeBorder: Int = Color.rgb(177, 218, 197)
     val text: Int = Color.rgb(27, 35, 52)
     val textMuted: Int = Color.rgb(91, 100, 119)
     val border: Int = Color.rgb(222, 226, 235)
@@ -76,15 +79,23 @@ object CompanionUi {
             }
         }
 
-    fun panel(context: Context, selected: Boolean = false): LinearLayout =
+    fun panel(context: Context, selected: Boolean = false, active: Boolean = false): LinearLayout =
         LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             val padding = dp(context, 14)
             setPadding(padding, padding, padding, padding)
             background = roundedBackground(
                 context,
-                if (selected) primarySoft else Color.rgb(249, 250, 253),
-                if (selected) primary else border,
+                when {
+                    active -> activeSoft
+                    selected -> primarySoft
+                    else -> Color.rgb(249, 250, 253)
+                },
+                when {
+                    active -> activeBorder
+                    selected -> primary
+                    else -> border
+                },
                 12,
             )
         }

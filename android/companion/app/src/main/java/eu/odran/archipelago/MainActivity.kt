@@ -66,6 +66,8 @@ class MainActivity : Activity() {
     private var updateCheckGeneration = 0
     private var retroArchButton: Button? = null
     private var renderedRoom: JoinedRoom? = null
+    private var activeRoomRefreshRunning = false
+    private var lastActiveRoomRefreshAt = 0L
     private var pendingRequiredApWorldInvite: RoomInvite? = null
     private var pendingRequiredApWorldPatch: RomPatchSession? = null
     private var pendingPatchedRom: PatchedRomExport? = null
@@ -77,6 +79,12 @@ class MainActivity : Activity() {
     private val attemptedPlayerArtifactRepairs = mutableSetOf<String>()
     private val refreshStatus = object : Runnable {
         override fun run() {
+            val storedRoom = JoinedRoomStore.load(this@MainActivity)
+            if (storedRoom != renderedRoom) {
+                renderJoinedRoom(storedRoom)
+                storedRoom?.serverAddress()?.takeUnless { address.hasFocus() }?.let(address::setText)
+            }
+            refreshActiveHostedRoomIfDue()
             val activeRoom = renderedRoom
             if (SohLauncher.isGame(activeRoom?.gameName)) {
                 status.text = "Ship of Harkinian connects directly to Archipelago."
@@ -205,7 +213,10 @@ class MainActivity : Activity() {
             text = "Hosted rooms"
             CompanionUi.styleSecondary(this)
             setOnClickListener {
-                startActivity(Intent(this@MainActivity, HostedRoomsActivity::class.java))
+                startActivityForResult(
+                    Intent(this@MainActivity, HostedRoomsActivity::class.java),
+                    REQUEST_HOSTED_ROOMS,
+                )
             }
         }
         inviteStatus = TextView(this).apply {
@@ -216,7 +227,15 @@ class MainActivity : Activity() {
         val content = CompanionUi.screen(this).apply {
             addView(mainHeader(), CompanionUi.fullWidth())
 
-            addView(CompanionUi.card(this@MainActivity, "Connection status").apply {
+            addView(CompanionUi.card(this@MainActivity, "Active room").apply {
+                addView(joinedRoomContainer, CompanionUi.fullWidth())
+                addView(TextView(this@MainActivity).apply {
+                    text = "Client connection"
+                    textSize = 16f
+                    setTextColor(CompanionUi.text)
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                    setPadding(0, CompanionUi.dp(this@MainActivity, 10), 0, CompanionUi.dp(this@MainActivity, 4))
+                }, CompanionUi.fullWidth())
                 addView(status, CompanionUi.fullWidth())
                 addView(serverStatus, CompanionUi.fullWidth())
                 addView(TextView(this@MainActivity).apply {
@@ -231,10 +250,6 @@ class MainActivity : Activity() {
                         startActivity(Intent(this@MainActivity, ClientConsoleActivity::class.java))
                     }
                 }, CompanionUi.insetTop(status, this@MainActivity, 10))
-            }, CompanionUi.cardParams(this@MainActivity))
-
-            addView(CompanionUi.card(this@MainActivity, "Active room").apply {
-                addView(joinedRoomContainer, CompanionUi.fullWidth())
                 addView(inviteStatus, CompanionUi.fullWidth())
             }, CompanionUi.cardParams(this@MainActivity))
 
@@ -499,14 +514,15 @@ class MainActivity : Activity() {
             }
             return
         }
-        if (requestCode == REQUEST_MANAGE_ROOMS) {
+        if (requestCode == REQUEST_MANAGE_ROOMS || requestCode == REQUEST_HOSTED_ROOMS) {
             val room = JoinedRoomStore.load(this)
             renderJoinedRoom(room)
             if (room == null) {
                 inviteStatus.text = "No imported multiplayer room is active."
             } else {
-                inviteStatus.text = "Switching rooms · refreshing its current archipelago.gg server…"
-                resolveAndLoadRoom(room.roomId)
+                inviteStatus.text = "Active room loaded · checking its current archipelago.gg server…"
+                lastActiveRoomRefreshAt = 0L
+                refreshActiveHostedRoomIfDue()
             }
             return
         }
@@ -884,8 +900,10 @@ class MainActivity : Activity() {
     private fun resolveAndLoadRoom(invite: RoomInvite) {
         inviteStatus.text = "Resolving shared room on archipelago.gg…"
         thread(name = "shared-room-import") {
-            runCatching { ArchipelagoWebHostClient(this).resolvePublicRoom(invite.roomId) }
+            val webHostClient = ArchipelagoWebHostClient(this)
+            runCatching { webHostClient.resolvePublicRoom(invite.roomId) }
                 .onSuccess { room ->
+                    webHostClient.rememberRoom(room)
                     val joined = JoinedRoomStore.save(this, room, invite)
                     runOnUiThread {
                         renderJoinedRoom(joined)
@@ -1356,7 +1374,7 @@ class MainActivity : Activity() {
         }
         joinedRoomContainer.addView(TextView(this).apply {
             text = buildString {
-                append(if (room.port > 0) "Connected room · archipelago.gg:${room.port}" else "Saved room · no active port yet")
+                append(if (room.port > 0) "Active hosted room · archipelago.gg:${room.port}" else "Active hosted room · no active port yet")
                 if (!room.playerName.isNullOrBlank()) {
                     append("\n${room.playerName} · slot ${room.playerSlot}")
                 }
@@ -1365,6 +1383,20 @@ class MainActivity : Activity() {
             }
             CompanionUi.styleBody(this)
             setPadding(0, 0, 0, CompanionUi.dp(this@MainActivity, 8))
+        }, matchWrapParams())
+        joinedRoomContainer.addView(Button(this).apply {
+            text = "Share multiplayer invite"
+            CompanionUi.styleSecondary(this)
+            setOnClickListener {
+                val webHostClient = ArchipelagoWebHostClient(this@MainActivity)
+                val hostedRoom = webHostClient.cachedRooms().firstOrNull { it.roomId == room.roomId }
+                    ?: room.toHostedRoom()
+                webHostClient.rememberRoom(hostedRoom)
+                startActivityForResult(
+                    HostedRoomsActivity.shareIntent(this@MainActivity, room.roomId),
+                    REQUEST_HOSTED_ROOMS,
+                )
+            }
         }, matchWrapParams())
 
         val isSohRoom = SohLauncher.isGame(room.gameName)
@@ -1695,6 +1727,71 @@ class MainActivity : Activity() {
                     "dolphin" in capability.emulatorBackends
             }
 
+    private fun JoinedRoom.toHostedRoom() = HostedRoom(
+        roomId = roomId,
+        seedId = "",
+        creationTime = "",
+        lastActivity = "",
+        lastPort = port,
+        timeoutSeconds = 0,
+        trackerId = trackerId,
+        players = players,
+    )
+
+    private fun refreshActiveHostedRoomIfDue() {
+        val room = renderedRoom ?: return
+        if (!ArchipelagoWebHostClient.ROOM_ID_PATTERN.matches(room.roomId)) return
+        val now = System.currentTimeMillis()
+        if (activeRoomRefreshRunning ||
+            now >= lastActiveRoomRefreshAt && now - lastActiveRoomRefreshAt < ACTIVE_ROOM_REFRESH_INTERVAL_MILLIS
+        ) return
+        activeRoomRefreshRunning = true
+        lastActiveRoomRefreshAt = now
+        thread(name = "active-hosted-room-refresh") {
+            val webHostClient = ArchipelagoWebHostClient(this)
+            runCatching { webHostClient.refreshPublicRoom(room.roomId) }
+                .onSuccess { resolved ->
+                    webHostClient.rememberRoom(resolved)
+                    val selected = JoinedRoomStore.load(this)
+                    if (selected?.roomId != room.roomId) {
+                        runOnUiThread { activeRoomRefreshRunning = false }
+                        return@onSuccess
+                    }
+                    val previousPort = selected.port
+                    val updated = JoinedRoomStore.save(this, resolved)
+                    val settings = ServerSettings.load(this)
+                    val refreshedAddress = updated.serverAddress()
+                    val reconnect = refreshedAddress != null && (
+                        previousPort != updated.port ||
+                            HostedRoomReconnectPolicy.matchingRoom(settings.address, updated) == null
+                        )
+                    if (refreshedAddress != null) {
+                        ServerSettings.save(this, refreshedAddress, settings.password)
+                    }
+                    runOnUiThread {
+                        activeRoomRefreshRunning = false
+                        if (JoinedRoomStore.load(this)?.roomId != updated.roomId) return@runOnUiThread
+                        renderJoinedRoom(updated)
+                        if (!address.hasFocus()) refreshedAddress?.let { address.setText(it) }
+                        if (previousPort != updated.port) {
+                            inviteStatus.text = when {
+                                updated.port > 0 -> "Room server updated · archipelago.gg:${updated.port}"
+                                updated.port < 0 -> "The active hosted room reports a server error."
+                                else -> "The active hosted room is still starting."
+                            }
+                        }
+                        if (reconnect) {
+                            startForegroundService(
+                                Intent(this, BridgeService::class.java)
+                                    .setAction(BridgeService.ACTION_RECONNECT),
+                            )
+                        }
+                    }
+                }
+                .onFailure { runOnUiThread { activeRoomRefreshRunning = false } }
+        }
+    }
+
     private fun linkedPlayerFiles(room: JoinedRoom): List<File> {
         val historyId = HostedRoomHistoryLinks.historyId(this, room.roomId) ?: return emptyList()
         val entry = SeedHistoryStore.list(this).firstOrNull { it.id == historyId } ?: return emptyList()
@@ -1828,6 +1925,7 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        lastActiveRoomRefreshAt = 0L
         handler.post(refreshStatus)
         refreshUpdateBell()
     }
@@ -1848,10 +1946,12 @@ class MainActivity : Activity() {
         private const val REQUEST_PATCH_APWORLD = 308
         private const val REQUEST_SAVE_STREAMING_ROM = 309
         private const val REQUEST_OPEN_NATIVE_PLAYER_FILE = 310
+        private const val REQUEST_HOSTED_ROOMS = 311
         private const val MENU_DOWNLOADS_UPDATES = 400
         private const val MENU_DOLPHIN_SOCKET = 401
         private const val MENU_BACKUP_RESTORE = 402
         private const val MAX_PATCH_BYTES = 32 * 1024 * 1024
         private const val MAX_ROM_BYTES = 32L * 1024 * 1024 + 512
+        private const val ACTIVE_ROOM_REFRESH_INTERVAL_MILLIS = 60_000L
     }
 }

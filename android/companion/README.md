@@ -294,14 +294,17 @@ controls work without placing the secret session identifier in a URL. External
 links leave the in-app view without receiving its cookie. **Sync website
 session** remains the explicit way to grant the normal phone browser the same
 access. Trackers, online server addresses, and room-management actions are
-available from the dedicated **Hosted rooms** screen on the main page. Room
-creation itself remains in the seed generator. **Share multiplayer invite** first
-selects a player slot, then opens Android's share sheet with a player-specific
+available from the dedicated **Hosted rooms** screen on the main page. That list
+also remembers rooms imported from multiplayer invites, lets any room be loaded
+as the active room, and highlights the active entry in green. Room creation itself
+remains in the seed generator. The main page's **Active room** card combines the
+client-console connection state and console with **Share multiplayer invite**.
+Sharing first selects a player slot, then opens Android's share sheet with a player-specific
 `.apinvite` package. The package contains the public room identifiers and that
 player's locally stored APWorld patch or required native player file, protected by an integrity hash; it
 never contains a website-session credential or base ROM. On a second device,
-opening the invite verifies and wakes the public room, loads its current port,
-remembers the selected player, and reuses cached legally supplied clean ROM
+opening the invite verifies and wakes the public room, loads it as the active
+room, adds it to **Hosted rooms**, remembers the selected player, and reuses cached legally supplied clean ROM
 inputs or asks for each missing file. The embedded generator applies the patch
 locally and prompts the recipient to save the ready-to-run `.gba`, `.gbc`, `.gb`, `.sfc`, or `.smc`.
 For `Links Awakening DX HD`, it instead forwards the embedded `.apladxhd` manifest
@@ -350,7 +353,10 @@ Imported multiplayer rooms are kept in a persistent room library instead of
 replacing one another. **Manage imported rooms** lists them, marks the active
 room, switches the companion and bridge to another room's current server, and
 deletes local room records without affecting hosted rooms or ROM files. Existing
-single-room data is migrated automatically. **Open in PopTracker** launches the
+single-room data is migrated automatically. While the app is open, the active
+room is checked periodically against `archipelago.gg`; a sleeping room is woken,
+and a changed server port is propagated to the active room, saved connection
+settings, hosted-room cache, and client-console bridge. **Open in PopTracker** launches the
 PopTracker Android app with the active room's current host and port, selected
 player name, saved room password, and the room's game identifier so the
 matching tracker pack can load automatically. This action is not shown for Ship
