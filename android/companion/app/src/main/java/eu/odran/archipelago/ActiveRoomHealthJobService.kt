@@ -7,6 +7,7 @@ import android.app.job.JobService
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import kotlin.concurrent.thread
 
 internal enum class RoomHealthOutcome {
@@ -59,18 +60,18 @@ internal object ActiveRoomHealthScheduler {
         context.getSystemService(JobScheduler::class.java)?.cancel(JOB_ID)
     }
 
-    fun appEnteredBackground(context: Context) {
+    fun appEnteredBackground(context: Context): Boolean {
         val room = RoomSessionRepository.activeRoom(context)
         if (room == null || !ArchipelagoWebHostClient.ROOM_ID_PATTERN.matches(room.roomId)) {
             context.getSystemService(JobScheduler::class.java)?.cancel(JOB_ID)
-            return
+            return false
         }
-        val scheduler = context.getSystemService(JobScheduler::class.java) ?: return
-        if (scheduler.getPendingJob(JOB_ID) == null) schedule(context, INITIAL_DELAY_MILLIS)
+        val scheduler = context.getSystemService(JobScheduler::class.java) ?: return false
+        return scheduler.getPendingJob(JOB_ID) != null || schedule(context, INITIAL_DELAY_MILLIS)
     }
 
-    fun schedule(context: Context, delayMillis: Long) {
-        val scheduler = context.getSystemService(JobScheduler::class.java) ?: return
+    fun schedule(context: Context, delayMillis: Long): Boolean {
+        val scheduler = context.getSystemService(JobScheduler::class.java) ?: return false
         val job = JobInfo.Builder(
             JOB_ID,
             ComponentName(context, ActiveRoomHealthJobService::class.java),
@@ -79,8 +80,12 @@ internal object ActiveRoomHealthScheduler {
             .setMinimumLatency(delayMillis.coerceAtLeast(60_000L))
             .setPersisted(true)
             .build()
-        scheduler.schedule(job)
+        return runCatching { scheduler.schedule(job) == JobScheduler.RESULT_SUCCESS }
+            .onFailure { Log.e(TAG, "Could not schedule active-room health check", it) }
+            .getOrDefault(false)
     }
+
+    private const val TAG = "ActiveRoomHealth"
 }
 
 /** Checks only active rooms which were running, so background work never repeatedly wakes sleeping rooms. */

@@ -68,8 +68,8 @@ android {
         applicationId = "eu.odran.archipelago"
         minSdk = 26
         targetSdk = 35
-        versionCode = 101
-        versionName = "0.38.9"
+        versionCode = 102
+        versionName = "0.38.10"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
