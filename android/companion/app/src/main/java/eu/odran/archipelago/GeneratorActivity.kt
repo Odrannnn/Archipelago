@@ -11,6 +11,7 @@ import android.provider.OpenableColumns
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
+import android.view.Menu
 import android.view.View
 import android.view.ViewGroup
 import android.widget.AdapterView
@@ -18,6 +19,7 @@ import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.PopupMenu
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.ScrollView
@@ -66,7 +68,10 @@ class GeneratorActivity : Activity() {
     private lateinit var patchButton: Button
     private lateinit var launchDolphinButton: Button
     private lateinit var forgetBaseRomButton: Button
+    private lateinit var romCacheToggleButton: Button
+    private lateinit var romCacheContainer: LinearLayout
     private lateinit var patchesContainer: LinearLayout
+    private lateinit var resultActionsContainer: LinearLayout
     private lateinit var historyContainer: LinearLayout
     private lateinit var historyToggleButton: Button
     private lateinit var savedYamlsContainer: LinearLayout
@@ -139,11 +144,11 @@ class GeneratorActivity : Activity() {
         }
         status = TextView(this).apply {
             text = "Starting Python 3.12…"
-            minLines = 2
+            minLines = 1
             gravity = android.view.Gravity.TOP or android.view.Gravity.START
             setTextIsSelectable(true)
             setHorizontallyScrolling(false)
-            CompanionUi.styleBody(this)
+            CompanionUi.styleMuted(this)
         }
         patchesContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -201,8 +206,8 @@ class GeneratorActivity : Activity() {
             addView(removePlayerButton, weightedButtonParams())
         }
         val resetDraftButton = Button(this).apply {
-            text = "Reset all generator settings"
-            CompanionUi.styleQuiet(this)
+            text = "Reset generator settings"
+            CompanionUi.styleDanger(this)
             setOnClickListener {
                 AlertDialog.Builder(this@GeneratorActivity)
                     .setTitle("Reset generator settings?")
@@ -284,7 +289,7 @@ class GeneratorActivity : Activity() {
             setOnClickListener { chooseGameTemplate() }
         }
         generateButton = Button(this).apply {
-            text = "Generate offline"
+            text = "Generate seed"
             CompanionUi.stylePrimary(this)
             isEnabled = false
             setOnClickListener { generateSeed() }
@@ -298,20 +303,20 @@ class GeneratorActivity : Activity() {
             }
         }
         hostSeedButton = Button(this).apply {
-            text = "Host seed on archipelago.gg"
-            CompanionUi.styleSecondary(this)
+            text = "Host on archipelago.gg"
+            CompanionUi.stylePrimary(this)
             isEnabled = false
             setOnClickListener { seedFile?.let { hostSeed(it, currentHistoryId) } }
         }
         val viewHostedRoomsButton = Button(this).apply {
-            text = "View hosted rooms"
+            text = "Rooms"
             CompanionUi.styleQuiet(this)
             setOnClickListener {
                 startActivity(Intent(this@GeneratorActivity, HostedRoomsActivity::class.java))
             }
         }
         patchButton = Button(this).apply {
-            text = "Create patched ROM"
+            text = "Create game ROM"
             CompanionUi.stylePrimary(this)
             isEnabled = false
             setOnClickListener { patchWithCachedBaseRomOrChoose() }
@@ -376,77 +381,98 @@ class GeneratorActivity : Activity() {
                 startActivity(Intent(this@GeneratorActivity, ApWorldManagerActivity::class.java))
             }
         }
+        romCacheContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(forgetBaseRomButton, matchWrapParams())
+        }
+        romCacheToggleButton = CompanionUi.toggleButton(
+            this,
+            "ROM cache options",
+            romCacheContainer,
+        )
+        resultActionsContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            addView(TextView(this@GeneratorActivity).apply {
+                text = "Seed output"
+                textSize = 16f
+                setTextColor(CompanionUi.text)
+                setTypeface(typeface, Typeface.BOLD)
+            }, matchWrapParams())
+            addView(hostSeedButton, CompanionUi.insetTop(hostSeedButton, this@GeneratorActivity, 6))
+            addView(LinearLayout(this@GeneratorActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                addView(exportSeedButton, CompanionUi.weightedButtonParams(this@GeneratorActivity, 5))
+                addView(viewHostedRoomsButton, CompanionUi.weightedButtonParams(this@GeneratorActivity))
+            }, CompanionUi.insetTop(exportSeedButton, this@GeneratorActivity, 4))
+            addView(patchesContainer, CompanionUi.insetTop(patchesContainer, this@GeneratorActivity, 8))
+            addView(patchButton, CompanionUi.insetTop(patchButton, this@GeneratorActivity, 4))
+            addView(launchDolphinButton, CompanionUi.insetTop(launchDolphinButton, this@GeneratorActivity, 4))
+            addView(romCacheToggleButton, CompanionUi.insetTop(romCacheToggleButton, this@GeneratorActivity, 4))
+            addView(romCacheContainer, matchWrapParams())
+        }
+        val advancedToolsContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            addView(manageWorldsButton, matchWrapParams())
+            addView(TextView(this@GeneratorActivity).apply {
+                text = "YAML tools"
+                textSize = 16f
+                setTextColor(CompanionUi.text)
+                setTypeface(typeface, Typeface.BOLD)
+                setPadding(0, CompanionUi.dp(this@GeneratorActivity, 12), 0, 0)
+            }, matchWrapParams())
+            addView(advancedYamlButton, CompanionUi.insetTop(advancedYamlButton, this@GeneratorActivity, 4))
+            addView(advancedYamlContainer, CompanionUi.insetTop(advancedYamlContainer, this@GeneratorActivity, 4))
+            addView(rememberYamlButton, CompanionUi.insetTop(rememberYamlButton, this@GeneratorActivity, 8))
+            addView(importYamlButton, CompanionUi.insetTop(importYamlButton, this@GeneratorActivity, 4))
+            addView(savedYamlsToggleButton, CompanionUi.insetTop(savedYamlsToggleButton, this@GeneratorActivity, 4))
+            addView(savedYamlsContainer, matchWrapParams())
+            addView(resetDraftButton, CompanionUi.insetTop(resetDraftButton, this@GeneratorActivity, 12))
+        }
         val content = CompanionUi.screen(this).apply {
             addView(CompanionUi.pageTitle(
                 this@GeneratorActivity,
                 "Seed generator",
-                "Configure players, generate offline, then patch or host the result.",
+                "Configure players, generate a seed, then host it or prepare the game files.",
             ), CompanionUi.fullWidth())
 
             addView(CompanionUi.card(
                 this@GeneratorActivity,
-                "Players and seed",
-                "Select a player to edit, add another player, or change the selected game.",
+                "1. Configure players",
+                "Choose a player, game, and options. Add more players for a multiworld.",
             ).apply {
-                addView(manageWorldsButton, matchWrapParams())
-                addView(playerSelector, CompanionUi.insetTop(playerSelector, this@GeneratorActivity, 8))
+                addView(playerSelector, matchWrapParams())
+                addView(playerNameEditor, CompanionUi.insetTop(playerNameEditor, this@GeneratorActivity, 6))
                 addView(gameTemplateButton, CompanionUi.insetTop(gameTemplateButton, this@GeneratorActivity, 4))
                 addView(playerCountView, CompanionUi.insetTop(playerCountView, this@GeneratorActivity, 8))
                 addView(playerButtons, CompanionUi.insetTop(playerButtons, this@GeneratorActivity, 4))
-                addView(seedEditor, CompanionUi.insetTop(seedEditor, this@GeneratorActivity, 8))
-                addView(resetDraftButton, CompanionUi.insetTop(resetDraftButton, this@GeneratorActivity, 4))
-            }, CompanionUi.cardParams(this@GeneratorActivity))
-
-            addView(CompanionUi.card(
-                this@GeneratorActivity,
-                "Player settings",
-                "Options are generated from the selected APWorld. Changes become YAML when you generate or save.",
-            ).apply {
-                addView(playerNameEditor, matchWrapParams())
+                addView(TextView(this@GeneratorActivity).apply {
+                    text = "Player options"
+                    textSize = 16f
+                    setTextColor(CompanionUi.text)
+                    setTypeface(typeface, Typeface.BOLD)
+                    setPadding(0, CompanionUi.dp(this@GeneratorActivity, 12), 0, 0)
+                }, matchWrapParams())
                 addView(playerOptionsContainer, CompanionUi.insetTop(playerOptionsContainer, this@GeneratorActivity, 8))
             }, CompanionUi.cardParams(this@GeneratorActivity))
 
             addView(CompanionUi.card(
                 this@GeneratorActivity,
-                "Advanced YAML",
-                "Optional fallback for custom or unsupported settings. Apply edits to bring them back into the form.",
+                "2. Generate seed",
+                "Generation runs entirely on this device. Leave the seed number blank for a random seed.",
             ).apply {
-                addView(advancedYamlButton, matchWrapParams())
-                addView(advancedYamlContainer, CompanionUi.insetTop(advancedYamlContainer, this@GeneratorActivity, 6))
-            }, CompanionUi.cardParams(this@GeneratorActivity))
-
-            addView(CompanionUi.card(
-                this@GeneratorActivity,
-                "Saved YAML configurations",
-                "Remember or import reusable player settings. Saved YAMLs also appear read-only in compatible file managers.",
-            ).apply {
-                addView(rememberYamlButton, matchWrapParams())
-                addView(importYamlButton, CompanionUi.insetTop(importYamlButton, this@GeneratorActivity, 4))
-                addView(savedYamlsToggleButton, CompanionUi.insetTop(savedYamlsToggleButton, this@GeneratorActivity, 4))
-                addView(savedYamlsContainer, matchWrapParams())
-            }, CompanionUi.cardParams(this@GeneratorActivity))
-
-            addView(CompanionUi.card(
-                this@GeneratorActivity,
-                "Generate and play",
-                "Generation and ROM patching work offline. Hosting requires an internet connection.",
-            ).apply {
-                addView(generateButton, matchWrapParams())
+                addView(seedEditor, matchWrapParams())
+                addView(generateButton, CompanionUi.insetTop(generateButton, this@GeneratorActivity, 6))
                 addView(CompanionUi.panel(this@GeneratorActivity).apply {
                     addView(TextView(this@GeneratorActivity).apply {
-                        text = "Generator status"
+                        text = "Status"
                         setTypeface(typeface, Typeface.BOLD)
                         CompanionUi.styleMuted(this)
                     }, matchWrapParams())
                     addView(status, CompanionUi.insetTop(status, this@GeneratorActivity, 6))
                 }, CompanionUi.insetTop(status, this@GeneratorActivity, 8))
-                addView(exportSeedButton, CompanionUi.insetTop(exportSeedButton, this@GeneratorActivity, 4))
-                addView(hostSeedButton, CompanionUi.insetTop(hostSeedButton, this@GeneratorActivity, 4))
-                addView(viewHostedRoomsButton, CompanionUi.insetTop(viewHostedRoomsButton, this@GeneratorActivity, 4))
-                addView(patchesContainer, CompanionUi.insetTop(patchesContainer, this@GeneratorActivity, 8))
-                addView(patchButton, CompanionUi.insetTop(patchButton, this@GeneratorActivity, 4))
-                addView(launchDolphinButton, CompanionUi.insetTop(launchDolphinButton, this@GeneratorActivity, 4))
-                addView(forgetBaseRomButton, CompanionUi.insetTop(forgetBaseRomButton, this@GeneratorActivity, 4))
+                addView(resultActionsContainer, CompanionUi.insetTop(resultActionsContainer, this@GeneratorActivity, 10))
             }, CompanionUi.cardParams(this@GeneratorActivity))
 
             addView(CompanionUi.card(
@@ -456,6 +482,18 @@ class GeneratorActivity : Activity() {
             ).apply {
                 addView(historyToggleButton, matchWrapParams())
                 addView(historyContainer, matchWrapParams())
+            }, CompanionUi.cardParams(this@GeneratorActivity))
+
+            addView(CompanionUi.card(
+                this@GeneratorActivity,
+                "Advanced tools",
+                "Manage game worlds, edit or reuse YAML, and reset the generator.",
+            ).apply {
+                addView(
+                    CompanionUi.toggleButton(this@GeneratorActivity, "advanced tools", advancedToolsContainer),
+                    matchWrapParams(),
+                )
+                addView(advancedToolsContainer, matchWrapParams())
             }, CompanionUi.cardParams(this@GeneratorActivity))
         }
         screenScrollView = ScrollView(this).apply {
@@ -1257,26 +1295,20 @@ class GeneratorActivity : Activity() {
                     }
                     CompanionUi.styleBody(this)
                 }, CompanionUi.insetTop(this, this@GeneratorActivity, 6))
-                addView(Button(this@GeneratorActivity).apply {
-                    text = "Load into generator"
-                    CompanionUi.stylePrimary(this)
-                    isEnabled = generatorReady
-                    setOnClickListener { loadSavedYaml(entry) }
+                addView(LinearLayout(this@GeneratorActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    addView(Button(this@GeneratorActivity).apply {
+                        text = "Load"
+                        CompanionUi.stylePrimary(this)
+                        isEnabled = generatorReady
+                        setOnClickListener { loadSavedYaml(entry) }
+                    }, CompanionUi.weightedButtonParams(this@GeneratorActivity, 4))
+                    addView(Button(this@GeneratorActivity).apply {
+                        text = "More"
+                        CompanionUi.styleQuiet(this)
+                        setOnClickListener { showSavedYamlMenu(it, entry) }
+                    }, CompanionUi.weightedButtonParams(this@GeneratorActivity))
                 }, CompanionUi.insetTop(this, this@GeneratorActivity, 8))
-                addView(Button(this@GeneratorActivity).apply {
-                    text = "Save a copy to device"
-                    CompanionUi.styleQuiet(this)
-                    setOnClickListener {
-                        runCatching { SavedYamlStore.read(this@GeneratorActivity, entry.id) }
-                            .onSuccess { yaml -> beginExport(yamlExportName(entry.name), yaml.toByteArray()) }
-                            .onFailure { showError("Could not read ${entry.name}", it) }
-                    }
-                }, CompanionUi.insetTop(this, this@GeneratorActivity, 4))
-                addView(Button(this@GeneratorActivity).apply {
-                    text = "Delete saved YAML"
-                    CompanionUi.styleDanger(this)
-                    setOnClickListener { confirmDeleteSavedYaml(entry) }
-                }, CompanionUi.insetTop(this, this@GeneratorActivity, 4))
             }
             savedYamlsContainer.addView(
                 panel,
@@ -1416,6 +1448,7 @@ class GeneratorActivity : Activity() {
         }
         val playersJson = OfflineGenerator.encodePlayerForms(playerForms)
         generateButton.isEnabled = false
+        generateButton.text = "Generating…"
         exportSeedButton.isEnabled = false
         patchButton.isEnabled = false
         status.text = "Generating ${playerForms.size}-player seed… item-placement failures retry automatically; " +
@@ -1429,6 +1462,7 @@ class GeneratorActivity : Activity() {
             }.onSuccess { (entry, attempts) ->
                 runOnUiThread {
                     generateButton.isEnabled = true
+                    generateButton.text = "Generate seed"
                     openHistoryEntry(entry, loadSettings = false)
                     renderHistory()
                     val names = entry.files.joinToString("\n") { "• ${it.name}" }
@@ -1437,7 +1471,10 @@ class GeneratorActivity : Activity() {
                         "Players: ${entry.players.joinToString()}\n$names"
                 }
             }.onFailure {
-                runOnUiThread { generateButton.isEnabled = true }
+                runOnUiThread {
+                    generateButton.isEnabled = true
+                    generateButton.text = "Generate seed"
+                }
                 showError("Generation failed", it)
             }
         }
@@ -1536,6 +1573,19 @@ class GeneratorActivity : Activity() {
                 }
             }
         }
+        updateResultActionsVisibility()
+    }
+
+    private fun updateResultActionsVisibility() {
+        if (!::resultActionsContainer.isInitialized) return
+        val hasGeneratedOutput = seedFile?.isFile == true ||
+            availablePatches.isNotEmpty() ||
+            availablePlayerFiles.isNotEmpty() ||
+            lastDolphinRomUri != null
+        resultActionsContainer.visibility = if (hasGeneratedOutput) View.VISIBLE else View.GONE
+        patchButton.visibility = if (availablePatches.isNotEmpty()) View.VISIBLE else View.GONE
+        romCacheToggleButton.visibility = if (availablePatches.isNotEmpty()) View.VISIBLE else View.GONE
+        if (availablePatches.isEmpty()) romCacheContainer.visibility = View.GONE
     }
 
     private fun launchPlayerFile(playerFile: File) {
@@ -1635,48 +1685,84 @@ class GeneratorActivity : Activity() {
                     textSize = 13f
                 }, CompanionUi.insetTop(this, this@GeneratorActivity, 4))
                 addView(Button(this@GeneratorActivity).apply {
-                    text = if (selected) "Reload settings" else "Open settings"
-                    CompanionUi.styleSecondary(this)
+                    text = if (selected) "Reload this seed" else "Use this seed"
+                    CompanionUi.stylePrimary(this)
                     setOnClickListener { openHistoryEntry(entry, loadSettings = true) }
                 }, CompanionUi.insetTop(this, this@GeneratorActivity, 10))
-                playerFiles.forEach { playerFile ->
-                    addView(Button(this@GeneratorActivity).apply {
-                        text = PlayerFileLauncher.actionLabel(playerFile.name)
-                        CompanionUi.stylePrimary(this)
-                        setOnClickListener { launchPlayerFile(playerFile) }
-                    }, CompanionUi.insetTop(this, this@GeneratorActivity, 4))
-                }
                 addView(LinearLayout(this@GeneratorActivity).apply {
                     orientation = LinearLayout.HORIZONTAL
                     addView(Button(this@GeneratorActivity).apply {
-                        text = "Save ZIP"
-                        isEnabled = zipAvailable
-                        CompanionUi.styleQuiet(this)
-                        setOnClickListener {
-                            zipArtifact?.let { File(it.path) }?.takeIf { it.isFile }
-                                ?.let { beginExport(it.name, it.readBytes()) }
-                        }
-                    }, CompanionUi.weightedButtonParams(this@GeneratorActivity, 4))
-                    addView(Button(this@GeneratorActivity).apply {
                         text = "Host online"
                         isEnabled = zipAvailable && !hostingInProgress
-                        CompanionUi.styleQuiet(this)
+                        CompanionUi.styleSecondary(this)
                         setOnClickListener {
                             zipArtifact?.let { File(it.path) }?.takeIf { it.isFile }
                                 ?.let { hostSeed(it, entry.id) }
                         }
+                    }, CompanionUi.weightedButtonParams(this@GeneratorActivity, 4))
+                    addView(Button(this@GeneratorActivity).apply {
+                        text = "More"
+                        CompanionUi.styleQuiet(this)
+                        setOnClickListener { showSeedHistoryMenu(it, entry, zipArtifact, playerFiles) }
                     }, CompanionUi.weightedButtonParams(this@GeneratorActivity))
-                }, CompanionUi.insetTop(this, this@GeneratorActivity, 4))
-                addView(Button(this@GeneratorActivity).apply {
-                    text = "Delete seed"
-                    CompanionUi.styleDanger(this)
-                    setOnClickListener { confirmDelete(entry) }
                 }, CompanionUi.insetTop(this, this@GeneratorActivity, 4))
             }
             historyContainer.addView(
                 entryPanel,
                 CompanionUi.insetTop(entryPanel, this, if (entry === entries.first()) 8 else 10),
             )
+        }
+    }
+
+    private fun showSavedYamlMenu(anchor: View, entry: SavedYamlEntry) {
+        PopupMenu(this, anchor).apply {
+            menu.add(Menu.NONE, MENU_YAML_SAVE_COPY, 0, "Save a copy to device")
+            menu.add(Menu.NONE, MENU_YAML_DELETE, 1, "Delete saved YAML")
+            setOnMenuItemClickListener { item ->
+                when (item.itemId) {
+                    MENU_YAML_SAVE_COPY -> runCatching { SavedYamlStore.read(this@GeneratorActivity, entry.id) }
+                        .onSuccess { yaml -> beginExport(yamlExportName(entry.name), yaml.toByteArray()) }
+                        .onFailure { showError("Could not read ${entry.name}", it) }
+                    MENU_YAML_DELETE -> confirmDeleteSavedYaml(entry)
+                }
+                true
+            }
+            show()
+        }
+    }
+
+    private fun showSeedHistoryMenu(
+        anchor: View,
+        entry: SeedHistoryEntry,
+        zipArtifact: GeneratedArtifact?,
+        playerFiles: List<File>,
+    ) {
+        PopupMenu(this, anchor).apply {
+            menu.add(Menu.NONE, MENU_HISTORY_SAVE_ZIP, 0, "Save seed ZIP").isEnabled = zipArtifact != null
+            playerFiles.forEachIndexed { index, playerFile ->
+                menu.add(
+                    Menu.NONE,
+                    MENU_HISTORY_PLAYER_FILE_BASE + index,
+                    index + 1,
+                    PlayerFileLauncher.actionLabel(playerFile.name),
+                )
+            }
+            menu.add(Menu.NONE, MENU_HISTORY_DELETE, playerFiles.size + 2, "Delete seed")
+            setOnMenuItemClickListener { item ->
+                when {
+                    item.itemId == MENU_HISTORY_SAVE_ZIP -> zipArtifact
+                        ?.let { File(it.path) }
+                        ?.takeIf { it.isFile }
+                        ?.let { beginExport(it.name, it.readBytes()) }
+                    item.itemId == MENU_HISTORY_DELETE -> confirmDelete(entry)
+                    item.itemId >= MENU_HISTORY_PLAYER_FILE_BASE -> {
+                        val index = item.itemId - MENU_HISTORY_PLAYER_FILE_BASE
+                        playerFiles.getOrNull(index)?.let(::launchPlayerFile)
+                    }
+                }
+                true
+            }
+            show()
         }
     }
 
@@ -1694,6 +1780,7 @@ class GeneratorActivity : Activity() {
         if (hostingInProgress) return
         hostingInProgress = true
         hostSeedButton.isEnabled = false
+        hostSeedButton.text = "Hosting…"
         renderHistory()
         status.text = "Uploading ${zip.name} and creating an archipelago.gg room…"
         thread(name = "archipelago-web-host") {
@@ -1703,6 +1790,7 @@ class GeneratorActivity : Activity() {
                     runOnUiThread {
                         hostingInProgress = false
                         hostSeedButton.isEnabled = seedFile?.isFile == true
+                        hostSeedButton.text = "Host on archipelago.gg"
                         renderHistory()
                         status.text = if (result.room.lastPort > 0) {
                             "Room created · connect to archipelago.gg:${result.room.lastPort}. Open Rooms to manage it."
@@ -1715,6 +1803,7 @@ class GeneratorActivity : Activity() {
                     runOnUiThread {
                         hostingInProgress = false
                         hostSeedButton.isEnabled = seedFile?.isFile == true
+                        hostSeedButton.text = "Host on archipelago.gg"
                         renderHistory()
                     }
                     showError("Could not host seed", error)
@@ -2113,6 +2202,11 @@ class GeneratorActivity : Activity() {
     )
 
     companion object {
+        private const val MENU_HISTORY_SAVE_ZIP = 301
+        private const val MENU_HISTORY_DELETE = 302
+        private const val MENU_HISTORY_PLAYER_FILE_BASE = 400
+        private const val MENU_YAML_SAVE_COPY = 501
+        private const val MENU_YAML_DELETE = 502
         private const val REQUEST_BASE_ROM = 201
         private const val REQUEST_EXPORT = 202
         private const val REQUEST_STREAMING_ROM_OUTPUT = 204
