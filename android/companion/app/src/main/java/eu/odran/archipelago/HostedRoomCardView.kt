@@ -8,6 +8,7 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.view.ViewCompat
 
 internal data class HostedRoomCardCallbacks(
     val onActivate: () -> Unit,
@@ -42,17 +43,25 @@ internal class HostedRoomCardView(context: Context) : FrameLayout(context) {
                 textSize = 18f
                 setTypeface(typeface, Typeface.BOLD)
                 setTextColor(if (model.isActive) CompanionUi.active else CompanionUi.text)
+                ViewCompat.setAccessibilityHeading(this, true)
             }, matchWrapParams())
             addView(LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 if (model.isActive) {
                     addView(
-                        CompanionUi.statusChip(context, "ACTIVE", CompanionUi.StatusTone.ACTIVE),
+                        CompanionUi.statusChip(
+                            context,
+                            context.getString(R.string.active_chip),
+                            CompanionUi.StatusTone.ACTIVE,
+                        ),
                         CompanionUi.wrapContentParams(context, 5),
                     )
                 }
                 addView(
-                    CompanionUi.statusChip(context, if (model.isHosted) "HOSTED" else "JOINED"),
+                    CompanionUi.statusChip(
+                        context,
+                        context.getString(if (model.isHosted) R.string.hosted_chip else R.string.joined_chip),
+                    ),
                     CompanionUi.wrapContentParams(context, 5),
                 )
                 addView(
@@ -65,7 +74,32 @@ internal class HostedRoomCardView(context: Context) : FrameLayout(context) {
                 CompanionUi.styleMuted(this)
             }, CompanionUi.insetTop(View(context), context, 4))
             addView(Button(context).apply {
-                text = primary.label
+                text = when (primary.action) {
+                    RoomPrimaryAction.ACTIVATE -> context.getString(
+                        if (!model.isActive && model.joinedRoom?.playerSlot == null && model.activePlayerChoices.isNotEmpty()) {
+                            R.string.choose_player_activate
+                        } else {
+                            R.string.make_active
+                        },
+                    )
+                    RoomPrimaryAction.WAKE -> context.getString(R.string.wake_refresh)
+                    RoomPrimaryAction.RETRY -> context.getString(R.string.retry_room)
+                    RoomPrimaryAction.CHOOSE_PLAYER -> context.getString(R.string.choose_player)
+                    RoomPrimaryAction.LAUNCH_SOH -> context.getString(R.string.launch_soh)
+                    RoomPrimaryAction.NONE -> context.getString(R.string.currently_active)
+                    RoomPrimaryAction.OPEN_PLAYER_FILE -> if (model.nativePlayerFiles.size > 1) {
+                        context.getString(R.string.choose_player_file)
+                    } else {
+                        primary.label
+                    }
+                    RoomPrimaryAction.WAIT -> context.getString(
+                        if (model.status.state == RoomRuntimeState.WAKING) {
+                            R.string.waking_room
+                        } else {
+                            R.string.refreshing_room
+                        },
+                    )
+                }
                 isEnabled = primary.enabled
                 CompanionUi.stylePrimary(this)
                 setOnClickListener {
@@ -81,13 +115,13 @@ internal class HostedRoomCardView(context: Context) : FrameLayout(context) {
                 }
             }, CompanionUi.insetTop(View(context), context, 8))
             val shareButton = Button(context).apply {
-                text = share.label
+                text = context.getString(if (share.enabled) R.string.share_invite else R.string.share_unavailable)
                 isEnabled = share.enabled
                 CompanionUi.styleSecondary(this)
                 setOnClickListener { callbacks.onShare() }
             }
             val moreButton = Button(context).apply {
-                text = "More"
+                text = context.getString(R.string.more_actions)
                 CompanionUi.styleQuiet(this)
                 setOnClickListener(callbacks.onMore)
             }

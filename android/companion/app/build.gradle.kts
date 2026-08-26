@@ -68,8 +68,9 @@ android {
         applicationId = "eu.odran.archipelago"
         minSdk = 26
         targetSdk = 35
-        versionCode = 100
-        versionName = "0.38.8"
+        versionCode = 101
+        versionName = "0.38.9"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
             // The custom mGBA bridge currently targets 64-bit Android devices.
@@ -100,6 +101,10 @@ android {
         getByName("release") {
             signingConfig = signingConfigs.getByName("release")
         }
+    }
+
+    testOptions {
+        animationsDisabled = true
     }
 
     sourceSets.getByName("main").assets.srcDir(syncOotLuaConnector)
@@ -148,4 +153,7 @@ dependencies {
     implementation("org.luaj:luaj-jse:3.0.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
 }

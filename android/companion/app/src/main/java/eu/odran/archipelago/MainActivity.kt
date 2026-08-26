@@ -12,7 +12,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
-import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.Menu
@@ -67,6 +66,8 @@ class MainActivity : CompanionActivity() {
     private var renderedRoom: JoinedRoom? = null
     private var activeRoomRefreshRunning = false
     private var lastActiveRoomRefreshAt = 0L
+    private val isUiTestMode: Boolean
+        get() = intent?.getBooleanExtra(EXTRA_UI_TEST_MODE, false) == true
     private var pendingRequiredApWorldInvite: RoomInvite? = null
     private var pendingRequiredApWorldPatch: RomPatchSession? = null
     private var pendingPatchedRom: PatchedRomExport? = null
@@ -193,64 +194,37 @@ class MainActivity : CompanionActivity() {
             text = "💤 Archipelago waiting for ROM"
         }
 
-        address = EditText(this).apply {
-            hint = "Server address, e.g. archipelago.gg:45657"
-            setSingleLine(true)
-            setText(savedSettings.address)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
-            textSize = 15f
-        }
-        password = EditText(this).apply {
-            hint = "Room password (optional)"
-            setSingleLine(true)
-            setText(savedSettings.password)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            textSize = 15f
-        }
-        val save = Button(this).apply {
-            text = "Connect manually"
-            CompanionUi.stylePrimary(this)
-            setOnClickListener { saveManualConnection() }
-        }
-        val openPlayerPatch = Button(this).apply {
-            text = "Open game file"
-            CompanionUi.styleSecondary(this)
-            setOnClickListener {
+        val manualConnection = MainManualConnectionCard(
+            this,
+            savedSettings,
+            onConnect = ::saveManualConnection,
+            onOpenGameFile = {
                 saveManualConnection()
                 openPlayerPatchDocument.launch(openDocumentIntent())
-            }
-        }
-        val generator = Button(this).apply {
-            text = "Generate a seed"
-            CompanionUi.styleSecondary(this)
-            setOnClickListener {
-                startActivity(Intent(this@MainActivity, GeneratorActivity::class.java))
-            }
-        }
-        val openInvite = Button(this).apply {
-            text = "Open multiplayer invite"
-            CompanionUi.stylePrimary(this)
-            setOnClickListener {
-                openInviteDocument.launch(openDocumentIntent())
-            }
-        }
-        val rooms = Button(this).apply {
-            text = "Rooms"
-            CompanionUi.styleSecondary(this)
-            setOnClickListener {
-                hostedRooms.launch(Intent(this@MainActivity, HostedRoomsActivity::class.java))
-            }
-        }
+            },
+        )
+        address = manualConnection.addressEditor
+        password = manualConnection.passwordEditor
         inviteStatus = CompanionStatusView(this, hideWhenEmpty = true)
         joinedRoomContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val content = CompanionUi.screen(this).apply {
             addView(mainHeader(), CompanionUi.fullWidth())
 
-            addView(CompanionUi.card(this@MainActivity, "Active room").apply {
+            if (FirstRunGuidePreferences.shouldShow(this@MainActivity)) {
+                addView(
+                    firstRunGuideCard(this@MainActivity, ::openRoomLibrary),
+                    CompanionUi.cardParams(this@MainActivity),
+                )
+            }
+
+            addView(CompanionUi.card(
+                this@MainActivity,
+                getString(R.string.active_room_title),
+            ).apply {
                 addView(joinedRoomContainer, CompanionUi.fullWidth())
                 addView(CompanionUi.panel(this@MainActivity).apply {
                     addView(TextView(this@MainActivity).apply {
-                        text = "Connection"
+                        text = getString(R.string.connection_title)
                         textSize = 14f
                         setTextColor(CompanionUi.text)
                         setTypeface(typeface, android.graphics.Typeface.BOLD)
@@ -258,7 +232,7 @@ class MainActivity : CompanionActivity() {
                     addView(status, CompanionUi.insetTop(status, this@MainActivity, 4))
                     addView(serverStatus, CompanionUi.fullWidth())
                     addView(Button(this@MainActivity).apply {
-                        text = "Details"
+                        text = getString(R.string.connection_details)
                         CompanionUi.styleQuiet(this)
                         setOnClickListener { showConnectionDetails() }
                     }, CompanionUi.insetTop(this, this@MainActivity, 4))
@@ -266,40 +240,15 @@ class MainActivity : CompanionActivity() {
                 addView(inviteStatus, CompanionUi.fullWidth())
             }, CompanionUi.cardParams(this@MainActivity))
 
-            addView(CompanionUi.card(
-                this@MainActivity,
-                "Start something",
-                "Open an invite from another player or create a new seed.",
-            ).apply {
-                addView(openInvite, CompanionUi.fullWidth())
-                val secondaryActions = LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    addView(generator, CompanionUi.weightedButtonParams(this@MainActivity, 6))
-                    addView(rooms, CompanionUi.weightedButtonParams(this@MainActivity))
-                }
-                addView(secondaryActions, CompanionUi.insetTop(secondaryActions, this@MainActivity, 6))
-            }, CompanionUi.cardParams(this@MainActivity))
+            addView(mainStartCard(this@MainActivity, MainStartActions(
+                openInvite = { openInviteDocument.launch(openDocumentIntent()) },
+                generateSeed = {
+                    startActivity(Intent(this@MainActivity, GeneratorActivity::class.java))
+                },
+                openRooms = ::openRoomLibrary,
+            )), CompanionUi.cardParams(this@MainActivity))
 
-            val connectionFields = LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                addView(address, CompanionUi.fullWidth())
-                addView(password, CompanionUi.fullWidth())
-                addView(save, CompanionUi.insetTop(save, this@MainActivity, 6))
-                addView(openPlayerPatch, CompanionUi.insetTop(openPlayerPatch, this@MainActivity, 6))
-                addView(TextView(this@MainActivity).apply {
-                    text = "For a direct connection, save the server and open your player patch. " +
-                        "The app will create the ROM and then offer to open it in RetroArch."
-                    CompanionUi.styleMuted(this)
-                    setPadding(0, CompanionUi.dp(this@MainActivity, 8), 0, 0)
-                }, CompanionUi.fullWidth())
-            }
-            addView(CompanionUi.card(this@MainActivity, "Advanced connection").apply {
-                addView(
-                    CompanionUi.toggleButton(this@MainActivity, "advanced connection", connectionFields),
-                    CompanionUi.fullWidth(),
-                )
-                addView(connectionFields, CompanionUi.fullWidth())
-            }, CompanionUi.cardParams(this@MainActivity))
+            addView(manualConnection.view, CompanionUi.cardParams(this@MainActivity))
 
         }
         val scrollView = CompanionUi.scrollView(this, content)
@@ -307,12 +256,12 @@ class MainActivity : CompanionActivity() {
         setContentView(scrollView)
         renderJoinedRoom(RoomSessionRepository.activeRoom(this))
 
-        if (Build.VERSION.SDK_INT >= 33 &&
+        if (!isUiTestMode && Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
         }
-        startForegroundService(Intent(this, BridgeService::class.java))
+        if (!isUiTestMode) startForegroundService(Intent(this, BridgeService::class.java))
         handleInvite(intent)
     }
 
@@ -323,7 +272,7 @@ class MainActivity : CompanionActivity() {
             gravity = Gravity.CENTER_VERTICAL
         }
         val menuButton = ImageButton(this@MainActivity).apply {
-            contentDescription = "Open app menu"
+            contentDescription = getString(R.string.open_app_menu)
             setImageResource(R.drawable.ic_menu)
             setColorFilter(CompanionUi.text)
             setPadding(
@@ -344,7 +293,7 @@ class MainActivity : CompanionActivity() {
             CompanionUi.dp(this@MainActivity, 44),
         ).apply { marginEnd = CompanionUi.dp(this@MainActivity, 2) })
         iconRow.addView(TextView(this@MainActivity).apply {
-            text = "Archipelago Companion"
+            text = getString(R.string.app_name)
             setTextColor(CompanionUi.text)
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             setSingleLine(true)
@@ -536,6 +485,10 @@ class MainActivity : CompanionActivity() {
         this.type = type
     }
 
+    private fun openRoomLibrary() {
+        hostedRooms.launch(Intent(this, HostedRoomsActivity::class.java))
+    }
+
     private fun refreshSelectedRoom() {
         val room = RoomSessionRepository.activeRoom(this)
         renderJoinedRoom(room)
@@ -592,6 +545,12 @@ class MainActivity : CompanionActivity() {
             BridgeService.serverStatusDetails?.takeIf { it.isNotBlank() }?.let {
                 appendLine()
                 appendLine("Archipelago server")
+                append(it)
+            }
+            RoomHealthStateStore.summary(this@MainActivity)?.let {
+                appendLine()
+                appendLine()
+                appendLine("Background room health")
                 append(it)
             }
         }.trim()
@@ -1409,15 +1368,21 @@ class MainActivity : CompanionActivity() {
         renderedRoom = room
         if (room == null) {
             joinedRoomContainer.addView(TextView(this).apply {
-                text = "No room is active. Join an invitation or choose a room from your room library."
+                text = getString(R.string.no_active_room)
                 CompanionUi.styleMuted(this)
             })
-            joinedRoomContainer.addView(Button(this).apply {
-                text = "Open invitation"
-                CompanionUi.stylePrimary(this)
-                setOnClickListener {
-                    openInviteDocument.launch(openDocumentIntent())
-                }
+            joinedRoomContainer.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                addView(Button(this@MainActivity).apply {
+                    text = getString(R.string.open_invitation)
+                    CompanionUi.stylePrimary(this)
+                    setOnClickListener { openInviteDocument.launch(openDocumentIntent()) }
+                }, CompanionUi.weightedButtonParams(this@MainActivity, 6))
+                addView(Button(this@MainActivity).apply {
+                    text = getString(R.string.browse_rooms)
+                    CompanionUi.styleSecondary(this)
+                    setOnClickListener { openRoomLibrary() }
+                }, CompanionUi.weightedButtonParams(this@MainActivity))
             }, CompanionUi.insetTop(View(this), this, 8))
             return
         }
@@ -1480,8 +1445,6 @@ class MainActivity : CompanionActivity() {
         val linkedPlayerFiles = linkedPlayerFiles(room)
         val playerFileHandler = PlayerFileLauncher.handlerForGame(room.gameName)
             ?: linkedPlayerFiles.firstNotNullOfOrNull { PlayerFileLauncher.handlerFor(it.name) }
-        if (playerFileHandler != null && linkedPlayerFiles.isEmpty()) {
-        }
         val popTrackerButton = if (isSohRoom) null else Button(this).apply {
             val playerName = room.playerName
             text = when {
@@ -2021,13 +1984,17 @@ class MainActivity : CompanionActivity() {
 
     override fun onStart() {
         super.onStart()
+        if (!isUiTestMode) ActiveRoomHealthScheduler.appEnteredForeground(this)
         lastActiveRoomRefreshAt = 0L
-        handler.post(refreshStatus)
-        refreshUpdateBell()
+        if (!isUiTestMode) {
+            handler.post(refreshStatus)
+            refreshUpdateBell()
+        }
     }
 
     override fun onStop() {
         handler.removeCallbacks(refreshStatus)
+        if (!isUiTestMode) ActiveRoomHealthScheduler.appEnteredBackground(this)
         super.onStop()
     }
 
@@ -2039,5 +2006,6 @@ class MainActivity : CompanionActivity() {
         private const val MAX_PATCH_BYTES = 32 * 1024 * 1024
         private const val MAX_ROM_BYTES = 32L * 1024 * 1024 + 512
         private const val ACTIVE_ROOM_REFRESH_INTERVAL_MILLIS = 60_000L
+        internal const val EXTRA_UI_TEST_MODE = "ui_test_mode"
     }
 }

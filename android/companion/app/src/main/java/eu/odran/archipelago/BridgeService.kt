@@ -5,12 +5,16 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
@@ -59,6 +63,11 @@ class BridgeService : Service() {
     @Volatile private var activeSession: RoomSession? = null
     @Volatile private var reconnectRequested = false
     private var lastConsoleServerDetails = ""
+    private val activeRoomAddressReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == ACTION_ACTIVE_ROOM_ADDRESS_CHANGED) requestReconnect()
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -68,6 +77,12 @@ class BridgeService : Service() {
         publish("Starting Archipelago bridge…")
         publishServerWaitingForRom()
         startForeground(NOTIFICATION_ID, notification())
+        ContextCompat.registerReceiver(
+            this,
+            activeRoomAddressReceiver,
+            IntentFilter(ACTION_ACTIVE_ROOM_ADDRESS_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -85,11 +100,7 @@ class BridgeService : Service() {
             return START_NOT_STICKY
         }
         if (intent?.action == ACTION_RECONNECT) {
-            reconnectRequested = true
-            activeSession?.close()
-            activeBridge?.close()
-            activeN64Client?.close()
-            activeSniClient?.close()
+            requestReconnect()
         }
         if (!running) {
             running = true
@@ -116,6 +127,7 @@ class BridgeService : Service() {
         executor.shutdownNow()
         dolphinExecutor.shutdownNow()
         roomWakeExecutor.shutdownNow()
+        runCatching { unregisterReceiver(activeRoomAddressReceiver) }
         mainHandler.removeCallbacksAndMessages(null)
         stopForeground(STOP_FOREGROUND_REMOVE)
         getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
@@ -126,6 +138,14 @@ class BridgeService : Service() {
         serverStatusDetails = "Open the companion app to restart the bridge service."
         lastServerState = null
         super.onDestroy()
+    }
+
+    private fun requestReconnect() {
+        reconnectRequested = true
+        activeSession?.close()
+        activeBridge?.close()
+        activeN64Client?.close()
+        activeSniClient?.close()
     }
 
     private fun probeDolphinRuntime(runtime: PythonDolphinRuntime): DetectedGameInfo? {
@@ -1324,6 +1344,8 @@ class BridgeService : Service() {
         private const val RETROARCH_OUTAGE_LIMIT_MILLIS = 5_000L
         private const val RETROARCH_PROBE_RETRY_MILLIS = 1_000L
         const val ACTION_RECONNECT = "eu.odran.archipelago.RECONNECT_BRIDGE"
+        const val ACTION_ACTIVE_ROOM_ADDRESS_CHANGED =
+            "eu.odran.archipelago.ACTIVE_ROOM_ADDRESS_CHANGED"
 
         @Volatile
         private var lastServerState: RoomConnectionState? = null

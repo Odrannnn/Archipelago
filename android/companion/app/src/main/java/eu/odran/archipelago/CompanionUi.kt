@@ -16,6 +16,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.view.ViewCompat
 
 private enum class ResponsiveRole { CARD, FULL_SPAN }
 
@@ -294,6 +295,7 @@ object CompanionUi {
                 textSize = if (tablet) 30f else 27f
                 setTextColor(CompanionUi.text)
                 setTypeface(typeface, Typeface.BOLD)
+                ViewCompat.setAccessibilityHeading(this, true)
             }, fullWidth())
             addView(TextView(context).apply {
                 text = subtitle
@@ -318,6 +320,7 @@ object CompanionUi {
                 textSize = if (tablet) 20f else 19f
                 setTextColor(CompanionUi.text)
                 setTypeface(typeface, Typeface.BOLD)
+                ViewCompat.setAccessibilityHeading(this, true)
             }, fullWidth())
             if (!subtitle.isNullOrBlank()) {
                 addView(TextView(context).apply {
@@ -374,7 +377,11 @@ object CompanionUi {
 
     fun statusChip(context: Context, status: RoomStatusPresentation) =
         statusChip(context, status.label, status.level.toStatusTone()).apply {
-            contentDescription = "Room status: ${status.label.lowercase()}. ${status.summary}"
+            contentDescription = context.getString(
+                R.string.room_status_description,
+                status.label.lowercase(),
+                status.summary,
+            )
             tooltipText = status.summary
         }
 
@@ -536,6 +543,7 @@ class CompanionStatusView(
 
     init {
         minLines = 1
+        accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
         addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(value: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(value: CharSequence?, start: Int, before: Int, count: Int) = Unit
@@ -557,6 +565,10 @@ class CompanionStatusView(
         if (message.isBlank()) return
         val level = explicitLevel ?: classifyStatusMessage(message)
         CompanionUi.styleStatus(this, level)
-        contentDescription = "${level.name.lowercase()} status. $message"
+        contentDescription = context.getString(
+            R.string.status_description,
+            level.name.lowercase(),
+            message,
+        )
     }
 }
