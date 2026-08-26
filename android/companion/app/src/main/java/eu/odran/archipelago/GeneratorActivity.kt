@@ -1705,9 +1705,9 @@ class GeneratorActivity : Activity() {
                         hostSeedButton.isEnabled = seedFile?.isFile == true
                         renderHistory()
                         status.text = if (result.room.lastPort > 0) {
-                            "Room created · connect to archipelago.gg:${result.room.lastPort}. Open Hosted rooms to manage it."
+                            "Room created · connect to archipelago.gg:${result.room.lastPort}. Open Rooms to manage it."
                         } else {
-                            "Room created on archipelago.gg. Open Hosted rooms to refresh its port and manage it."
+                            "Room created on archipelago.gg. Open Rooms to refresh its port and manage it."
                         }
                     }
                 }

@@ -13,7 +13,9 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.Menu
@@ -60,6 +62,7 @@ class MainActivity : Activity() {
     private lateinit var address: EditText
     private lateinit var password: EditText
     private lateinit var joinedRoomContainer: LinearLayout
+    private lateinit var clientConsoleButton: Button
     private lateinit var updateBellButton: ImageButton
     private lateinit var updateBellBadge: TextView
     private var updateCheckRunning = false
@@ -118,32 +121,12 @@ class MainActivity : Activity() {
         val savedSettings = ServerSettings.load(this)
         status = TextView(this).apply {
             text = "Starting background bridge…"
-            CompanionUi.styleBody(this)
-            setOnLongClickListener {
-                if (SohLauncher.isGame(renderedRoom?.gameName)) return@setOnLongClickListener false
-                val details = BridgeService.statusDetails ?: return@setOnLongClickListener false
-                AlertDialog.Builder(this@MainActivity)
-                    .setTitle("Emulator connection error")
-                    .setMessage(details)
-                    .setPositiveButton("Close", null)
-                    .show()
-                true
-            }
+            CompanionUi.styleMuted(this)
         }
         serverStatus = TextView(this).apply {
             text = "💤 Archipelago waiting for ROM"
-            CompanionUi.styleBody(this)
+            CompanionUi.styleMuted(this)
             setPadding(0, CompanionUi.dp(this@MainActivity, 6), 0, 0)
-            setOnLongClickListener {
-                if (SohLauncher.isGame(renderedRoom?.gameName)) return@setOnLongClickListener false
-                val details = BridgeService.serverStatusDetails ?: return@setOnLongClickListener false
-                AlertDialog.Builder(this@MainActivity)
-                    .setTitle("Archipelago connection status")
-                    .setMessage(details)
-                    .setPositiveButton("Close", null)
-                    .show()
-                true
-            }
         }
 
         address = EditText(this).apply {
@@ -161,12 +144,12 @@ class MainActivity : Activity() {
             textSize = 15f
         }
         val save = Button(this).apply {
-            text = "Save and connect"
+            text = "Connect manually"
             CompanionUi.stylePrimary(this)
             setOnClickListener { saveManualConnection() }
         }
         val openPlayerPatch = Button(this).apply {
-            text = "Open player patch"
+            text = "Open game file"
             CompanionUi.styleSecondary(this)
             setOnClickListener {
                 saveManualConnection()
@@ -199,18 +182,8 @@ class MainActivity : Activity() {
                 )
             }
         }
-        val manageRooms = Button(this).apply {
-            text = "Saved rooms"
-            CompanionUi.styleSecondary(this)
-            setOnClickListener {
-                startActivityForResult(
-                    Intent(this@MainActivity, RoomLibraryActivity::class.java),
-                    REQUEST_MANAGE_ROOMS,
-                )
-            }
-        }
-        val hostedRooms = Button(this).apply {
-            text = "Hosted rooms"
+        val rooms = Button(this).apply {
+            text = "Rooms"
             CompanionUi.styleSecondary(this)
             setOnClickListener {
                 startActivityForResult(
@@ -221,7 +194,37 @@ class MainActivity : Activity() {
         }
         inviteStatus = TextView(this).apply {
             CompanionUi.styleMuted(this)
-            setPadding(0, CompanionUi.dp(this@MainActivity, 8), 0, 0)
+            visibility = View.GONE
+            setPadding(
+                CompanionUi.dp(this@MainActivity, 12),
+                CompanionUi.dp(this@MainActivity, 10),
+                CompanionUi.dp(this@MainActivity, 12),
+                CompanionUi.dp(this@MainActivity, 10),
+            )
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(value: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(value: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                override fun afterTextChanged(value: Editable?) {
+                    val message = value?.toString().orEmpty()
+                    visibility = if (message.isBlank()) View.GONE else View.VISIBLE
+                    val isError = listOf("could not", "failed", "error", "rejected", "not loaded")
+                        .any { it in message.lowercase() }
+                    background = CompanionUi.roundedBackground(
+                        this@MainActivity,
+                        if (isError) Color.rgb(252, 235, 233) else CompanionUi.primarySoft,
+                        if (isError) Color.rgb(236, 181, 177) else CompanionUi.border,
+                        10,
+                    )
+                    setTextColor(if (isError) CompanionUi.danger else CompanionUi.textMuted)
+                }
+            })
+        }
+        clientConsoleButton = Button(this).apply {
+            text = "Console"
+            CompanionUi.styleSecondary(this)
+            setOnClickListener {
+                startActivity(Intent(this@MainActivity, ClientConsoleActivity::class.java))
+            }
         }
         joinedRoomContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val content = CompanionUi.screen(this).apply {
@@ -229,26 +232,20 @@ class MainActivity : Activity() {
 
             addView(CompanionUi.card(this@MainActivity, "Active room").apply {
                 addView(joinedRoomContainer, CompanionUi.fullWidth())
-                addView(TextView(this@MainActivity).apply {
-                    text = "Client connection"
-                    textSize = 16f
-                    setTextColor(CompanionUi.text)
-                    setTypeface(typeface, android.graphics.Typeface.BOLD)
-                    setPadding(0, CompanionUi.dp(this@MainActivity, 10), 0, CompanionUi.dp(this@MainActivity, 4))
-                }, CompanionUi.fullWidth())
-                addView(status, CompanionUi.fullWidth())
-                addView(serverStatus, CompanionUi.fullWidth())
-                addView(TextView(this@MainActivity).apply {
-                    text = "Long-press a status for details. The bridge keeps running in the background."
-                    CompanionUi.styleMuted(this)
-                    setPadding(0, CompanionUi.dp(this@MainActivity, 8), 0, 0)
-                }, CompanionUi.fullWidth())
-                addView(Button(this@MainActivity).apply {
-                    text = "Open client console"
-                    CompanionUi.styleSecondary(this)
-                    setOnClickListener {
-                        startActivity(Intent(this@MainActivity, ClientConsoleActivity::class.java))
-                    }
+                addView(CompanionUi.panel(this@MainActivity).apply {
+                    addView(TextView(this@MainActivity).apply {
+                        text = "Connection"
+                        textSize = 14f
+                        setTextColor(CompanionUi.text)
+                        setTypeface(typeface, android.graphics.Typeface.BOLD)
+                    }, CompanionUi.fullWidth())
+                    addView(status, CompanionUi.insetTop(status, this@MainActivity, 4))
+                    addView(serverStatus, CompanionUi.fullWidth())
+                    addView(Button(this@MainActivity).apply {
+                        text = "Details"
+                        CompanionUi.styleQuiet(this)
+                        setOnClickListener { showConnectionDetails() }
+                    }, CompanionUi.insetTop(this, this@MainActivity, 4))
                 }, CompanionUi.insetTop(status, this@MainActivity, 10))
                 addView(inviteStatus, CompanionUi.fullWidth())
             }, CompanionUi.cardParams(this@MainActivity))
@@ -262,10 +259,9 @@ class MainActivity : Activity() {
                 val secondaryActions = LinearLayout(this@MainActivity).apply {
                     orientation = LinearLayout.HORIZONTAL
                     addView(generator, CompanionUi.weightedButtonParams(this@MainActivity, 6))
-                    addView(manageRooms, CompanionUi.weightedButtonParams(this@MainActivity))
+                    addView(rooms, CompanionUi.weightedButtonParams(this@MainActivity))
                 }
                 addView(secondaryActions, CompanionUi.insetTop(secondaryActions, this@MainActivity, 6))
-                addView(hostedRooms, CompanionUi.insetTop(hostedRooms, this@MainActivity, 6))
             }, CompanionUi.cardParams(this@MainActivity))
 
             val connectionFields = LinearLayout(this@MainActivity).apply {
@@ -281,9 +277,9 @@ class MainActivity : Activity() {
                     setPadding(0, CompanionUi.dp(this@MainActivity, 8), 0, 0)
                 }, CompanionUi.fullWidth())
             }
-            addView(CompanionUi.card(this@MainActivity, "Manual connection").apply {
+            addView(CompanionUi.card(this@MainActivity, "Advanced connection").apply {
                 addView(
-                    CompanionUi.toggleButton(this@MainActivity, "connection settings", connectionFields),
+                    CompanionUi.toggleButton(this@MainActivity, "advanced connection", connectionFields),
                     CompanionUi.fullWidth(),
                 )
                 addView(connectionFields, CompanionUi.fullWidth())
@@ -569,6 +565,31 @@ class MainActivity : Activity() {
         )
         status.text = "Settings saved · reconnecting…"
         serverStatus.text = "⏳ Archipelago connecting"
+    }
+
+    private fun showConnectionDetails() {
+        val details = buildString {
+            appendLine(status.text)
+            appendLine(serverStatus.text)
+            BridgeService.statusDetails?.takeIf { it.isNotBlank() }?.let {
+                appendLine()
+                appendLine("Client")
+                appendLine(it)
+            }
+            BridgeService.serverStatusDetails?.takeIf { it.isNotBlank() }?.let {
+                appendLine()
+                appendLine("Archipelago server")
+                append(it)
+            }
+        }.trim()
+        AlertDialog.Builder(this)
+            .setTitle("Connection details")
+            .setMessage(details.ifBlank { "No additional connection details are available." })
+            .setNeutralButton("Open console") { _, _ ->
+                startActivity(Intent(this, ClientConsoleActivity::class.java))
+            }
+            .setPositiveButton("Close", null)
+            .show()
     }
 
     private fun rememberExistingPatchedRom(uri: Uri, flags: Int) {
@@ -1367,24 +1388,72 @@ class MainActivity : Activity() {
         renderedRoom = room
         if (room == null) {
             joinedRoomContainer.addView(TextView(this).apply {
-                text = "No room selected. Open a shared .apinvite file or choose one from Saved rooms."
+                text = "No room is active. Join an invitation or choose a room from your room library."
                 CompanionUi.styleMuted(this)
             })
+            joinedRoomContainer.addView(Button(this).apply {
+                text = "Open invitation"
+                CompanionUi.stylePrimary(this)
+                setOnClickListener {
+                    startActivityForResult(
+                        Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "*/*"
+                        },
+                        REQUEST_OPEN_INVITE,
+                    )
+                }
+            }, CompanionUi.insetTop(View(this), this, 8))
             return
         }
         joinedRoomContainer.addView(TextView(this).apply {
-            text = buildString {
-                append(if (room.port > 0) "Active hosted room · archipelago.gg:${room.port}" else "Active hosted room · no active port yet")
-                if (!room.playerName.isNullOrBlank()) {
-                    append("\n${room.playerName} · slot ${room.playerSlot}")
-                }
-                if (room.gameName?.isNotBlank() == true) append(" · ${room.gameName}")
-                if (room.players.isNotEmpty()) append("\nPlayers: ${room.players.joinToString()}")
-            }
-            CompanionUi.styleBody(this)
-            setPadding(0, 0, 0, CompanionUi.dp(this@MainActivity, 8))
+            text = room.playerName?.takeIf { it.isNotBlank() } ?: "Archipelago room"
+            textSize = 20f
+            setTextColor(CompanionUi.text)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
         }, matchWrapParams())
-        joinedRoomContainer.addView(Button(this).apply {
+        joinedRoomContainer.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(
+                CompanionUi.statusChip(this@MainActivity, "ACTIVE", CompanionUi.StatusTone.NEUTRAL),
+                CompanionUi.wrapContentParams(this@MainActivity, 6),
+            )
+            val serverLabel = when {
+                room.port > 0 -> "ONLINE"
+                room.port < 0 -> "SERVER ERROR"
+                else -> "SLEEPING"
+            }
+            val serverTone = when {
+                room.port > 0 -> CompanionUi.StatusTone.ACTIVE
+                room.port < 0 -> CompanionUi.StatusTone.ERROR
+                else -> CompanionUi.StatusTone.WARNING
+            }
+            addView(
+                CompanionUi.statusChip(this@MainActivity, serverLabel, serverTone),
+                CompanionUi.wrapContentParams(this@MainActivity),
+            )
+        }, CompanionUi.insetTop(View(this), this, 8))
+        joinedRoomContainer.addView(TextView(this).apply {
+            text = buildString {
+                room.gameName.takeIf { it.isNotBlank() }?.let(::append)
+                if (room.playerSlot != null) {
+                    if (isNotEmpty()) append(" · ")
+                    append("Player slot ${room.playerSlot}")
+                }
+                if (room.port > 0) {
+                    if (isNotEmpty()) append(" · ")
+                    append("archipelago.gg:${room.port}")
+                }
+                if (room.players.isNotEmpty()) {
+                    if (isNotEmpty()) append('\n')
+                    append(room.players.joinToString())
+                }
+            }
+            CompanionUi.styleMuted(this)
+            setPadding(0, CompanionUi.dp(this@MainActivity, 6), 0, CompanionUi.dp(this@MainActivity, 8))
+        }, matchWrapParams())
+        val shareRoomButton = Button(this).apply {
             text = "Share multiplayer invite"
             CompanionUi.styleSecondary(this)
             setOnClickListener {
@@ -1397,7 +1466,7 @@ class MainActivity : Activity() {
                     REQUEST_HOSTED_ROOMS,
                 )
             }
-        }, matchWrapParams())
+        }
 
         val isSohRoom = SohLauncher.isGame(room.gameName)
         val linkedPlayerFiles = linkedPlayerFiles(room)
@@ -1591,10 +1660,17 @@ class MainActivity : Activity() {
             joinedRoomContainer.addView(popTrackerButton, matchWrapParams())
         }
 
+        val commonActions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(shareRoomButton, CompanionUi.weightedButtonParams(this@MainActivity, 6))
+            addView(clientConsoleButton, CompanionUi.weightedButtonParams(this@MainActivity))
+        }
+        joinedRoomContainer.addView(commonActions, CompanionUi.insetTop(commonActions, this, 8))
+
         val moreRoomActions = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(Button(this@MainActivity).apply {
-                text = "Refresh room and reconnect"
+                text = "Reconnect"
                 CompanionUi.styleQuiet(this)
                 setOnClickListener { resolveAndLoadRoom(room.roomId) }
             }, matchWrapParams())
@@ -1713,7 +1789,7 @@ class MainActivity : Activity() {
             }, CompanionUi.insetTop(View(this), this, 4))
         }
         joinedRoomContainer.addView(
-            CompanionUi.toggleButton(this, "room options", moreRoomActions),
+            CompanionUi.toggleButton(this, "troubleshooting", moreRoomActions),
             CompanionUi.insetTop(View(this), this, 6),
         )
         joinedRoomContainer.addView(moreRoomActions, matchWrapParams())

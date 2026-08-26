@@ -294,17 +294,20 @@ controls work without placing the secret session identifier in a URL. External
 links leave the in-app view without receiving its cookie. **Sync website
 session** remains the explicit way to grant the normal phone browser the same
 access. Trackers, online server addresses, and room-management actions are
-available from the dedicated **Hosted rooms** screen on the main page. That list
-also remembers rooms imported from multiplayer invites, lets any room be loaded
-as the active room, and highlights the active entry in green. Room creation itself
-remains in the seed generator. The main page's **Active room** card combines the
-client-console connection state and console with **Share multiplayer invite**.
+available from the unified **Rooms** screen on the main page. Its **All**, **Hosted**,
+and **Joined** filters combine rooms owned by the app's website session with rooms
+imported from multiplayer invites. Every room card has one contextual primary action,
+compact state badges, **Share invite**, and an overflow menu for less common controls.
+The active entry uses the app accent while green, amber, and red are reserved for
+online, sleeping, and error state. Room creation itself remains in the seed generator.
+The main page's **Active room** card combines the client connection summary and
+explicit details with **Share multiplayer invite** and the client console.
 Sharing first selects a player slot, then opens Android's share sheet with a player-specific
 `.apinvite` package. The package contains the public room identifiers and that
 player's locally stored APWorld patch or required native player file, protected by an integrity hash; it
 never contains a website-session credential or base ROM. On a second device,
 opening the invite verifies and wakes the public room, loads it as the active
-room, adds it to **Hosted rooms**, remembers the selected player, and reuses cached legally supplied clean ROM
+room, adds it to **Rooms**, remembers the selected player, and reuses cached legally supplied clean ROM
 inputs or asks for each missing file. The embedded generator applies the patch
 locally and prompts the recipient to save the ready-to-run `.gba`, `.gbc`, `.gb`, `.sfc`, or `.smc`.
 For `Links Awakening DX HD`, it instead forwards the embedded `.apladxhd` manifest

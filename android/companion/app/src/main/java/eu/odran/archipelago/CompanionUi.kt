@@ -5,6 +5,7 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -21,6 +22,9 @@ object CompanionUi {
     val active: Int = Color.rgb(24, 117, 76)
     val activeSoft: Int = Color.rgb(230, 246, 238)
     val activeBorder: Int = Color.rgb(177, 218, 197)
+    val warning: Int = Color.rgb(151, 91, 9)
+    val warningSoft: Int = Color.rgb(255, 245, 219)
+    val warningBorder: Int = Color.rgb(235, 207, 145)
     val text: Int = Color.rgb(27, 35, 52)
     val textMuted: Int = Color.rgb(91, 100, 119)
     val border: Int = Color.rgb(222, 226, 235)
@@ -87,18 +91,42 @@ object CompanionUi {
             background = roundedBackground(
                 context,
                 when {
-                    active -> activeSoft
+                    active -> primarySoft
                     selected -> primarySoft
                     else -> Color.rgb(249, 250, 253)
                 },
                 when {
-                    active -> activeBorder
+                    active -> primary
                     selected -> primary
                     else -> border
                 },
                 12,
             )
         }
+
+    enum class StatusTone { NEUTRAL, ACTIVE, WARNING, ERROR }
+
+    fun statusChip(context: Context, label: String, tone: StatusTone = StatusTone.NEUTRAL) =
+        TextView(context).apply {
+            text = label
+            textSize = 12f
+            gravity = Gravity.CENTER
+            setTypeface(typeface, Typeface.BOLD)
+            val colors = when (tone) {
+                StatusTone.ACTIVE -> Triple(activeSoft, activeBorder, active)
+                StatusTone.WARNING -> Triple(warningSoft, warningBorder, warning)
+                StatusTone.ERROR -> Triple(Color.rgb(252, 235, 233), Color.rgb(236, 181, 177), danger)
+                StatusTone.NEUTRAL -> Triple(Color.rgb(241, 243, 247), border, textMuted)
+            }
+            setTextColor(colors.third)
+            background = roundedBackground(context, colors.first, colors.second, 20)
+            setPadding(dp(context, 10), dp(context, 5), dp(context, 10), dp(context, 5))
+        }
+
+    fun wrapContentParams(context: Context, endMargin: Int = 0) = LinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.WRAP_CONTENT,
+        ViewGroup.LayoutParams.WRAP_CONTENT,
+    ).apply { marginEnd = dp(context, endMargin) }
 
     fun cardParams(context: Context, topMargin: Int = 12) = LinearLayout.LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT,

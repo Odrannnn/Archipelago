@@ -12,7 +12,7 @@ import android.widget.Toast
 import java.text.DateFormat
 import java.util.Date
 
-/** Lists imported rooms and controls which room supplies the active server settings. */
+/** Legacy joined-room view retained for compatibility; the unified Rooms screen is the main entry point. */
 class RoomLibraryActivity : Activity() {
     private lateinit var roomsContainer: LinearLayout
 
@@ -22,8 +22,8 @@ class RoomLibraryActivity : Activity() {
         val content = CompanionUi.screen(this).apply {
             addView(CompanionUi.pageTitle(
                 this@RoomLibraryActivity,
-                "Saved rooms",
-                "Choose which multiplayer room the companion should use.",
+                "Joined rooms",
+                "Choose which joined multiplayer room the companion should use.",
             ), CompanionUi.fullWidth())
             addView(roomsContainer, CompanionUi.cardParams(this@RoomLibraryActivity))
             addView(Button(this@RoomLibraryActivity).apply {
