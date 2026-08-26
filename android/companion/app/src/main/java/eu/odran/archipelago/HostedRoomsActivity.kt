@@ -561,7 +561,6 @@ class HostedRoomsActivity : Activity() {
         }
         AlertDialog.Builder(this)
             .setTitle("Choose the active player")
-            .setMessage("Patching, game launchers, and PopTracker will use this player.")
             .setItems(choices.map { choice ->
                 buildString {
                     append("Slot ${choice.slot} · ${choice.playerName}")
