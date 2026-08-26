@@ -13,7 +13,6 @@ internal enum class ManagedComponent(
     val kind: ComponentKind,
     val assetPattern: Regex,
     val packageName: String? = null,
-    val alternatePackageName: String? = null,
     val coreFamilyPattern: Regex? = null,
     val section: ComponentSection = ComponentSection.COMPANION_COMPONENTS,
     val projectUrl: String? = null,
@@ -31,7 +30,6 @@ internal enum class ManagedComponent(
         ComponentKind.APK,
         Regex("^Dolphin-Archipelago-(.+)-arm64-v8a-x86_64-release\\.apk$"),
         "eu.odran.dolphin.archipelago",
-        "eu.odran.dolphin.archipelago.debug",
     ),
     POPTRACKER(
         "poptracker",
@@ -60,7 +58,6 @@ internal enum class ManagedComponent(
         ComponentKind.APK,
         Regex("^LADXHD-Archipelago-v?([0-9]+(?:\\.[0-9]+){2})(?:-ap[0-9]+)?\\.apk$"),
         "com.zelda.ladxhd.archipelago",
-        "com.zelda.ladxhd",
         section = ComponentSection.EXTRA_PROJECTS,
         projectUrl = "https://github.com/Odrannnn/LADXHD-Archipelago",
     );

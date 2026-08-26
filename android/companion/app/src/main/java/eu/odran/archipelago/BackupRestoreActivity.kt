@@ -1,6 +1,5 @@
 package eu.odran.archipelago
 
-import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
@@ -9,6 +8,7 @@ import android.os.Process
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -16,11 +16,21 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
 /** SAF-based export and replacement restore for all portable app-owned data. */
-class BackupRestoreActivity : Activity() {
+class BackupRestoreActivity : CompanionActivity() {
     private lateinit var inventory: TextView
     private lateinit var status: TextView
     private lateinit var exportButton: Button
     private lateinit var restoreButton: Button
+    private val createBackup = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode == RESULT_OK) result.data?.data?.let(::exportBackup)
+    }
+    private val openBackup = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode == RESULT_OK) result.data?.data?.let(::confirmRestore)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -96,35 +106,18 @@ class BackupRestoreActivity : Activity() {
 
     private fun chooseBackupDestination() {
         val date = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(Date())
-        startActivityForResult(
-            Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "application/zip"
-                putExtra(Intent.EXTRA_TITLE, "Archipelago-Companion-$date.apbackup")
-            },
-            REQUEST_CREATE_BACKUP,
-        )
+        createBackup.launch(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/zip"
+            putExtra(Intent.EXTRA_TITLE, "Archipelago-Companion-$date.apbackup")
+        })
     }
 
     private fun chooseBackupFile() {
-        startActivityForResult(
-            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "*/*"
-            },
-            REQUEST_OPEN_BACKUP,
-        )
-    }
-
-    @Deprecated("Uses the platform file picker result API available to android.app.Activity")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode != RESULT_OK) return
-        val uri = data?.data ?: return
-        when (requestCode) {
-            REQUEST_CREATE_BACKUP -> exportBackup(uri)
-            REQUEST_OPEN_BACKUP -> confirmRestore(uri)
-        }
+        openBackup.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+        })
     }
 
     private fun exportBackup(uri: Uri) {
@@ -220,7 +213,5 @@ class BackupRestoreActivity : Activity() {
     }
 
     companion object {
-        private const val REQUEST_CREATE_BACKUP = 501
-        private const val REQUEST_OPEN_BACKUP = 502
     }
 }

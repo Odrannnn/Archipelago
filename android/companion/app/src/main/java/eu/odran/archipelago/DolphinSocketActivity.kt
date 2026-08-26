@@ -1,13 +1,12 @@
 package eu.odran.archipelago
 
-import android.app.Activity
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.widget.TextView
 
 /** Displays the live status and configuration of the custom Dolphin memory socket. */
-class DolphinSocketActivity : Activity() {
+class DolphinSocketActivity : CompanionActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var telemetry: TextView
     private val refreshTelemetry = object : Runnable {

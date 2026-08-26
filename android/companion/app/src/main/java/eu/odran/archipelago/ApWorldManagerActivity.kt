@@ -1,7 +1,6 @@
 package eu.odran.archipelago
 
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
@@ -9,6 +8,7 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -16,7 +16,7 @@ import kotlin.concurrent.thread
 
 /** Installs trusted APWorld Python packages for on-device generation and ROM patching. */
 @SuppressLint("SetTextI18n")
-class ApWorldManagerActivity : Activity() {
+class ApWorldManagerActivity : CompanionActivity() {
     private lateinit var worldsContainer: LinearLayout
     private lateinit var dependenciesContainer: LinearLayout
     private lateinit var status: TextView
@@ -24,6 +24,13 @@ class ApWorldManagerActivity : Activity() {
     private var dependencyCatalog = emptyList<NativeDependencyAsset>()
     private var declaredDependencies = emptyList<DeclaredPythonDependency>()
     private var dependencyBusy: String? = null
+    private val importApWorld = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode != RESULT_OK) return@registerForActivityResult
+        val uri = result.data?.data ?: return@registerForActivityResult
+        installApWorld(uri)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -138,22 +145,15 @@ class ApWorldManagerActivity : Activity() {
             )
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Choose file") { _, _ ->
-                startActivityForResult(
-                    Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                        addCategory(Intent.CATEGORY_OPENABLE)
-                        type = "application/octet-stream"
-                    },
-                    REQUEST_APWORLD,
-                )
+                importApWorld.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "application/octet-stream"
+                })
             }
             .show()
     }
 
-    @Deprecated("Uses the platform file picker result API available to android.app.Activity")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_APWORLD || resultCode != RESULT_OK) return
-        val uri = data?.data ?: return
+    private fun installApWorld(uri: android.net.Uri) {
         status.text = "Validating and installing APWorld…"
         thread(name = "apworld-install") {
             runCatching {
@@ -584,6 +584,5 @@ class ApWorldManagerActivity : Activity() {
         ?: "no world class was registered"
 
     companion object {
-        private const val REQUEST_APWORLD = 301
     }
 }

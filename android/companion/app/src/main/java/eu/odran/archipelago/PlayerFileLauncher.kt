@@ -12,7 +12,6 @@ data class PlayerFileHandler(
     val gameName: String,
     val appName: String,
     val packageName: String,
-    val alternatePackageNames: List<String> = emptyList(),
     val mimeType: String,
     val serverExtra: String,
     val passwordExtra: String,
@@ -33,7 +32,6 @@ object PlayerFileLauncher {
             gameName = "Links Awakening DX HD",
             appName = "LADXHD",
             packageName = "com.zelda.ladxhd.archipelago",
-            alternatePackageNames = listOf("com.zelda.ladxhd"),
             mimeType = "application/x-apladxhd",
             serverExtra = "com.zelda.ladxhd.extra.SERVER",
             passwordExtra = "com.zelda.ladxhd.extra.PASSWORD",
@@ -185,16 +183,11 @@ object PlayerFileLauncher {
             clipData = ClipData.newUri(context.contentResolver, "LADXHD seed", uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        val targetPackage = (listOf(handler.packageName) + handler.alternatePackageNames)
-            .firstOrNull { candidate ->
-                intent.setPackage(candidate)
-                context.packageManager.resolveActivity(intent, 0) != null
-            }
-        check(targetPackage != null) {
+        intent.setPackage(handler.packageName)
+        check(context.packageManager.resolveActivity(intent, 0) != null) {
             "${handler.appName} is not installed, or this version does not support ${handler.extension} imports."
         }
-        intent.setPackage(targetPackage)
-        context.grantUriPermission(targetPackage, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        context.grantUriPermission(handler.packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         context.startActivity(intent)
     }
 

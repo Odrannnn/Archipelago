@@ -29,7 +29,7 @@ class AndroidRetroArchN64BackendTest {
     }
 
     @Test
-    fun `snapshot caches RDRAM pages for dense legacy reads`() {
+    fun `snapshot caches RDRAM pages for dense reads`() {
         val memory = FakeCoreMemoryAccess(byteXorMask = 0)
         val backend = AndroidRetroArchN64Backend(memory)
 

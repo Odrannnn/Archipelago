@@ -143,7 +143,7 @@ object SavedYamlStore {
 
     private fun decodeIndex(encoded: String): List<SavedYamlEntry> {
         val root = JSONObject(encoded)
-        require(root.optInt("version") in 1..INDEX_VERSION) { "Unsupported saved YAML index version." }
+        require(root.optInt("version") == INDEX_VERSION) { "Unsupported saved YAML index version." }
         val entries = root.getJSONArray("entries")
         return List(entries.length()) { index ->
             val item = entries.getJSONObject(index)

@@ -20,8 +20,6 @@ import zipfile
 from io import BytesIO
 from pathlib import Path
 
-from world_compatibility import apply_world_compatibility
-
 os.environ["SKIP_REQUIREMENTS_UPDATE"] = "1"
 
 MGBA_ROM_EXTENSIONS = frozenset({".gb", ".gbc", ".gba"})
@@ -501,7 +499,6 @@ def _load_worlds(work_directory: str):
                 key: value for key, value in manifest.items()
                 if key not in ("version", "compatible_version")
             }
-            apply_world_compatibility(module_name, game, version)
             worlds.network_data_package["games"][game] = world.get_data_package_data()
         except Exception as error:
             worlds.failed_world_loads[package.name] = _world_load_failure(

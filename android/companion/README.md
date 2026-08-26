@@ -210,8 +210,8 @@ The generator can remember named YAML configurations in app-private storage,
 ordered newest first. **Load into generator** restores the complete player form;
 **Import YAML file** validates and remembers an existing `.yaml` or `.yml` file,
 and every library entry identifies each saved player and game. Older entries are
-backfilled from their YAML after generator startup. Saved entries can be exported
-again or deleted without affecting external copies. Clearing app data removes
+not imported automatically. Saved entries can be exported again or deleted without
+affecting external copies. Clearing app data removes
 this YAML library along with other private data.
 
 The manifest-registered read-only `DocumentsProvider` makes an **Archipelago
@@ -312,7 +312,7 @@ inputs or asks for each missing file. The embedded generator applies the patch
 locally and prompts the recipient to save the ready-to-run `.gba`, `.gbc`, `.gb`, `.sfc`, or `.smc`.
 For `Links Awakening DX HD`, it instead forwards the embedded `.apladxhd` manifest
 and resolved server address to the game's native import screen. Player-specific
-version 3 and 4 invites are accepted. **Open multiplayer invite**
+only the current version 4 invitation format is accepted. **Open multiplayer invite**
 provides a file-picker fallback when a receiving app
 does not open the attachment directly. **Sync website session** is separate and
 its secret link must not be shared.
@@ -355,8 +355,7 @@ a second content/core selection.
 Imported multiplayer rooms are kept in a persistent room library instead of
 replacing one another. **Manage imported rooms** lists them, marks the active
 room, switches the companion and bridge to another room's current server, and
-deletes local room records without affecting hosted rooms or ROM files. Existing
-single-room data is migrated automatically. While the app is open, the active
+deletes local room records without affecting hosted rooms or ROM files. While the app is open, the active
 room is checked periodically against `archipelago.gg`; a sleeping room is woken,
 and a changed server port is propagated to the active room, saved connection
 settings, hosted-room cache, and client-console bridge. **Open in PopTracker** launches the
@@ -418,7 +417,4 @@ The direct-distribution certificate SHA-256 fingerprint is:
 24:A2:9C:FB:18:31:14:12:29:40:A4:A5:C6:57:C6:05:54:71:C6:D1:90:97:C1:6B:3C:C8:DA:56:F4:64:27:E4
 ```
 
-This production certificate intentionally differs from the debug certificate
-used by older development APKs. Android requires those installations to be
-uninstalled before installing the first production-signed release; subsequent
-production releases can update normally.
+Production releases signed by this certificate can update one another normally.

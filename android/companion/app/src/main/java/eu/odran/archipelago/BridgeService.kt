@@ -626,9 +626,9 @@ class BridgeService : Service() {
                         activeBridge = candidate
                         candidate.connect()
                         val (version, platform) = candidate.hello()
-                        require(version >= BridgeProtocol.MIN_SUPPORTED_PROTOCOL_VERSION) {
+                        require(version == BridgeProtocol.PROTOCOL_VERSION) {
                             "The installed custom mGBA core reports bridge protocol $version; " +
-                                "version ${BridgeProtocol.MIN_SUPPORTED_PROTOCOL_VERSION} is required"
+                                "version ${BridgeProtocol.PROTOCOL_VERSION} is required"
                         }
                         val existing = gbaRuntime
                         if (existing != null && existing.acceptsPlatform(platform)) {

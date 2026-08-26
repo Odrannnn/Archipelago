@@ -10,10 +10,7 @@ import android.provider.OpenableColumns
 /** Launches a saved GameCube/Wii disc image in the Archipelago Dolphin fork. */
 object DolphinLauncher {
     private const val MAIN_ACTIVITY = "org.dolphinemu.dolphinemu.ui.main.MainActivity"
-    private val packages = listOf(
-        "eu.odran.dolphin.archipelago",
-        "eu.odran.dolphin.archipelago.debug",
-    )
+    private const val PACKAGE_NAME = "eu.odran.dolphin.archipelago"
 
     fun isGameCubeGame(context: Context, game: String?): Boolean =
         !game.isNullOrBlank() && OfflineGenerator.bundledWorlds(context).any {
@@ -59,13 +56,13 @@ object DolphinLauncher {
             check(descriptor.statSize != 0L) { "The saved disc image is empty." }
         } ?: error("The saved disc image is no longer available.")
 
-        val packageName = packages.firstOrNull { candidate ->
-            runCatching { context.packageManager.getApplicationInfo(candidate, 0) }.isSuccess
-        } ?: error("Install the Dolphin Archipelago Android fork first.")
+        check(runCatching { context.packageManager.getApplicationInfo(PACKAGE_NAME, 0) }.isSuccess) {
+            "Install the Dolphin Archipelago Android fork first."
+        }
 
-        context.grantUriPermission(packageName, savedImage, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        context.grantUriPermission(PACKAGE_NAME, savedImage, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         context.startActivity(Intent(Intent.ACTION_VIEW).apply {
-            component = ComponentName(packageName, MAIN_ACTIVITY)
+            component = ComponentName(PACKAGE_NAME, MAIN_ACTIVITY)
             data = savedImage
             clipData = ClipData.newRawUri("Patched Archipelago disc image", savedImage)
             // Preserve a running emulation task. The custom Dolphin entry point

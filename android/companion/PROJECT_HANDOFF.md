@@ -141,7 +141,7 @@ Ship of Harkinian is deliberately different: the companion only hosts/remembers 
 - Direct seed upload and room creation on `archipelago.gg`.
 - Persistent hosted-room management, room controls, trackers, and server status.
 - Persistent imported-room library with player-specific patched-ROM references.
-- Version 3 player-specific `.apinvite` import/export with integrity validation.
+- Version 4 player-specific `.apinvite` import/export with integrity validation.
 - Patchless room/invite handling for self-connecting games.
 - Direct RetroArch launch using the correct custom core.
 - Direct Ship of Harkinian launch with safe explicit intent extras.
@@ -181,7 +181,6 @@ The main Python entry points are:
 - `app/src/main/python/android_sni_runtime.py`
 - `app/src/main/python/android_dolphin_runtime.py`
 - `app/src/main/python/offline_generator.py`
-- `app/src/main/python/world_compatibility.py`
 
 The Android-facing transport and lifecycle classes are under:
 

@@ -1,6 +1,5 @@
 package eu.odran.archipelago
 
-import android.app.Activity
 import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -32,7 +31,7 @@ private data class HostedInviteChoice(
 )
 
 /** Unified library for rooms hosted by this app and rooms joined through invitations. */
-class HostedRoomsActivity : Activity() {
+class HostedRoomsActivity : CompanionActivity() {
     private enum class RoomFilter { ALL, HOSTED, JOINED }
 
     private lateinit var webHostClient: ArchipelagoWebHostClient

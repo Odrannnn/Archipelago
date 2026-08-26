@@ -1,6 +1,5 @@
 package eu.odran.archipelago
 
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -16,15 +15,26 @@ import android.webkit.WebViewClient
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import kotlin.concurrent.thread
 
 /** Displays archipelago.gg with the companion's private website session. */
-class AuthenticatedWebActivity : Activity() {
+class AuthenticatedWebActivity : CompanionActivity() {
     private lateinit var webView: WebView
     private lateinit var titleView: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (::webView.isInitialized && webView.canGoBack()) {
+                    webView.goBack()
+                } else {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                }
+            }
+        })
         val target = intent.getStringExtra(EXTRA_URL)?.let(Uri::parse)
         if (target == null || target.scheme != "https" ||
             !target.host.equals(Uri.parse(ArchipelagoWebHostClient.BASE_URL).host, ignoreCase = true)
@@ -108,11 +118,6 @@ class AuthenticatedWebActivity : Activity() {
                 webView.loadUrl(target.toString())
             }
         }
-    }
-
-    @Deprecated("Deprecated in Android, retained for the platform Activity API")
-    override fun onBackPressed() {
-        if (::webView.isInitialized && webView.canGoBack()) webView.goBack() else super.onBackPressed()
     }
 
     override fun onDestroy() {

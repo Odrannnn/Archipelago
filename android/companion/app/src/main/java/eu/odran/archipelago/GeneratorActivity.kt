@@ -1,6 +1,5 @@
 package eu.odran.archipelago
 
-import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
@@ -26,6 +25,7 @@ import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.Switch
 import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
@@ -54,7 +54,7 @@ private data class ImportedYamlState(
 )
 
 /** Creates player YAMLs, generates seeds, and patches a user-supplied ROM entirely offline. */
-class GeneratorActivity : Activity() {
+class GeneratorActivity : CompanionActivity() {
     private lateinit var yamlEditor: EditText
     private lateinit var seedEditor: EditText
     private lateinit var playerCountView: TextView
@@ -108,6 +108,45 @@ class GeneratorActivity : Activity() {
     private var pendingStreamingPatch: Pair<File, Map<String, Uri>>? = null
     private var lastDolphinRomUri: Uri? = null
     private var lastDolphinRomName: String? = null
+    private val importYamlDocument = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode == RESULT_OK) result.data?.data?.let(::importYaml)
+    }
+    private val selectBaseRom = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val uri = result.data?.data
+        if (result.resultCode == RESULT_OK && uri != null) {
+            acceptBaseRom(uri)
+        } else {
+            pendingRomRequirements = null
+            pendingRomInputs.clear()
+            pendingRomInputUris.clear()
+            patchButton.isEnabled = canPatchSelectedRom()
+        }
+    }
+    private val createStreamingRom = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val data = result.data
+        val uri = data?.data
+        if (result.resultCode == RESULT_OK && uri != null) {
+            patchRomDocuments(uri, data.flags)
+        } else {
+            pendingStreamingPatch = null
+            pendingRomRequirements = null
+            pendingRomInputUris.clear()
+            patchButton.isEnabled = canPatchSelectedRom()
+        }
+    }
+    private val createExportDocument = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val uri = result.data?.data
+        if (result.resultCode == RESULT_OK && uri != null) savePendingExport(uri)
+        else pendingExport = null
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -506,7 +545,6 @@ class GeneratorActivity : Activity() {
         thread(name = "offline-generator-startup") {
             runCatching {
                 val catalog = OfflineGenerator.refreshCatalog(this)
-                SeedHistoryStore.repairMissingPlayerContainers(this)
                 val restoredForms = savedDraft?.let { draft ->
                     runCatching {
                         OfflineGenerator.decodePlayerForms(draft.playersJson).also { forms ->
@@ -1135,17 +1173,14 @@ class GeneratorActivity : Activity() {
     }
 
     private fun openYamlPicker() {
-        startActivityForResult(
-            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "*/*"
-                putExtra(
-                    Intent.EXTRA_MIME_TYPES,
-                    arrayOf("application/yaml", "application/x-yaml", "text/yaml", "text/x-yaml", "text/plain"),
-                )
-            },
-            REQUEST_IMPORT_YAML,
-        )
+        importYamlDocument.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            putExtra(
+                Intent.EXTRA_MIME_TYPES,
+                arrayOf("application/yaml", "application/x-yaml", "text/yaml", "text/x-yaml", "text/plain"),
+            )
+        })
     }
 
     private fun importYaml(uri: Uri) {
@@ -1873,10 +1908,7 @@ class GeneratorActivity : Activity() {
             type = if (pendingRomRequirements?.streaming == true) "*/*" else "application/octet-stream"
         }
         val label = input.description.ifBlank { input.fileName.ifBlank { "clean ROM" } }
-        startActivityForResult(
-            Intent.createChooser(picker, "Choose $label"),
-            REQUEST_BASE_ROM,
-        )
+        selectBaseRom.launch(Intent.createChooser(picker, "Choose $label"))
     }
 
     private fun showIncorrectBaseRom(
@@ -1945,15 +1977,12 @@ class GeneratorActivity : Activity() {
                 pendingStreamingPatch = selectedPatch to pendingRomInputUris.toMap()
                 val extension = requirements.resultExtension.ifBlank { ".iso" }
                 runOnUiThread {
-                    startActivityForResult(
-                        Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                            addCategory(Intent.CATEGORY_OPENABLE)
-                            val destinationName = "${selectedPatch.nameWithoutExtension}$extension"
-                            type = DolphinLauncher.discMimeType(destinationName)
-                            putExtra(Intent.EXTRA_TITLE, destinationName)
-                        },
-                        REQUEST_STREAMING_ROM_OUTPUT,
-                    )
+                    createStreamingRom.launch(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        val destinationName = "${selectedPatch.nameWithoutExtension}$extension"
+                        type = DolphinLauncher.discMimeType(destinationName)
+                        putExtra(Intent.EXTRA_TITLE, destinationName)
+                    })
                 }
             } else {
                 patchRomInputs(selectedPatch, pendingRomInputs.toMap())
@@ -2105,61 +2134,33 @@ class GeneratorActivity : Activity() {
             name.endsWith(".zip", true) -> "application/zip"
             else -> "application/octet-stream"
         }
-        startActivityForResult(
-            Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = mimeType
-                putExtra(Intent.EXTRA_TITLE, name)
-            },
-            REQUEST_EXPORT,
-        )
+        createExportDocument.launch(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = mimeType
+            putExtra(Intent.EXTRA_TITLE, name)
+        })
     }
 
-    @Deprecated("Uses the platform file picker result API available to android.app.Activity")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode != RESULT_OK || data?.data == null) {
-            if (requestCode == REQUEST_BASE_ROM) {
-                pendingRomRequirements = null
-                pendingRomInputs.clear()
-                pendingRomInputUris.clear()
-                patchButton.isEnabled = canPatchSelectedRom()
+    private fun savePendingExport(destination: Uri) {
+        val export = pendingExport ?: return
+        runCatching {
+            contentResolver.openOutputStream(destination)?.use { it.write(export.second) }
+                ?: error("Could not open the selected destination")
+        }.onSuccess {
+            status.text = "Saved ${export.first}"
+            if (export.first.endsWith(".gba", ignoreCase = true) ||
+                export.first.endsWith(".gbc", ignoreCase = true) ||
+                export.first.endsWith(".gb", ignoreCase = true) ||
+                export.first.endsWith(".sfc", ignoreCase = true) ||
+                export.first.endsWith(".smc", ignoreCase = true) ||
+                export.first.endsWith(".z64", ignoreCase = true) ||
+                export.first.endsWith(".n64", ignoreCase = true) ||
+                export.first.endsWith(".v64", ignoreCase = true)
+            ) {
+                offerRetroArchLaunch(export.first, destination)
             }
-            if (requestCode == REQUEST_STREAMING_ROM_OUTPUT) {
-                pendingStreamingPatch = null
-                pendingRomRequirements = null
-                pendingRomInputUris.clear()
-                patchButton.isEnabled = canPatchSelectedRom()
-            }
-            return
-        }
-        when (requestCode) {
-            REQUEST_BASE_ROM -> acceptBaseRom(data.data!!)
-            REQUEST_STREAMING_ROM_OUTPUT -> patchRomDocuments(data.data!!, data.flags)
-            REQUEST_IMPORT_YAML -> importYaml(data.data!!)
-            REQUEST_EXPORT -> {
-                val export = pendingExport ?: return
-                val destination = data.data!!
-                runCatching {
-                    contentResolver.openOutputStream(destination)?.use { it.write(export.second) }
-                        ?: error("Could not open the selected destination")
-                }.onSuccess {
-                    status.text = "Saved ${export.first}"
-                    if (export.first.endsWith(".gba", ignoreCase = true) ||
-                        export.first.endsWith(".gbc", ignoreCase = true) ||
-                        export.first.endsWith(".gb", ignoreCase = true) ||
-                         export.first.endsWith(".sfc", ignoreCase = true) ||
-                         export.first.endsWith(".smc", ignoreCase = true) ||
-                         export.first.endsWith(".z64", ignoreCase = true) ||
-                         export.first.endsWith(".n64", ignoreCase = true) ||
-                         export.first.endsWith(".v64", ignoreCase = true)
-                    ) {
-                        offerRetroArchLaunch(export.first, destination)
-                    }
-                }.onFailure { showError("Could not save ${export.first}", it) }
-                pendingExport = null
-            }
-        }
+        }.onFailure { showError("Could not save ${export.first}", it) }
+        pendingExport = null
     }
 
     private fun offerRetroArchLaunch(name: String, uri: Uri) {
@@ -2216,11 +2217,7 @@ class GeneratorActivity : Activity() {
         private const val MENU_HISTORY_PLAYER_FILE_BASE = 400
         private const val MENU_YAML_SAVE_COPY = 501
         private const val MENU_YAML_DELETE = 502
-        private const val REQUEST_BASE_ROM = 201
-        private const val REQUEST_EXPORT = 202
-        private const val REQUEST_STREAMING_ROM_OUTPUT = 204
         private const val STATE_DOLPHIN_ROM_URI = "dolphin_rom_uri"
         private const val STATE_DOLPHIN_ROM_NAME = "dolphin_rom_name"
-        private const val REQUEST_IMPORT_YAML = 203
     }
 }

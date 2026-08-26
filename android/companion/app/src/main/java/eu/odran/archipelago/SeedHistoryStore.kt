@@ -30,53 +30,6 @@ object SeedHistoryStore {
         readIndex(context).sortedByDescending { it.createdAt }
     }
 
-    /** Restores player outputs which older companion builds left nested only inside the seed ZIP. */
-    fun repairMissingPlayerContainers(context: Context) = synchronized(lock) {
-        var changed = false
-        val repaired = readIndex(context).map { entry ->
-            val updated = repairEntry(context, entry)
-            if (updated != entry) changed = true
-            updated
-        }
-        if (changed) {
-            writeIndex(context, repaired)
-            CompanionDocumentsProvider.notifyGeneratedSeedsChanged(context)
-        }
-    }
-
-    fun repairGeneratedArtifacts(context: Context, id: String): SeedHistoryEntry? = synchronized(lock) {
-        var repairedEntry: SeedHistoryEntry? = null
-        var changed = false
-        val entries = readIndex(context).map { entry ->
-            if (entry.id != id) return@map entry
-            repairEntry(context, entry).also { repaired ->
-                repairedEntry = repaired
-                changed = repaired != entry
-            }
-        }
-        if (changed) {
-            writeIndex(context, entries)
-            CompanionDocumentsProvider.notifyGeneratedSeedsChanged(context)
-        }
-        repairedEntry
-    }
-
-    private fun repairEntry(context: Context, entry: SeedHistoryEntry): SeedHistoryEntry {
-        val seedArchive = entry.files.firstOrNull {
-            it.name.endsWith(".zip", ignoreCase = true) && File(it.path).isFile
-        }?.let { File(it.path) } ?: return entry
-        val extracted = runCatching {
-            OfflineGenerator.extractSeedArtifacts(context, seedArchive, entryDirectory(context, entry))
-        }.getOrDefault(emptyList())
-        if (extracted.isEmpty()) return entry
-        val files = (entry.files + extracted).distinctBy { it.path }
-        val patches = (entry.patches + extracted.filter { it.kind == "patch" }).distinctBy { it.path }
-        return if (files == entry.files && patches == entry.patches) entry else entry.copy(
-            files = files,
-            patches = patches,
-        )
-    }
-
     fun add(
         context: Context,
         result: GenerationResult,

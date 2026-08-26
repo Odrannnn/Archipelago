@@ -4,8 +4,6 @@
         <package android:name="com.retroarch.aarch64" />
         <package android:name="io.github.poptracker.android" />
         <package android:name="eu.odran.dolphin.archipelago" />
-        <package android:name="eu.odran.dolphin.archipelago.debug" />
-        <package android:name="com.zelda.ladxhd" />
         <package android:name="com.zelda.ladxhd.archipelago" />
     </queries>
 
@@ -65,9 +63,6 @@
             android:exported="false" />
         <activity
             android:name=".AuthenticatedWebActivity"
-            android:exported="false" />
-        <activity
-            android:name=".RoomLibraryActivity"
             android:exported="false" />
         <activity
             android:name=".BackupRestoreActivity"

@@ -33,8 +33,8 @@ class Snes9xBridgeClient(
             require(response.payload.size == 6) { "Invalid SNES9x bridge HELLO response" }
             protocolVersion = response.payload[0].toInt() and 0xff
             val platform = response.payload[1].toInt() and 0xff
-            require(protocolVersion >= MIN_PROTOCOL_VERSION) {
-                "SNES9x bridge protocol $protocolVersion is older than required version $MIN_PROTOCOL_VERSION"
+            require(protocolVersion == PROTOCOL_VERSION) {
+                "SNES9x bridge protocol $protocolVersion is unsupported; version $PROTOCOL_VERSION is required"
             }
             require(platform == PLATFORM_SNES) { "Bridge platform $platform is not SNES" }
             SniTransportStatus(
@@ -102,7 +102,7 @@ class Snes9xBridgeClient(
 
     companion object {
         const val DEFAULT_PORT = 43057
-        const val MIN_PROTOCOL_VERSION = 1
+        const val PROTOCOL_VERSION = 1
         const val PLATFORM_SNES = 3
         private const val CONNECT_TIMEOUT_MS = 250
         private const val REQUEST_TIMEOUT_MS = 1_500

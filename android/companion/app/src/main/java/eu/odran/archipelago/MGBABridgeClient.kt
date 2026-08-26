@@ -20,7 +20,6 @@ class MGBABridgeClient {
     private var input: DataInputStream? = null
     private var output: DataOutputStream? = null
     private var nextId = 1
-    private var protocolVersion = 0
 
     fun connect(timeoutMs: Int = 1_500) {
         check(socket == null) { "Already connected" }
@@ -45,8 +44,7 @@ class MGBABridgeClient {
     fun hello(): Pair<Int, Int> {
         val response = request(BridgeProtocol.HELLO)
         require(response.payload.size == 2) { "Invalid HELLO response" }
-        protocolVersion = response.payload[0].toInt() and 0xff
-        return protocolVersion to (response.payload[1].toInt() and 0xff)
+        return (response.payload[0].toInt() and 0xff) to (response.payload[1].toInt() and 0xff)
     }
 
     fun ping() = request(BridgeProtocol.PING)
@@ -61,10 +59,6 @@ class MGBABridgeClient {
 
     /** Reads the core's battery-save snapshot without relying on cartridge RAM being mapped. */
     fun savedataRead(offset: Long, length: Int): ByteArray {
-        check(protocolVersion >= BridgeProtocol.SAVEDATA_READ_PROTOCOL_VERSION) {
-            "Save recovery requires mGBA Archipelago bridge protocol " +
-                BridgeProtocol.SAVEDATA_READ_PROTOCOL_VERSION
-        }
         require(offset >= 0) { "Savedata offset must be positive" }
         require(length in 0..BridgeProtocol.MAX_PAYLOAD)
         val requestLength = ByteBuffer.allocate(Int.SIZE_BYTES).putInt(length).array()
@@ -75,10 +69,6 @@ class MGBABridgeClient {
 
     /** Reads bytes by physical file offset from the loaded Game Boy cartridge ROM. */
     fun romRead(offset: Long, length: Int): ByteArray {
-        check(protocolVersion >= BridgeProtocol.ROM_READ_PROTOCOL_VERSION) {
-            "ROM-domain clients require mGBA Archipelago bridge protocol " +
-                BridgeProtocol.ROM_READ_PROTOCOL_VERSION
-        }
         require(offset >= 0) { "ROM offset must be positive" }
         require(length in 0..BridgeProtocol.MAX_PAYLOAD)
         val requestLength = ByteBuffer.allocate(Int.SIZE_BYTES).putInt(length).array()
@@ -98,7 +88,6 @@ class MGBABridgeClient {
 
     /** Reads every range from one emulated-frame snapshot. */
     fun batchRead(reads: List<ReadRequest>): List<ByteArray> {
-        checkAtomicBatchProtocol()
         require(reads.isNotEmpty()) { "A batch read needs at least one range" }
         val responseLength = reads.sumOf { read ->
             require(read.length in 0..0xffff) { "Read is too large" }
@@ -116,7 +105,6 @@ class MGBABridgeClient {
 
     /** Checks every guard and returns all reads without yielding an emulated frame. */
     fun guardedRead(reads: List<ReadRequest>, guards: List<MemoryGuard>): List<ByteArray>? {
-        checkAtomicBatchProtocol()
         require(reads.isNotEmpty()) { "A guarded read needs at least one range" }
         val responseLength = reads.sumOf { read ->
             require(read.length in 0..0xffff) { "Read is too large" }
@@ -142,7 +130,6 @@ class MGBABridgeClient {
 
     /** Checks every guard, validates the entire payload, then applies all writes in one frame. */
     fun guardedWrites(writes: List<WriteRequest>, guards: List<MemoryGuard>): Boolean {
-        checkAtomicBatchProtocol()
         require(writes.isNotEmpty()) { "A guarded write needs at least one write" }
         val payloadSize = 2 + guards.sumOf { 6 + it.expected.size } +
             2 + writes.sumOf { 6 + it.value.size }
@@ -165,9 +152,6 @@ class MGBABridgeClient {
 
     /** Validates every guard and applies one write in the same emulated frame. */
     fun guardedWrite(address: Long, value: ByteArray, guards: List<MemoryGuard>): Boolean {
-        check(protocolVersion >= BridgeProtocol.GUARDED_WRITE_PROTOCOL_VERSION) {
-            "This game requires mGBA Archipelago bridge protocol ${BridgeProtocol.GUARDED_WRITE_PROTOCOL_VERSION}"
-        }
         require(guards.isNotEmpty()) { "A guarded write needs at least one guard" }
         val payloadSize = Short.SIZE_BYTES + guards.sumOf {
             Int.SIZE_BYTES + Short.SIZE_BYTES + it.expected.size
@@ -200,7 +184,6 @@ class MGBABridgeClient {
 
     /** Displays a short notification through RetroArch's on-screen display. */
     fun showMessage(message: String) {
-        if (protocolVersion < BridgeProtocol.MESSAGE_PROTOCOL_VERSION) return
         require(message.isNotBlank()) { "Bridge message must not be blank" }
         request(BridgeProtocol.MESSAGE, payload = boundedUtf8(message))
     }
@@ -219,13 +202,6 @@ class MGBABridgeClient {
             index += Character.charCount(codePoint)
         }
         return bounded.toString().encodeToByteArray()
-    }
-
-    private fun checkAtomicBatchProtocol() {
-        check(protocolVersion >= BridgeProtocol.ATOMIC_BATCH_PROTOCOL_VERSION) {
-            "Supported live clients require mGBA Archipelago bridge protocol " +
-                BridgeProtocol.ATOMIC_BATCH_PROTOCOL_VERSION
-        }
     }
 
     private fun putGuards(payload: ByteBuffer, guards: List<MemoryGuard>) {

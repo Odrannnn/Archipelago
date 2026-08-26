@@ -1,7 +1,6 @@
 package eu.odran.archipelago
 
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.ApplicationInfo
@@ -10,6 +9,7 @@ import android.os.Bundle
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
@@ -18,7 +18,7 @@ import kotlin.concurrent.thread
 
 /** Downloads signed companion components and installs cores through RetroArch's SAF provider. */
 @SuppressLint("SetTextI18n")
-class DownloadsUpdatesActivity : Activity() {
+class DownloadsUpdatesActivity : CompanionActivity() {
     private data class ComponentViews(val status: TextView, val action: Button)
 
     private lateinit var catalogStatus: TextView
@@ -34,6 +34,22 @@ class DownloadsUpdatesActivity : Activity() {
     private var pendingApkAsset: ComponentAsset? = null
     private var pendingApkFile: File? = null
     private var stateRefreshGeneration = 0
+    private val chooseCoreTree = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode != RESULT_OK) return@registerForActivityResult
+        val data = result.data ?: return@registerForActivityResult
+        val uri = data.data ?: return@registerForActivityResult
+        runCatching { RetroArchCoreStore.storeSelection(this, uri, data.flags) }
+            .onSuccess {
+                operationStatus.text = "RetroArch core access saved."
+                renderCoreFolder()
+                refreshInstalledStates()
+            }
+            .onFailure { error ->
+                operationStatus.text = "Could not use that folder: ${error.message ?: error.javaClass.simpleName}"
+            }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -144,22 +160,6 @@ class DownloadsUpdatesActivity : Activity() {
             ApkComponentInstaller.launchInstaller(this, pendingFile)
         }
         refreshInstalledStates()
-    }
-
-    @Deprecated("Uses the platform SAF result API available to android.app.Activity")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_CORE_TREE || resultCode != RESULT_OK) return
-        val uri = data?.data ?: return
-        runCatching { RetroArchCoreStore.storeSelection(this, uri, data.flags) }
-            .onSuccess {
-                operationStatus.text = "RetroArch core access saved."
-                renderCoreFolder()
-                refreshInstalledStates()
-            }
-            .onFailure { error ->
-                operationStatus.text = "Could not use that folder: ${error.message ?: error.javaClass.simpleName}"
-            }
     }
 
     private fun refreshCatalog(force: Boolean) {
@@ -307,8 +307,6 @@ class DownloadsUpdatesActivity : Activity() {
                         "Installed debug build ${installed?.versionName.orEmpty()} · published release " +
                             "$releaseLabel. Self-update is available from release builds."
                     installed == null -> "Not installed · available $releaseLabel · ${formatBytes(asset.byteCount)}"
-                    installed.alternateBuild ->
-                        "Installed alternate build ${installed.versionName}. Release $releaseLabel will install alongside it."
                     installed.versionName == asset.version ->
                         "Installed ${installed.versionName} · current release $releaseLabel · ${formatBytes(asset.byteCount)}"
                     ComponentVersion.isNewer(asset.version, installed.versionName) ->
@@ -317,7 +315,7 @@ class DownloadsUpdatesActivity : Activity() {
                 }
                 views.action.text = when {
                     debugSelfUpdate -> "Release builds only"
-                    installed == null || installed.alternateBuild -> "Download and install"
+                    installed == null -> "Download and install"
                     installed.versionName == asset.version -> "Reinstall"
                     ComponentVersion.isNewer(asset.version, installed.versionName) -> "Download update"
                     else -> "Install published build"
@@ -380,7 +378,7 @@ class DownloadsUpdatesActivity : Activity() {
     }
 
     private fun chooseCoreFolder() {
-        startActivityForResult(
+        chooseCoreTree.launch(
             Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
                 addFlags(
                     Intent.FLAG_GRANT_READ_URI_PERMISSION or
@@ -389,7 +387,6 @@ class DownloadsUpdatesActivity : Activity() {
                         Intent.FLAG_GRANT_PREFIX_URI_PERMISSION,
                 )
             },
-            REQUEST_CORE_TREE,
         )
     }
 
@@ -418,7 +415,6 @@ class DownloadsUpdatesActivity : Activity() {
         get() = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
 
     companion object {
-        private const val REQUEST_CORE_TREE = 701
         // A sentinel keeps the existing single-busy-operation state without a separate flag.
         private val BUSY_CATALOG = ManagedComponent.DOLPHIN
     }

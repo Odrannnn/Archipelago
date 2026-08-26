@@ -10,12 +10,7 @@ object BridgeProtocol {
     const val PORT = 43056
     const val MAX_PAYLOAD = 4096
     const val MAX_MESSAGE_BYTES = 511
-    const val MESSAGE_PROTOCOL_VERSION = 2
-    const val GUARDED_WRITE_PROTOCOL_VERSION = 3
-    const val ATOMIC_BATCH_PROTOCOL_VERSION = 4
-    const val SAVEDATA_READ_PROTOCOL_VERSION = 5
-    const val ROM_READ_PROTOCOL_VERSION = 6
-    const val MIN_SUPPORTED_PROTOCOL_VERSION = ROM_READ_PROTOCOL_VERSION
+    const val PROTOCOL_VERSION = 6
 
     const val HELLO = 1
     const val PING = 2

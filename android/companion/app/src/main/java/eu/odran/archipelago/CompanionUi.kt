@@ -17,6 +17,35 @@ import android.widget.TextView
 
 private enum class ResponsiveRole { CARD, FULL_SPAN }
 
+private data class CompanionPalette(
+    val background: Int,
+    val surface: Int,
+    val primary: Int,
+    val primarySoft: Int,
+    val primaryBorder: Int,
+    val primaryButton: Int,
+    val active: Int,
+    val activeSoft: Int,
+    val activeBorder: Int,
+    val activeBubble: Int,
+    val warning: Int,
+    val warningSoft: Int,
+    val warningBorder: Int,
+    val text: Int,
+    val textMuted: Int,
+    val border: Int,
+    val danger: Int,
+    val panelSurface: Int,
+    val neutralSoft: Int,
+    val errorSoft: Int,
+    val errorBorder: Int,
+    val errorBubble: Int,
+    val disabledText: Int,
+    val disabledFill: Int,
+    val quietFill: Int,
+    val quietDisabledFill: Int,
+)
+
 private class ResponsiveScreenLayout(context: Context) : LinearLayout(context) {
     private val splitBounds = mutableMapOf<View, Rect>()
     private var splitLayout = false
@@ -135,20 +164,89 @@ object CompanionUi {
     const val MAX_WIDE_CONTENT_WIDTH_DP = 1280
     const val WIDE_COLUMN_GAP_DP = 16
 
-    val background: Int = Color.rgb(246, 247, 251)
-    val surface: Int = Color.WHITE
-    val primary: Int = Color.rgb(49, 87, 164)
-    val primarySoft: Int = Color.rgb(232, 238, 250)
-    val active: Int = Color.rgb(24, 117, 76)
-    val activeSoft: Int = Color.rgb(230, 246, 238)
-    val activeBorder: Int = Color.rgb(177, 218, 197)
-    val warning: Int = Color.rgb(151, 91, 9)
-    val warningSoft: Int = Color.rgb(255, 245, 219)
-    val warningBorder: Int = Color.rgb(235, 207, 145)
-    val text: Int = Color.rgb(27, 35, 52)
-    val textMuted: Int = Color.rgb(91, 100, 119)
-    val border: Int = Color.rgb(222, 226, 235)
-    val danger: Int = Color.rgb(179, 38, 30)
+    private val lightPalette = CompanionPalette(
+        background = Color.rgb(246, 247, 251),
+        surface = Color.WHITE,
+        primary = Color.rgb(49, 87, 164),
+        primarySoft = Color.rgb(232, 238, 250),
+        primaryBorder = Color.rgb(181, 197, 229),
+        primaryButton = Color.rgb(49, 87, 164),
+        active = Color.rgb(24, 117, 76),
+        activeSoft = Color.rgb(230, 246, 238),
+        activeBorder = Color.rgb(177, 218, 197),
+        activeBubble = Color.rgb(242, 251, 246),
+        warning = Color.rgb(151, 91, 9),
+        warningSoft = Color.rgb(255, 245, 219),
+        warningBorder = Color.rgb(235, 207, 145),
+        text = Color.rgb(27, 35, 52),
+        textMuted = Color.rgb(91, 100, 119),
+        border = Color.rgb(222, 226, 235),
+        danger = Color.rgb(179, 38, 30),
+        panelSurface = Color.rgb(249, 250, 253),
+        neutralSoft = Color.rgb(241, 243, 247),
+        errorSoft = Color.rgb(252, 235, 233),
+        errorBorder = Color.rgb(236, 181, 177),
+        errorBubble = Color.rgb(255, 247, 246),
+        disabledText = Color.rgb(132, 140, 157),
+        disabledFill = Color.rgb(224, 227, 234),
+        quietFill = Color.rgb(241, 243, 247),
+        quietDisabledFill = Color.rgb(245, 246, 248),
+    )
+    private val darkPalette = CompanionPalette(
+        background = Color.rgb(17, 20, 27),
+        surface = Color.rgb(27, 32, 42),
+        primary = Color.rgb(143, 175, 255),
+        primarySoft = Color.rgb(35, 49, 76),
+        primaryBorder = Color.rgb(67, 88, 132),
+        primaryButton = Color.rgb(73, 104, 177),
+        active = Color.rgb(99, 210, 154),
+        activeSoft = Color.rgb(26, 57, 44),
+        activeBorder = Color.rgb(58, 107, 82),
+        activeBubble = Color.rgb(22, 48, 38),
+        warning = Color.rgb(244, 188, 77),
+        warningSoft = Color.rgb(61, 47, 22),
+        warningBorder = Color.rgb(111, 83, 34),
+        text = Color.rgb(235, 239, 247),
+        textMuted = Color.rgb(170, 180, 198),
+        border = Color.rgb(57, 65, 80),
+        danger = Color.rgb(255, 132, 124),
+        panelSurface = Color.rgb(31, 37, 48),
+        neutralSoft = Color.rgb(40, 46, 57),
+        errorSoft = Color.rgb(76, 36, 36),
+        errorBorder = Color.rgb(130, 65, 61),
+        errorBubble = Color.rgb(54, 29, 30),
+        disabledText = Color.rgb(114, 123, 140),
+        disabledFill = Color.rgb(45, 51, 62),
+        quietFill = Color.rgb(36, 42, 52),
+        quietDisabledFill = Color.rgb(40, 45, 55),
+    )
+    private var palette = lightPalette
+
+    val background: Int get() = palette.background
+    val surface: Int get() = palette.surface
+    val primary: Int get() = palette.primary
+    val primarySoft: Int get() = palette.primarySoft
+    val primaryBorder: Int get() = palette.primaryBorder
+    val active: Int get() = palette.active
+    val activeSoft: Int get() = palette.activeSoft
+    val activeBorder: Int get() = palette.activeBorder
+    val activeBubble: Int get() = palette.activeBubble
+    val warning: Int get() = palette.warning
+    val warningSoft: Int get() = palette.warningSoft
+    val warningBorder: Int get() = palette.warningBorder
+    val text: Int get() = palette.text
+    val textMuted: Int get() = palette.textMuted
+    val border: Int get() = palette.border
+    val danger: Int get() = palette.danger
+    val panelSurface: Int get() = palette.panelSurface
+    val neutralSoft: Int get() = palette.neutralSoft
+    val errorSoft: Int get() = palette.errorSoft
+    val errorBorder: Int get() = palette.errorBorder
+    val errorBubble: Int get() = palette.errorBubble
+
+    internal fun configure(darkMode: Boolean) {
+        palette = if (darkMode) darkPalette else lightPalette
+    }
 
     fun dp(context: Context, value: Int): Int =
         (value * context.resources.displayMetrics.density).toInt()
@@ -241,7 +339,7 @@ object CompanionUi {
                 when {
                     active -> primarySoft
                     selected -> primarySoft
-                    else -> Color.rgb(249, 250, 253)
+                    else -> panelSurface
                 },
                 when {
                     active -> primary
@@ -263,8 +361,8 @@ object CompanionUi {
             val colors = when (tone) {
                 StatusTone.ACTIVE -> Triple(activeSoft, activeBorder, active)
                 StatusTone.WARNING -> Triple(warningSoft, warningBorder, warning)
-                StatusTone.ERROR -> Triple(Color.rgb(252, 235, 233), Color.rgb(236, 181, 177), danger)
-                StatusTone.NEUTRAL -> Triple(Color.rgb(241, 243, 247), border, textMuted)
+                StatusTone.ERROR -> Triple(errorSoft, errorBorder, danger)
+                StatusTone.NEUTRAL -> Triple(neutralSoft, border, textMuted)
             }
             setTextColor(colors.third)
             background = roundedBackground(context, colors.first, colors.second, 20)
@@ -305,24 +403,24 @@ object CompanionUi {
         isAllCaps = false
         textSize = 15f
         minHeight = dp(context, 48)
-        setTextColor(statefulColors(Color.WHITE, Color.rgb(132, 140, 157)))
-        backgroundTintList = statefulColors(primary, Color.rgb(224, 227, 234))
+        setTextColor(statefulColors(Color.WHITE, palette.disabledText))
+        backgroundTintList = statefulColors(palette.primaryButton, palette.disabledFill)
     }
 
     fun styleSecondary(button: Button) = button.apply {
         isAllCaps = false
         textSize = 15f
         minHeight = dp(context, 48)
-        setTextColor(statefulColors(primary, Color.rgb(132, 140, 157)))
-        backgroundTintList = statefulColors(primarySoft, Color.rgb(238, 240, 244))
+        setTextColor(statefulColors(primary, palette.disabledText))
+        backgroundTintList = statefulColors(primarySoft, palette.disabledFill)
     }
 
     fun styleQuiet(button: Button) = button.apply {
         isAllCaps = false
         textSize = 14f
         minHeight = dp(context, 44)
-        setTextColor(statefulColors(textMuted, Color.rgb(151, 157, 169)))
-        backgroundTintList = statefulColors(Color.rgb(241, 243, 247), Color.rgb(245, 246, 248))
+        setTextColor(statefulColors(textMuted, palette.disabledText))
+        backgroundTintList = statefulColors(palette.quietFill, palette.quietDisabledFill)
     }
 
     fun styleDanger(button: Button) = button.apply {
@@ -330,7 +428,7 @@ object CompanionUi {
         textSize = 14f
         minHeight = dp(context, 44)
         setTextColor(danger)
-        backgroundTintList = ColorStateList.valueOf(Color.rgb(252, 235, 233))
+        backgroundTintList = ColorStateList.valueOf(errorSoft)
     }
 
     fun styleBody(textView: TextView) = textView.apply {

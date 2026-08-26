@@ -20,7 +20,6 @@ internal data class InstalledApkState(
     val packageName: String,
     val versionName: String,
     val versionCode: Long,
-    val alternateBuild: Boolean = false,
 )
 
 internal object ComponentDownloadStore {
@@ -117,12 +116,7 @@ internal object ApkComponentInstaller {
     fun installedState(context: Context, component: ManagedComponent): InstalledApkState? {
         require(component.kind == ComponentKind.APK)
         packageInfo(context.packageManager, checkNotNull(component.packageName))?.let { info ->
-            return info.toInstalledState(alternate = false)
-        }
-        component.alternatePackageName?.let { alternate ->
-            packageInfo(context.packageManager, alternate)?.let { info ->
-                return info.toInstalledState(alternate = true)
-            }
+            return info.toInstalledState()
         }
         return null
     }
@@ -218,9 +212,9 @@ internal object ApkComponentInstaller {
     }
 
     @Suppress("DEPRECATION")
-    private fun PackageInfo.toInstalledState(alternate: Boolean): InstalledApkState {
+    private fun PackageInfo.toInstalledState(): InstalledApkState {
         val code = if (Build.VERSION.SDK_INT >= 28) longVersionCode else versionCode.toLong()
-        return InstalledApkState(packageName, versionName.orEmpty(), code, alternate)
+        return InstalledApkState(packageName, versionName.orEmpty(), code)
     }
 
     private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }

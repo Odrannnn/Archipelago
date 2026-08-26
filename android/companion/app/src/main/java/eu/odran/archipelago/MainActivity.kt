@@ -1,6 +1,5 @@
 package eu.odran.archipelago
 
-import android.app.Activity
 import android.app.AlertDialog
 import android.Manifest
 import android.content.Intent
@@ -29,6 +28,7 @@ import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.Switch
 import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
@@ -36,7 +36,7 @@ import java.security.MessageDigest
 import kotlin.concurrent.thread
 
 /** Starts the persistent bridge service and displays its current status. */
-class MainActivity : Activity() {
+class MainActivity : CompanionActivity() {
     private data class RomPatchSession(
         val patchName: String,
         val patchBytes: ByteArray,
@@ -77,7 +77,78 @@ class MainActivity : Activity() {
     private val pendingRomInputs = linkedMapOf<String, ByteArray>()
     private val pendingRomInputUris = linkedMapOf<String, Uri>()
     private var pendingStreamingDestinationName: String? = null
-    private val attemptedPlayerArtifactRepairs = mutableSetOf<String>()
+    private val openPlayerPatchDocument = documentLauncher(::openManualPlayerPatch)
+    private val openInviteDocument = documentLauncher { uri ->
+        handleInvite(Intent(Intent.ACTION_VIEW, uri))
+    }
+    private val selectPatchedRomDocument = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val data = result.data
+        if (result.resultCode == RESULT_OK && data?.data != null) {
+            rememberExistingPatchedRom(data.data!!, data.flags)
+        }
+    }
+    private val importInviteApWorld = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val uri = result.data?.data
+        if (result.resultCode == RESULT_OK && uri != null) installRequiredInviteApWorld(uri)
+        else {
+            pendingRequiredApWorldInvite = null
+            inviteStatus.text = "APWorld import canceled · invitation not loaded."
+        }
+    }
+    private val importPatchApWorld = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val uri = result.data?.data
+        if (result.resultCode == RESULT_OK && uri != null) installRequiredPatchApWorld(uri)
+        else {
+            pendingRequiredApWorldPatch = null
+            inviteStatus.text = "APWorld import canceled · player patch not opened."
+        }
+    }
+    private val selectPatchBaseRom = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val uri = result.data?.data
+        if (result.resultCode == RESULT_OK && uri != null) acceptBaseRom(uri)
+        else clearPendingRomPatch()
+    }
+    private val createStreamingRom = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val data = result.data
+        if (result.resultCode == RESULT_OK && data?.data != null) {
+            patchRomDocuments(data.data!!, data.flags)
+        } else {
+            clearPendingRomPatch()
+            inviteStatus.text = "Wind Waker ISO patching canceled."
+        }
+    }
+    private val createPatchedRom = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val data = result.data
+        if (result.resultCode == RESULT_OK && data?.data != null) {
+            savePatchedRom(data.data!!, data.flags)
+        } else {
+            pendingPatchedRom = null
+        }
+    }
+    private val openNativePlayerDocument = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val uri = result.data?.data
+        if (result.resultCode == RESULT_OK && uri != null) openNativePlayerFile(uri)
+        else inviteStatus.text = "Player-file selection canceled."
+    }
+    private val hostedRooms = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode == RESULT_OK) refreshSelectedRoom()
+    }
     private val refreshStatus = object : Runnable {
         override fun run() {
             val storedRoom = JoinedRoomStore.load(this@MainActivity)
@@ -151,13 +222,7 @@ class MainActivity : Activity() {
             CompanionUi.styleSecondary(this)
             setOnClickListener {
                 saveManualConnection()
-                startActivityForResult(
-                    Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                        addCategory(Intent.CATEGORY_OPENABLE)
-                        type = "*/*"
-                    },
-                    REQUEST_OPEN_PLAYER_PATCH,
-                )
+                openPlayerPatchDocument.launch(openDocumentIntent())
             }
         }
         val generator = Button(this).apply {
@@ -171,23 +236,14 @@ class MainActivity : Activity() {
             text = "Open multiplayer invite"
             CompanionUi.stylePrimary(this)
             setOnClickListener {
-                startActivityForResult(
-                    Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                        addCategory(Intent.CATEGORY_OPENABLE)
-                        type = "*/*"
-                    },
-                    REQUEST_OPEN_INVITE,
-                )
+                openInviteDocument.launch(openDocumentIntent())
             }
         }
         val rooms = Button(this).apply {
             text = "Rooms"
             CompanionUi.styleSecondary(this)
             setOnClickListener {
-                startActivityForResult(
-                    Intent(this@MainActivity, HostedRoomsActivity::class.java),
-                    REQUEST_HOSTED_ROOMS,
-                )
+                hostedRooms.launch(Intent(this@MainActivity, HostedRoomsActivity::class.java))
             }
         }
         inviteStatus = TextView(this).apply {
@@ -209,8 +265,8 @@ class MainActivity : Activity() {
                         .any { it in message.lowercase() }
                     background = CompanionUi.roundedBackground(
                         this@MainActivity,
-                        if (isError) Color.rgb(252, 235, 233) else CompanionUi.primarySoft,
-                        if (isError) Color.rgb(236, 181, 177) else CompanionUi.border,
+                        if (isError) CompanionUi.errorSoft else CompanionUi.primarySoft,
+                        if (isError) CompanionUi.errorBorder else CompanionUi.border,
                         10,
                     )
                     setTextColor(if (isError) CompanionUi.danger else CompanionUi.textMuted)
@@ -462,7 +518,12 @@ class MainActivity : Activity() {
             menu.add(Menu.NONE, MENU_DOWNLOADS_UPDATES, 0, "Downloads and updates")
             menu.add(Menu.NONE, MENU_DOLPHIN_SOCKET, 1, "Dolphin socket")
             menu.add(Menu.NONE, MENU_BACKUP_RESTORE, 2, "Backup and restore")
+            menu.add(Menu.NONE, MENU_APPEARANCE, 3, "Appearance")
             setOnMenuItemClickListener { item ->
+                if (item.itemId == MENU_APPEARANCE) {
+                    showAppearanceDialog()
+                    return@setOnMenuItemClickListener true
+                }
                 when (item.itemId) {
                     MENU_DOWNLOADS_UPDATES -> DownloadsUpdatesActivity::class.java
                     MENU_DOLPHIN_SOCKET -> DolphinSocketActivity::class.java
@@ -477,75 +538,67 @@ class MainActivity : Activity() {
         }
     }
 
-    @Deprecated("Uses the platform file picker result API available to android.app.Activity")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode != RESULT_OK) {
-            if (requestCode == REQUEST_PATCH_BASE_ROM) {
-                clearPendingRomPatch()
+    private fun showAppearanceDialog() {
+        val modes = CompanionThemeMode.entries
+        val selectedMode = CompanionThemePreferences.load(this)
+        AlertDialog.Builder(this)
+            .setTitle("Appearance")
+            .setSingleChoiceItems(
+                modes.map { it.label }.toTypedArray(),
+                modes.indexOf(selectedMode),
+            ) { dialog, selectedIndex ->
+                CompanionThemePreferences.save(this, modes[selectedIndex])
+                dialog.dismiss()
+                recreate()
             }
-            if (requestCode == REQUEST_SAVE_STREAMING_ROM) {
-                clearPendingRomPatch()
-                inviteStatus.text = "Wind Waker ISO patching canceled."
-            }
-            if (requestCode == REQUEST_INVITE_APWORLD) {
-                pendingRequiredApWorldInvite = null
-                inviteStatus.text = "APWorld import canceled · invitation not loaded."
-            }
-            if (requestCode == REQUEST_PATCH_APWORLD) {
-                pendingRequiredApWorldPatch = null
-                inviteStatus.text = "APWorld import canceled · player patch not opened."
-            }
-            if (requestCode == REQUEST_OPEN_NATIVE_PLAYER_FILE) {
-                inviteStatus.text = "Player-file selection canceled."
-            }
-            return
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun documentLauncher(onSelected: (Uri) -> Unit) = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val uri = result.data?.data
+        if (result.resultCode == RESULT_OK && uri != null) onSelected(uri)
+    }
+
+    private fun openDocumentIntent(type: String = "*/*") = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+        addCategory(Intent.CATEGORY_OPENABLE)
+        this.type = type
+    }
+
+    private fun refreshSelectedRoom() {
+        val room = JoinedRoomStore.load(this)
+        renderJoinedRoom(room)
+        if (room == null) {
+            inviteStatus.text = "No imported multiplayer room is active."
+        } else {
+            inviteStatus.text = "Active room loaded · checking its current archipelago.gg server…"
+            lastActiveRoomRefreshAt = 0L
+            refreshActiveHostedRoomIfDue()
         }
-        if (requestCode == REQUEST_MANAGE_ROOMS || requestCode == REQUEST_HOSTED_ROOMS) {
-            val room = JoinedRoomStore.load(this)
-            renderJoinedRoom(room)
-            if (room == null) {
-                inviteStatus.text = "No imported multiplayer room is active."
-            } else {
-                inviteStatus.text = "Active room loaded · checking its current archipelago.gg server…"
-                lastActiveRoomRefreshAt = 0L
-                refreshActiveHostedRoomIfDue()
+    }
+
+    private fun savePatchedRom(destination: Uri, resultFlags: Int) {
+        val export = pendingPatchedRom ?: return
+        runCatching {
+            contentResolver.openOutputStream(destination)?.use { it.write(export.bytes) }
+                ?: error("Could not open the selected destination.")
+        }.onSuccess {
+            if (export.rememberForActiveRoom) {
+                rememberPatchedRom(export.name, destination, resultFlags, export.bytes.sha256Hex())
             }
-            return
-        }
-        if (data?.data == null) return
-        when (requestCode) {
-            REQUEST_OPEN_INVITE -> handleInvite(Intent(Intent.ACTION_VIEW, data.data))
-            REQUEST_OPEN_PLAYER_PATCH -> openManualPlayerPatch(data.data!!)
-            REQUEST_PATCH_BASE_ROM -> acceptBaseRom(data.data!!)
-            REQUEST_SAVE_STREAMING_ROM -> patchRomDocuments(data.data!!, data.flags)
-            REQUEST_INVITE_APWORLD -> installRequiredInviteApWorld(data.data!!)
-            REQUEST_PATCH_APWORLD -> installRequiredPatchApWorld(data.data!!)
-            REQUEST_OPEN_NATIVE_PLAYER_FILE -> openNativePlayerFile(data.data!!)
-            REQUEST_SELECT_PATCHED_ROM -> rememberExistingPatchedRom(data.data!!, data.flags)
-            REQUEST_SAVE_PATCHED_ROM -> {
-                val export = pendingPatchedRom ?: return
-                val destination = data.data!!
-                runCatching {
-                    contentResolver.openOutputStream(destination)?.use { it.write(export.bytes) }
-                        ?: error("Could not open the selected destination.")
-                }.onSuccess {
-                    if (export.rememberForActiveRoom) {
-                        rememberPatchedRom(export.name, destination, data.flags, export.bytes.sha256Hex())
-                    }
-                    inviteStatus.text = "Saved ${export.name} · ready to load in RetroArch."
-                    pendingPatchedRom = null
-                    offerRetroArchLaunch(
-                        export.name,
-                        destination,
-                        export.game,
-                        export.playerSlot,
-                        export.serverAddress,
-                    )
-                }.onFailure {
-                    inviteStatus.text = "Could not save ${export.name}: ${it.message}"
-                }
-            }
+            inviteStatus.text = "Saved ${export.name} · ready to load in RetroArch."
+            pendingPatchedRom = null
+            offerRetroArchLaunch(
+                export.name,
+                destination,
+                export.game,
+                export.playerSlot,
+                export.serverAddress,
+            )
+        }.onFailure {
+            inviteStatus.text = "Could not save ${export.name}: ${it.message}"
         }
     }
 
@@ -695,12 +748,8 @@ class MainActivity : Activity() {
 
     private fun chooseExistingPatchedRom() {
         val isGameCube = JoinedRoomStore.load(this)?.let(::isGameCubeRoom) == true
-        startActivityForResult(
-            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = if (isGameCube) "*/*" else "application/octet-stream"
-            },
-            REQUEST_SELECT_PATCHED_ROM,
+        selectPatchedRomDocument.launch(
+            openDocumentIntent(if (isGameCube) "*/*" else "application/octet-stream"),
         )
     }
 
@@ -830,13 +879,7 @@ class MainActivity : Activity() {
     }
 
     private fun chooseRequiredInviteApWorld() {
-        startActivityForResult(
-            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "application/octet-stream"
-            },
-            REQUEST_INVITE_APWORLD,
-        )
+        importInviteApWorld.launch(openDocumentIntent("application/octet-stream"))
     }
 
     private fun installRequiredInviteApWorld(uri: Uri) {
@@ -1068,13 +1111,7 @@ class MainActivity : Activity() {
     }
 
     private fun chooseRequiredPatchApWorld() {
-        startActivityForResult(
-            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "application/octet-stream"
-            },
-            REQUEST_PATCH_APWORLD,
-        )
+        importPatchApWorld.launch(openDocumentIntent("application/octet-stream"))
     }
 
     private fun installRequiredPatchApWorld(uri: Uri) {
@@ -1167,10 +1204,7 @@ class MainActivity : Activity() {
             type = if (pendingRomRequirements?.streaming == true) "*/*" else "application/octet-stream"
         }
         val label = input.description.ifBlank { input.fileName.ifBlank { "clean ROM" } }
-        startActivityForResult(
-            Intent.createChooser(picker, "Choose $label"),
-            REQUEST_PATCH_BASE_ROM,
-        )
+        selectPatchBaseRom.launch(Intent.createChooser(picker, "Choose $label"))
     }
 
     private fun showIncorrectBaseRom(
@@ -1230,14 +1264,11 @@ class MainActivity : Activity() {
                 val extension = requirements.resultExtension.ifBlank { ".iso" }
                 pendingStreamingDestinationName = "${File(session.patchName).nameWithoutExtension}$extension"
                 runOnUiThread {
-                    startActivityForResult(
-                        Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                            addCategory(Intent.CATEGORY_OPENABLE)
-                            type = DolphinLauncher.discMimeType(checkNotNull(pendingStreamingDestinationName))
-                            putExtra(Intent.EXTRA_TITLE, pendingStreamingDestinationName)
-                        },
-                        REQUEST_SAVE_STREAMING_ROM,
-                    )
+                    createStreamingRom.launch(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = DolphinLauncher.discMimeType(checkNotNull(pendingStreamingDestinationName))
+                        putExtra(Intent.EXTRA_TITLE, pendingStreamingDestinationName)
+                    })
                 }
             } else {
                 patchRomInputs(pendingRomInputs.toMap())
@@ -1318,14 +1349,11 @@ class MainActivity : Activity() {
                 pendingPatchedRom = export
                 runOnUiThread {
                     inviteStatus.text = "Patched ${session.game} ROM created. Choose where to save it."
-                    startActivityForResult(
-                        Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                            addCategory(Intent.CATEGORY_OPENABLE)
-                            type = "application/octet-stream"
-                            putExtra(Intent.EXTRA_TITLE, export.name)
-                        },
-                        REQUEST_SAVE_PATCHED_ROM,
-                    )
+                    createPatchedRom.launch(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "application/octet-stream"
+                        putExtra(Intent.EXTRA_TITLE, export.name)
+                    })
                 }
             }.onFailure { error ->
                 BaseRomCache.forget(this, requirements.game)
@@ -1409,13 +1437,7 @@ class MainActivity : Activity() {
                 text = "Open invitation"
                 CompanionUi.stylePrimary(this)
                 setOnClickListener {
-                    startActivityForResult(
-                        Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                            addCategory(Intent.CATEGORY_OPENABLE)
-                            type = "*/*"
-                        },
-                        REQUEST_OPEN_INVITE,
-                    )
+                    openInviteDocument.launch(openDocumentIntent())
                 }
             }, CompanionUi.insetTop(View(this), this, 8))
             return
@@ -1475,10 +1497,7 @@ class MainActivity : Activity() {
                 val hostedRoom = webHostClient.cachedRooms().firstOrNull { it.roomId == room.roomId }
                     ?: room.toHostedRoom()
                 webHostClient.rememberRoom(hostedRoom)
-                startActivityForResult(
-                    HostedRoomsActivity.shareIntent(this@MainActivity, room.roomId),
-                    REQUEST_HOSTED_ROOMS,
-                )
+                hostedRooms.launch(HostedRoomsActivity.shareIntent(this@MainActivity, room.roomId))
             }
         }
 
@@ -1488,7 +1507,6 @@ class MainActivity : Activity() {
         val playerFileHandler = PlayerFileLauncher.handlerForGame(room.gameName)
             ?: linkedPlayerFiles.firstNotNullOfOrNull { PlayerFileLauncher.handlerFor(it.name) }
         if (playerFileHandler != null && linkedPlayerFiles.isEmpty()) {
-            repairLinkedPlayerFiles(room)
         }
         val popTrackerButton = if (isSohRoom) null else Button(this).apply {
             val playerName = room.playerName
@@ -1934,23 +1952,6 @@ class MainActivity : Activity() {
         }.firstOrNull { (slot, _) -> slot == playerSlot }?.second
     }
 
-    private fun repairLinkedPlayerFiles(room: JoinedRoom) {
-        val historyId = HostedRoomHistoryLinks.historyId(this, room.roomId) ?: return
-        if (!attemptedPlayerArtifactRepairs.add(historyId)) return
-        thread(name = "seed-player-artifact-repair") {
-            val repaired = SeedHistoryStore.repairGeneratedArtifacts(this, historyId)
-            handler.post {
-                val activeRoom = JoinedRoomStore.load(this)
-                if (activeRoom?.roomId == room.roomId && repaired != null) {
-                    renderJoinedRoom(activeRoom)
-                    if (linkedPlayerFiles(activeRoom).isNotEmpty()) {
-                        inviteStatus.text = "Recovered the generated player file from the saved seed."
-                    }
-                }
-            }
-        }
-    }
-
     private fun launchNativePlayerFile(playerFile: File) {
         val room = JoinedRoomStore.load(this)
         val options = PlayerFileLaunchOptions(
@@ -1971,13 +1972,7 @@ class MainActivity : Activity() {
 
     private fun chooseNativePlayerFile(handler: PlayerFileHandler) {
         inviteStatus.text = "Choose the ${handler.extension} for this room."
-        startActivityForResult(
-            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "*/*"
-            },
-            REQUEST_OPEN_NATIVE_PLAYER_FILE,
-        )
+        openNativePlayerDocument.launch(openDocumentIntent())
     }
 
     private fun openNativePlayerFile(uri: Uri) {
@@ -2057,20 +2052,10 @@ class MainActivity : Activity() {
     }
 
     companion object {
-        private const val REQUEST_OPEN_INVITE = 301
-        private const val REQUEST_PATCH_BASE_ROM = 302
-        private const val REQUEST_SAVE_PATCHED_ROM = 303
-        private const val REQUEST_SELECT_PATCHED_ROM = 304
-        private const val REQUEST_MANAGE_ROOMS = 305
-        private const val REQUEST_INVITE_APWORLD = 306
-        private const val REQUEST_OPEN_PLAYER_PATCH = 307
-        private const val REQUEST_PATCH_APWORLD = 308
-        private const val REQUEST_SAVE_STREAMING_ROM = 309
-        private const val REQUEST_OPEN_NATIVE_PLAYER_FILE = 310
-        private const val REQUEST_HOSTED_ROOMS = 311
         private const val MENU_DOWNLOADS_UPDATES = 400
         private const val MENU_DOLPHIN_SOCKET = 401
         private const val MENU_BACKUP_RESTORE = 402
+        private const val MENU_APPEARANCE = 403
         private const val MAX_PATCH_BYTES = 32 * 1024 * 1024
         private const val MAX_ROM_BYTES = 32L * 1024 * 1024 + 512
         private const val ACTIVE_ROOM_REFRESH_INTERVAL_MILLIS = 60_000L

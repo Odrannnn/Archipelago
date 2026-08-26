@@ -4,8 +4,8 @@ import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import androidx.core.content.FileProvider
+import androidx.core.content.IntentCompat
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
@@ -32,16 +32,14 @@ data class RoomInvite(
         get() = hasPlayerIdentity && !patchName.isNullOrBlank() && patchBytes != null
     val hasNativePlayerFile: Boolean
         get() = hasPlayerPatch && PlayerFileLauncher.handlerFor(patchName.orEmpty()) != null
-    private fun metadataJson(version: Int) = JSONObject().apply {
+    private fun metadataJson() = JSONObject().apply {
         put("format", FORMAT)
-        put("version", version)
+        put("version", CURRENT_VERSION)
         put("room_id", roomId)
         put("seed_id", seedId)
-        if (version >= LEGACY_PATCH_VERSION) {
-            put("player_slot", playerSlot)
-            put("player_name", playerName)
-            if (version >= CURRENT_VERSION) put("game", gameName)
-        }
+        put("player_slot", playerSlot)
+        put("player_name", playerName)
+        put("game", gameName)
         if (hasPlayerPatch) {
             put("patch_name", patchName)
             put("patch_game", gameName)
@@ -54,7 +52,6 @@ data class RoomInvite(
         const val MIME_TYPE = "application/vnd.gg.archipelago.companion-invite"
         const val URI_SCHEME = "archipelago-companion"
         private const val FORMAT = "gg.archipelago.android.room-invite"
-        private const val LEGACY_PATCH_VERSION = 3
         private const val CURRENT_VERSION = 4
         private const val METADATA_ENTRY = "invite.json"
         private const val PATCH_ENTRY = "player.patch"
@@ -125,7 +122,7 @@ data class RoomInvite(
             val file = File(directory, "Archipelago-${room.roomId.take(8)}-$safePlayer.apinvite")
             ZipOutputStream(file.outputStream().buffered()).use { zip ->
                 zip.putNextEntry(ZipEntry(METADATA_ENTRY))
-                zip.write(invite.metadataJson(CURRENT_VERSION).toByteArray())
+                zip.write(invite.metadataJson().toByteArray())
                 zip.closeEntry()
                 patchBytes?.let {
                     zip.putNextEntry(ZipEntry(PATCH_ENTRY))
@@ -186,12 +183,7 @@ data class RoomInvite(
             }
             val uri = when (intent.action) {
                 Intent.ACTION_VIEW -> intent.data
-                Intent.ACTION_SEND -> if (Build.VERSION.SDK_INT >= 33) {
-                    intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
-                } else {
-                    @Suppress("DEPRECATION")
-                    intent.getParcelableExtra(Intent.EXTRA_STREAM)
-                }
+                Intent.ACTION_SEND -> IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
                 else -> null
             } ?: return null
             val bytes = context.contentResolver.openInputStream(uri)?.use { it.readAtMost(MAX_INVITE_BYTES + 1) }
@@ -232,7 +224,7 @@ data class RoomInvite(
             }
             val root = JSONObject((metadata ?: error("The invitation has no metadata.")).toString(Charsets.UTF_8))
             val version = root.optInt("version")
-            require(root.optString("format") == FORMAT && version in LEGACY_PATCH_VERSION..CURRENT_VERSION) {
+            require(root.optString("format") == FORMAT && version == CURRENT_VERSION) {
                 "This is not a supported player-specific invitation."
             }
             val roomId = root.getString("room_id")
@@ -241,9 +233,6 @@ data class RoomInvite(
             require(playerSlot > 0) { "The invitation contains an invalid player slot." }
             val playerName = root.getString("player_name").trim()
             require(playerName.isNotBlank() && playerName.length <= 256) { "The invitation contains an invalid player name." }
-            if (version == LEGACY_PATCH_VERSION) require(patch != null) {
-                "The legacy invitation has no player patch."
-            }
             val patchName = root.optString("patch_name").takeIf { it.isNotBlank() }?.let { File(it).name }
             require((patchName == null) == (patch == null)) { "The invitation has incomplete player patch data." }
             val gameName = if (patch != null) {
@@ -330,7 +319,6 @@ data class JoinedRoom(
 
 object JoinedRoomStore {
     private const val PREFERENCES = "joined_archipelago_room"
-    private const val LEGACY_ROOM = "room"
     private const val ROOMS = "rooms"
     private const val ACTIVE_ROOM_ID = "active_room_id"
 
@@ -433,12 +421,7 @@ object JoinedRoomStore {
             }.getOrDefault(emptyList())
         }
 
-        val legacy = preferences.getString(LEGACY_ROOM, null)?.let { raw ->
-            runCatching { roomFromJson(JSONObject(raw)) }.getOrNull()
-        }
-        val migrated = listOfNotNull(legacy)
-        persist(context, migrated, legacy?.roomId)
-        return migrated
+        return emptyList()
     }
 
     private fun persist(context: Context, rooms: List<JoinedRoom>, activeRoomId: String?) {
@@ -448,7 +431,6 @@ object JoinedRoomStore {
         val editor = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
             .edit()
             .putString(ROOMS, data.toString())
-            .remove(LEGACY_ROOM)
         if (activeRoomId == null) editor.remove(ACTIVE_ROOM_ID)
         else editor.putString(ACTIVE_ROOM_ID, activeRoomId)
         editor.apply()

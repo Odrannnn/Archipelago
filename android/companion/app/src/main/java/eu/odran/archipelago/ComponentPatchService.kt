@@ -10,6 +10,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.Process
 import android.os.ResultReceiver
+import androidx.core.content.IntentCompat
 import org.json.JSONObject
 import java.io.File
 import java.util.UUID
@@ -30,8 +31,7 @@ class ComponentPatchService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val request = intent ?: return START_NOT_STICKY
-        @Suppress("DEPRECATION")
-        val receiver = request.getParcelableExtra<ResultReceiver>(EXTRA_RECEIVER)
+        val receiver = IntentCompat.getParcelableExtra(request, EXTRA_RECEIVER, ResultReceiver::class.java)
             ?: return START_NOT_STICKY
         val patchPath = request.getStringExtra(EXTRA_PATCH_PATH)
         val inputUris = request.getStringExtra(EXTRA_INPUT_URIS)

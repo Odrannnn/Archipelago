@@ -1,8 +1,6 @@
 package eu.odran.archipelago
 
-import android.app.Activity
 import android.content.Intent
-import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
 import android.os.Handler
@@ -21,7 +19,7 @@ import java.util.Date
 import java.util.Locale
 
 /** Interactive transcript for upstream client commands and Archipelago text. */
-class ClientConsoleActivity : Activity() {
+class ClientConsoleActivity : CompanionActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
     private lateinit var connection: TextView
@@ -202,7 +200,7 @@ class ClientConsoleActivity : Activity() {
                 addView(consoleChip(
                     timeFormat.format(Date(entry.timestamp)),
                     CompanionUi.textMuted,
-                    Color.rgb(238, 240, 245),
+                    CompanionUi.neutralSoft,
                     CompanionUi.border,
                     monospace = true,
                 ))
@@ -268,22 +266,22 @@ class ClientConsoleActivity : Activity() {
     private fun consoleStyle(kind: String): ConsoleStyle = when (kind) {
         "input" -> ConsoleStyle(
             "YOU", CompanionUi.primary, CompanionUi.primarySoft,
-            CompanionUi.primarySoft, Color.rgb(181, 197, 229), CompanionUi.text,
+            CompanionUi.primarySoft, CompanionUi.primaryBorder, CompanionUi.text,
         )
         "server" -> ConsoleStyle(
-            "SERVER", Color.rgb(24, 117, 76), Color.rgb(230, 246, 238),
-            Color.rgb(242, 251, 246), Color.rgb(177, 218, 197), CompanionUi.text,
+            "SERVER", CompanionUi.active, CompanionUi.activeSoft,
+            CompanionUi.activeBubble, CompanionUi.activeBorder, CompanionUi.text,
         )
         "status" -> ConsoleStyle(
-            "STATUS", CompanionUi.textMuted, Color.rgb(238, 240, 245),
-            Color.rgb(248, 249, 252), CompanionUi.border, CompanionUi.textMuted,
+            "STATUS", CompanionUi.textMuted, CompanionUi.neutralSoft,
+            CompanionUi.panelSurface, CompanionUi.border, CompanionUi.textMuted,
         )
         "error" -> ConsoleStyle(
-            "ERROR", CompanionUi.danger, Color.rgb(252, 235, 233),
-            Color.rgb(255, 247, 246), Color.rgb(235, 183, 178), CompanionUi.danger,
+            "ERROR", CompanionUi.danger, CompanionUi.errorSoft,
+            CompanionUi.errorBubble, CompanionUi.errorBorder, CompanionUi.danger,
         )
         else -> ConsoleStyle(
-            "CLIENT", CompanionUi.primary, Color.rgb(238, 242, 250),
+            "CLIENT", CompanionUi.primary, CompanionUi.primarySoft,
             CompanionUi.surface, CompanionUi.border, CompanionUi.text,
         )
     }
