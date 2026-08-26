@@ -18,7 +18,7 @@ import kotlin.concurrent.thread
 /** SAF-based export and replacement restore for all portable app-owned data. */
 class BackupRestoreActivity : CompanionActivity() {
     private lateinit var inventory: TextView
-    private lateinit var status: TextView
+    private lateinit var status: CompanionStatusView
     private lateinit var exportButton: Button
     private lateinit var restoreButton: Button
     private val createBackup = registerForActivityResult(
@@ -38,10 +38,7 @@ class BackupRestoreActivity : CompanionActivity() {
             text = "Calculating app-owned data…"
             CompanionUi.styleBody(this)
         }
-        status = TextView(this).apply {
-            CompanionUi.styleMuted(this)
-            setPadding(0, CompanionUi.dp(this@BackupRestoreActivity, 8), 0, 0)
-        }
+        status = CompanionStatusView(this, hideWhenEmpty = true)
         exportButton = Button(this).apply {
             text = "Create backup"
             CompanionUi.stylePrimary(this)

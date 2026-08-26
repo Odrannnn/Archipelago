@@ -19,8 +19,8 @@ import kotlin.concurrent.thread
 class ApWorldManagerActivity : CompanionActivity() {
     private lateinit var worldsContainer: LinearLayout
     private lateinit var dependenciesContainer: LinearLayout
-    private lateinit var status: TextView
-    private lateinit var dependencyStatus: TextView
+    private lateinit var status: CompanionStatusView
+    private lateinit var dependencyStatus: CompanionStatusView
     private var dependencyCatalog = emptyList<NativeDependencyAsset>()
     private var declaredDependencies = emptyList<DeclaredPythonDependency>()
     private var dependencyBusy: String? = null
@@ -36,8 +36,8 @@ class ApWorldManagerActivity : CompanionActivity() {
         super.onCreate(savedInstanceState)
         worldsContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         dependenciesContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        status = TextView(this).apply { CompanionUi.styleBody(this) }
-        dependencyStatus = TextView(this).apply { CompanionUi.styleMuted(this) }
+        status = CompanionStatusView(this, hideWhenEmpty = true)
+        dependencyStatus = CompanionStatusView(this)
         val content = CompanionUi.screen(this).apply {
             addView(CompanionUi.pageTitle(
                 this@ApWorldManagerActivity,

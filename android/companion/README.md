@@ -171,10 +171,21 @@ APWorlds contain executable code and retain their own licenses. Review an
 APWorld's license and publish corresponding source when redistribution requires
 it.
 
-The main screen exposes independent emulator and Archipelago connection indicators.
-The server indicator distinguishes connecting, authenticated, and disconnected
-states instead of replacing the emulator bridge status. Long-press either line
-to view its latest detailed diagnostic.
+The active-room card and room library share one room-session coordinator for the
+selected room, player, current website port, saved server address, and bridge
+connection state. Website-hosted rooms distinguish running, refreshing, waking,
+sleeping, unavailable, and error states; a room can be refreshed or woken from
+its card without replacing the active selection. The library can search by
+player, game, room identifier, or port and sort by recency, player, or server
+status. A changed port updates the saved server and requests a bridge reconnect
+automatically.
+
+Status surfaces use one semantic palette in light and dark modes: green means
+healthy or completed, blue means informational work is in progress, amber means
+waiting or a recoverable problem, red means an error, and grey is neutral. Text
+labels remain present so colour is never the only signal. The connection Details
+dialog exposes bridge/server detail, the client console, and a sanitized support
+report which omits passwords, website cookies, invite payloads, and ROM paths.
 
 The companion needs Android's `INTERNET` permission because Android protects
 loopback TCP behind the same permission. The native core remains bound to

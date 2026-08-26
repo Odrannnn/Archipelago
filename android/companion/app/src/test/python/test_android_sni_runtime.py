@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 from types import ModuleType, SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 
 PYTHON_SOURCE = Path(__file__).resolve().parents[2] / "main" / "python"
@@ -57,9 +58,6 @@ auto_sni_module = ModuleType("worlds.AutoSNIClient")
 auto_sni_module.AutoSNIClientRegister = FakeRegistry
 offline_generator_module = ModuleType("offline_generator")
 offline_generator_module._load_standard_sni_clients = lambda work_directory: None
-sys.modules["worlds"] = worlds_module
-sys.modules["worlds.AutoSNIClient"] = auto_sni_module
-sys.modules["offline_generator"] = offline_generator_module
 
 from android_sni_runtime import AndroidSNIRuntime
 
@@ -77,6 +75,17 @@ class Backend:
 
 
 class AndroidSNIRegistryTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.module_patch = patch.dict(sys.modules, {
+            "worlds": worlds_module,
+            "worlds.AutoSNIClient": auto_sni_module,
+            "offline_generator": offline_generator_module,
+        })
+        self.module_patch.start()
+
+    def tearDown(self) -> None:
+        self.module_patch.stop()
+
     def test_runtime_discovers_registered_client_without_game_import(self) -> None:
         runtime = AndroidSNIRuntime("unused", Backend())
         try:

@@ -68,8 +68,8 @@ android {
         applicationId = "eu.odran.archipelago"
         minSdk = 26
         targetSdk = 35
-        versionCode = 99
-        versionName = "0.38.7"
+        versionCode = 100
+        versionName = "0.38.8"
 
         ndk {
             // The custom mGBA bridge currently targets 64-bit Android devices.
@@ -143,6 +143,7 @@ kotlin {
 dependencies {
     implementation("androidx.activity:activity:1.10.1")
     implementation("androidx.core:core:1.15.0")
+    implementation("androidx.recyclerview:recyclerview:1.4.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.luaj:luaj-jse:3.0.1")
     testImplementation("junit:junit:4.13.2")

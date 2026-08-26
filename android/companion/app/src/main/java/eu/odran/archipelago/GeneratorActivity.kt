@@ -60,6 +60,7 @@ class GeneratorActivity : CompanionActivity() {
     private lateinit var playerCountView: TextView
     private lateinit var playerSelector: Spinner
     private lateinit var playerNameEditor: EditText
+    private lateinit var optionSearchEditor: EditText
     private lateinit var playerOptionsContainer: LinearLayout
     private lateinit var screenScrollView: ScrollView
     private lateinit var generateButton: Button
@@ -78,7 +79,7 @@ class GeneratorActivity : CompanionActivity() {
     private lateinit var savedYamlsToggleButton: Button
     private lateinit var rememberYamlButton: Button
     private lateinit var importYamlButton: Button
-    private lateinit var status: TextView
+    private lateinit var status: CompanionStatusView
     private lateinit var webHostClient: ArchipelagoWebHostClient
 
     private var seedFile: File? = null
@@ -166,28 +167,37 @@ class GeneratorActivity : CompanionActivity() {
         }
         seedEditor = EditText(this).apply {
             hint = "Numeric seed (optional)"
+            contentDescription = "Optional numeric seed"
             inputType = InputType.TYPE_CLASS_NUMBER
         }
         playerCountView = TextView(this).apply {
             text = "Players: 0"
             CompanionUi.styleBody(this)
         }
-        playerSelector = Spinner(this)
+        playerSelector = Spinner(this).apply {
+            contentDescription = "Player to configure"
+        }
         playerNameEditor = EditText(this).apply {
             hint = "Player name"
+            contentDescription = "Selected player name"
             setSingleLine(true)
             isEnabled = false
+        }
+        optionSearchEditor = EditText(this).apply {
+            hint = "Search player options"
+            contentDescription = "Search options by name or description"
+            setSingleLine(true)
+            addTextChangedListener(valueWatcher { renderSelectedPlayer() })
         }
         playerOptionsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
-        status = TextView(this).apply {
+        status = CompanionStatusView(this).apply {
             text = "Starting Python 3.12…"
             minLines = 1
             gravity = android.view.Gravity.TOP or android.view.Gravity.START
             setTextIsSelectable(true)
             setHorizontallyScrolling(false)
-            CompanionUi.styleMuted(this)
         }
         patchesContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -493,6 +503,7 @@ class GeneratorActivity : CompanionActivity() {
                     setTypeface(typeface, Typeface.BOLD)
                     setPadding(0, CompanionUi.dp(this@GeneratorActivity, 12), 0, 0)
                 }, matchWrapParams())
+                addView(optionSearchEditor, CompanionUi.insetTop(optionSearchEditor, this@GeneratorActivity, 6))
                 addView(playerOptionsContainer, CompanionUi.insetTop(playerOptionsContainer, this@GeneratorActivity, 8))
             }, CompanionUi.cardParams(this@GeneratorActivity))
 
@@ -816,9 +827,30 @@ class GeneratorActivity : CompanionActivity() {
                 CompanionUi.styleMuted(this)
             })
         } else {
-            schema.groups.forEachIndexed { index, group ->
+            val query = optionSearchEditor.text.toString().trim()
+            val visibleGroups = if (query.isBlank()) {
+                schema.groups
+            } else {
+                schema.groups.mapNotNull { group ->
+                    val matchingOptions = group.options.filter { option ->
+                        listOf(option.label, option.key, option.description)
+                            .any { value -> value.contains(query, ignoreCase = true) }
+                    }
+                    group.copy(options = matchingOptions).takeIf { matchingOptions.isNotEmpty() }
+                }
+            }
+            if (visibleGroups.isEmpty()) {
+                playerOptionsContainer.addView(CompanionStatusView(this).apply {
+                    show("No options match “$query”.", CompanionStatusLevel.WARNING)
+                }, matchWrapParams())
+            }
+            visibleGroups.forEachIndexed { index, group ->
                 playerOptionsContainer.addView(
-                    optionGroupView(player, group, collapsed = group.startCollapsed || index > 0),
+                    optionGroupView(
+                        player,
+                        group,
+                        collapsed = query.isBlank() && (group.startCollapsed || index > 0),
+                    ),
                 )
             }
         }
@@ -1819,12 +1851,7 @@ class GeneratorActivity : CompanionActivity() {
             runCatching { webHostClient.hostSeed(zip) }
                 .onSuccess { result ->
                     historyId?.let { HostedRoomHistoryLinks.save(this, result.room.roomId, it) }
-                    runCatching {
-                        val joinedRoom = JoinedRoomStore.save(this, result.room)
-                        joinedRoom.port.takeIf { it > 0 }?.let { port ->
-                            ServerSettings.save(this, "archipelago.gg:$port", "")
-                        }
-                    }
+                    runCatching { RoomSessionRepository.activate(this, result.room) }
                     runOnUiThread {
                         hostingInProgress = false
                         hostSeedButton.isEnabled = seedFile?.isFile == true

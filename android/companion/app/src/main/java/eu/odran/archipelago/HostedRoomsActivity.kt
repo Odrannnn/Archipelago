@@ -7,13 +7,20 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.TextView
 import android.widget.Toast
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import java.io.File
 import java.text.DateFormat
 import java.text.SimpleDateFormat
@@ -23,36 +30,135 @@ import java.util.zip.ZipFile
 import kotlin.concurrent.thread
 import org.json.JSONObject
 
-private data class HostedInviteChoice(
-    val slot: Int,
-    val playerName: String,
-    val game: String,
-    val patch: File?,
-)
-
 /** Unified library for rooms hosted by this app and rooms joined through invitations. */
 class HostedRoomsActivity : CompanionActivity() {
     private enum class RoomFilter { ALL, HOSTED, JOINED }
+    private enum class RoomSort(val label: String) {
+        RECENT("Recent"),
+        NAME("Player name"),
+        STATUS("Server status"),
+    }
+
+    private class RoomViewHolder(
+        val container: FrameLayout,
+        val card: HostedRoomCardView,
+        val empty: TextView,
+    ) : RecyclerView.ViewHolder(container)
+
+    private inner class RoomAdapter : RecyclerView.Adapter<RoomViewHolder>() {
+        private var rooms = emptyList<HostedRoomCardModel>()
+        private var emptyMessage = ""
+
+        fun submit(updatedRooms: List<HostedRoomCardModel>, updatedEmptyMessage: String) {
+            val previousRooms = rooms
+            val previousEmptyMessage = emptyMessage
+            val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+                override fun getOldListSize(): Int = previousRooms.size.coerceAtLeast(1)
+
+                override fun getNewListSize(): Int = updatedRooms.size.coerceAtLeast(1)
+
+                override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
+                    val previous = previousRooms.getOrNull(oldItemPosition)
+                    val updated = updatedRooms.getOrNull(newItemPosition)
+                    return if (previous == null || updated == null) {
+                        previous == null && updated == null
+                    } else {
+                        previous.room.roomId == updated.room.roomId
+                    }
+                }
+
+                override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
+                    val previous = previousRooms.getOrNull(oldItemPosition)
+                    val updated = updatedRooms.getOrNull(newItemPosition)
+                    return if (previous == null || updated == null) {
+                        previous == null && updated == null && previousEmptyMessage == updatedEmptyMessage
+                    } else {
+                        previous == updated
+                    }
+                }
+            })
+            rooms = updatedRooms
+            emptyMessage = updatedEmptyMessage
+            diff.dispatchUpdatesTo(this)
+        }
+
+        override fun getItemCount(): Int = rooms.size.coerceAtLeast(1)
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RoomViewHolder {
+            val container = FrameLayout(parent.context).apply {
+                layoutParams = RecyclerView.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                )
+                setPadding(0, 0, 0, CompanionUi.dp(parent.context, 10))
+            }
+            val card = HostedRoomCardView(parent.context)
+            val empty = TextView(parent.context).apply {
+                visibility = View.GONE
+                CompanionUi.styleMuted(this)
+                setPadding(0, CompanionUi.dp(parent.context, 10), 0, CompanionUi.dp(parent.context, 10))
+            }
+            val childParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            )
+            container.addView(card, childParams)
+            container.addView(empty, FrameLayout.LayoutParams(childParams))
+            return RoomViewHolder(container, card, empty)
+        }
+
+        override fun onBindViewHolder(holder: RoomViewHolder, position: Int) {
+            val model = rooms.getOrNull(position)
+            if (model == null) {
+                holder.card.visibility = View.GONE
+                holder.empty.visibility = View.VISIBLE
+                holder.empty.text = emptyMessage
+            } else {
+                holder.empty.visibility = View.GONE
+                holder.card.visibility = View.VISIBLE
+                holder.card.bind(model, roomCardCallbacks(model))
+            }
+        }
+    }
 
     private lateinit var webHostClient: ArchipelagoWebHostClient
-    private lateinit var status: TextView
-    private lateinit var roomsContainer: LinearLayout
+    private lateinit var status: CompanionStatusView
+    private lateinit var roomsContainer: RecyclerView
+    private lateinit var roomAdapter: RoomAdapter
     private lateinit var refreshButton: Button
     private lateinit var restoreButton: Button
     private lateinit var allFilterButton: Button
     private lateinit var hostedFilterButton: Button
     private lateinit var joinedFilterButton: Button
+    private lateinit var roomSearchEditor: EditText
+    private lateinit var sortButton: Button
     private var roomFilter = RoomFilter.ALL
+    private var roomSort = RoomSort.RECENT
+    private val refreshingRoomIds = mutableSetOf<String>()
+    private val wakingRoomIds = mutableSetOf<String>()
+    private val unavailableRoomIds = mutableSetOf<String>()
     @Volatile private var startingRoomRefreshGeneration = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         webHostClient = ArchipelagoWebHostClient(this)
-        status = TextView(this).apply {
+        roomFilter = savedInstanceState?.getString(STATE_ROOM_FILTER)
+            ?.let { saved -> RoomFilter.entries.firstOrNull { it.name == saved } }
+            ?: RoomFilter.ALL
+        roomSort = savedInstanceState?.getString(STATE_ROOM_SORT)
+            ?.let { saved -> RoomSort.entries.firstOrNull { it.name == saved } }
+            ?: RoomSort.RECENT
+        status = CompanionStatusView(this).apply {
             text = "Rooms cached on this device."
-            CompanionUi.styleMuted(this)
         }
-        roomsContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        roomAdapter = RoomAdapter()
+        roomsContainer = RecyclerView(this).apply {
+            layoutManager = LinearLayoutManager(this@HostedRoomsActivity)
+            adapter = roomAdapter
+            isNestedScrollingEnabled = true
+            clipToPadding = false
+            contentDescription = "Room library results"
+        }
         refreshButton = Button(this).apply {
             text = "Refresh from archipelago.gg"
             CompanionUi.stylePrimary(this)
@@ -65,6 +171,24 @@ class HostedRoomsActivity : CompanionActivity() {
         allFilterButton = filterButton("All", RoomFilter.ALL)
         hostedFilterButton = filterButton("Hosted", RoomFilter.HOSTED)
         joinedFilterButton = filterButton("Joined", RoomFilter.JOINED)
+        roomSearchEditor = EditText(this).apply {
+            hint = "Search rooms or players"
+            contentDescription = "Search rooms by player, game, room identifier, or port"
+            setSingleLine(true)
+            setText(savedInstanceState?.getString(STATE_ROOM_SEARCH).orEmpty())
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(value: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(value: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                override fun afterTextChanged(value: Editable?) {
+                    if (::roomsContainer.isInitialized) renderHostedRooms(webHostClient.cachedRooms())
+                }
+            })
+        }
+        sortButton = Button(this).apply {
+            CompanionUi.styleQuiet(this)
+            setOnClickListener(::showSortMenu)
+        }
+        updateSortButton()
 
         val content = CompanionUi.screen(this).apply {
             addView(
@@ -82,6 +206,8 @@ class HostedRoomsActivity : CompanionActivity() {
                     addView(hostedFilterButton, CompanionUi.weightedButtonParams(this@HostedRoomsActivity, 4))
                     addView(joinedFilterButton, CompanionUi.weightedButtonParams(this@HostedRoomsActivity))
                 }, CompanionUi.fullWidth())
+                addView(roomSearchEditor, CompanionUi.insetTop(roomSearchEditor, this@HostedRoomsActivity, 8))
+                addView(sortButton, CompanionUi.insetTop(sortButton, this@HostedRoomsActivity, 4))
                 addView(status, CompanionUi.insetTop(status, this@HostedRoomsActivity, 8))
                 addView(roomsContainer, CompanionUi.insetTop(roomsContainer, this@HostedRoomsActivity, 8))
             }, CompanionUi.cardParams(this@HostedRoomsActivity))
@@ -128,14 +254,11 @@ class HostedRoomsActivity : CompanionActivity() {
         requestedRoomId?.let { roomId ->
             intent.removeExtra(EXTRA_OPEN_ROOM_ID)
             val selected = runCatching {
-                JoinedRoomStore.select(this, roomId)
+                RoomSessionRepository.select(this, roomId)
                     ?: cachedRooms.firstOrNull { it.roomId == roomId }?.let { room ->
-                        JoinedRoomStore.save(this, room)
+                        RoomSessionRepository.activate(this, room)
                     }
             }.getOrNull()
-            runCatching {
-                selected?.serverAddress()?.let { ServerSettings.save(this, it, "") }
-            }
             if (selected == null) {
                 status.text = "The requested room is not available in the room library yet."
             }
@@ -159,6 +282,31 @@ class HostedRoomsActivity : CompanionActivity() {
         super.onDestroy()
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(STATE_ROOM_FILTER, roomFilter.name)
+        outState.putString(STATE_ROOM_SORT, roomSort.name)
+        outState.putString(STATE_ROOM_SEARCH, roomSearchEditor.text.toString())
+    }
+
+    private fun showSortMenu(anchor: View) {
+        PopupMenu(this, anchor).apply {
+            RoomSort.entries.forEach { sort -> menu.add(sort.label) }
+            setOnMenuItemClickListener { item ->
+                roomSort = RoomSort.entries.first { it.label == item.title.toString() }
+                updateSortButton()
+                renderHostedRooms(webHostClient.cachedRooms())
+                true
+            }
+            show()
+        }
+    }
+
+    private fun updateSortButton() {
+        sortButton.text = "Sort: ${roomSort.label}"
+        sortButton.contentDescription = "Room sorting. Current order: ${roomSort.label}"
+    }
+
     private fun filterButton(label: String, filter: RoomFilter) = Button(this).apply {
         text = label
         setOnClickListener {
@@ -179,11 +327,15 @@ class HostedRoomsActivity : CompanionActivity() {
 
     private fun refreshHostedRooms() {
         refreshButton.isEnabled = false
+        refreshingRoomIds += webHostClient.cachedRooms().map { it.roomId }
+        renderHostedRooms(webHostClient.cachedRooms())
         status.text = "Refreshing hosted rooms from archipelago.gg…"
         thread(name = "archipelago-web-host-refresh") {
             runCatching { webHostClient.refreshRooms() }
                 .onSuccess { rooms -> runOnUiThread {
                     refreshButton.isEnabled = true
+                    refreshingRoomIds.clear()
+                    unavailableRoomIds.removeAll(rooms.map { it.roomId }.toSet())
                     synchronizeActiveRoom(rooms)
                     renderHostedRooms(rooms)
                     status.text = if (rooms.isEmpty()) {
@@ -193,7 +345,11 @@ class HostedRoomsActivity : CompanionActivity() {
                     }
                 } }
                 .onFailure { error ->
-                    runOnUiThread { refreshButton.isEnabled = true }
+                    runOnUiThread {
+                        refreshButton.isEnabled = true
+                        refreshingRoomIds.clear()
+                        renderHostedRooms(webHostClient.cachedRooms())
+                    }
                     showError("Could not refresh hosted rooms", error)
                 }
         }
@@ -203,6 +359,8 @@ class HostedRoomsActivity : CompanionActivity() {
     private fun refreshStartingRoom(roomId: String) {
         if (!ArchipelagoWebHostClient.ROOM_ID_PATTERN.matches(roomId)) return
         val generation = ++startingRoomRefreshGeneration
+        wakingRoomIds += roomId
+        renderHostedRooms(webHostClient.cachedRooms())
         status.text = "Room created · waiting for archipelago.gg to start its server…"
         thread(name = "starting-hosted-room-refresh") {
             runCatching { webHostClient.refreshPublicRoom(roomId) }
@@ -213,6 +371,8 @@ class HostedRoomsActivity : CompanionActivity() {
                         if (generation != startingRoomRefreshGeneration || isFinishing || isDestroyed) {
                             return@runOnUiThread
                         }
+                        wakingRoomIds -= roomId
+                        unavailableRoomIds -= roomId
                         synchronizeActiveRoom(listOf(refreshed))
                         renderHostedRooms(webHostClient.cachedRooms())
                         status.text = when {
@@ -227,6 +387,11 @@ class HostedRoomsActivity : CompanionActivity() {
                 }
                 .onFailure { error ->
                     if (generation == startingRoomRefreshGeneration) {
+                        runOnUiThread {
+                            wakingRoomIds -= roomId
+                            unavailableRoomIds += roomId
+                            renderHostedRooms(webHostClient.cachedRooms())
+                        }
                         showError("Could not refresh the new room", error)
                     }
                 }
@@ -234,50 +399,67 @@ class HostedRoomsActivity : CompanionActivity() {
     }
 
     private fun synchronizeActiveRoom(rooms: List<HostedRoom>) {
-        val activeRoomId = JoinedRoomStore.load(this)?.roomId ?: return
+        val activeRoomId = RoomSessionRepository.activeRoom(this)?.roomId ?: return
         val refreshed = rooms.firstOrNull { it.roomId == activeRoomId } ?: return
-        val updated = JoinedRoomStore.save(this, refreshed)
-        updated.serverAddress()?.let { address ->
-            val password = ServerSettings.load(this).password
-            ServerSettings.save(this, address, password)
-        }
+        RoomSessionRepository.synchronizeActive(this, refreshed)
     }
 
     private fun renderHostedRooms(rooms: List<HostedRoom>) {
-        roomsContainer.removeAllViews()
         updateFilterButtons()
         updateRestoreButton()
         val hostedById = rooms.associateBy { it.roomId }
-        val joinedById = JoinedRoomStore.loadAll(this).associateBy { it.roomId }
+        val joinedById = RoomSessionRepository.rooms(this).associateBy { it.roomId }
         val roomIds = when (roomFilter) {
             RoomFilter.ALL -> (hostedById.keys + joinedById.keys).distinct()
             RoomFilter.HOSTED -> hostedById.keys.toList()
             RoomFilter.JOINED -> joinedById.keys.toList()
         }
-        val activeRoomId = JoinedRoomStore.load(this)?.roomId
+        val activeRoomId = RoomSessionRepository.activeRoom(this)?.roomId
+        val recencyIndex = roomIds.withIndex().associate { it.value to it.index }
+        val query = roomSearchEditor.text.toString().trim()
+        val roomComparator = when (roomSort) {
+            RoomSort.RECENT -> compareBy<HostedRoom> { recencyIndex[it.roomId] ?: Int.MAX_VALUE }
+            RoomSort.NAME -> compareBy(String.CASE_INSENSITIVE_ORDER) { room ->
+                joinedById[room.roomId]?.playerName
+                    ?: room.players.firstOrNull()?.let(::hostedPlayerName)
+                    ?: room.roomId
+            }
+            RoomSort.STATUS -> compareBy<HostedRoom> { room ->
+                when (roomStatusPresentation(
+                    port = room.lastPort,
+                    refreshing = room.roomId in refreshingRoomIds,
+                    waking = room.roomId in wakingRoomIds,
+                    available = room.roomId !in unavailableRoomIds,
+                ).state) {
+                    RoomRuntimeState.RUNNING -> 0
+                    RoomRuntimeState.WAKING, RoomRuntimeState.REFRESHING -> 1
+                    RoomRuntimeState.SLEEPING -> 2
+                    RoomRuntimeState.UNAVAILABLE -> 3
+                    RoomRuntimeState.ERROR -> 4
+                }
+            }.thenBy { it.roomId }
+        }
         val visibleRooms = roomIds.mapNotNull { roomId ->
             hostedById[roomId] ?: joinedById[roomId]?.asHostedRoom()
+        }.filter { room ->
+            query.isBlank() || listOf(
+                room.roomId,
+                room.trackerId,
+                room.lastPort.takeIf { it != 0 }?.toString().orEmpty(),
+                joinedById[room.roomId]?.playerName.orEmpty(),
+                joinedById[room.roomId]?.gameName.orEmpty(),
+            ).plus(room.players).any { value -> value.contains(query, ignoreCase = true) }
         }.sortedWith(
             compareByDescending<HostedRoom> { it.roomId == activeRoomId }
-                .thenByDescending { joinedById[it.roomId]?.updatedAt ?: 0L },
+                .then(roomComparator),
         )
-        if (visibleRooms.isEmpty()) {
-            roomsContainer.addView(TextView(this).apply {
-                text = when (roomFilter) {
-                    RoomFilter.ALL -> "No rooms yet. Open an invitation from Home or refresh website hosting."
-                    RoomFilter.HOSTED -> "No hosted rooms are cached. Refresh website hosting to look for them."
-                    RoomFilter.JOINED -> "No joined rooms yet. Open an invitation from Home to add one."
-                }
-                CompanionUi.styleMuted(this)
-            }, matchWrapParams())
-            return
-        }
-        visibleRooms.forEachIndexed { index, room ->
+        val historyById = SeedHistoryStore.list(this).associateBy { it.id }
+        val models = visibleRooms.map { room ->
             val isActive = room.roomId == activeRoomId
             val isHosted = room.roomId in hostedById
             val joinedRoom = joinedById[room.roomId]
             val linkedEntry = HostedRoomHistoryLinks.historyId(this, room.roomId)?.let { linkedId ->
-                SeedHistoryStore.list(this).firstOrNull { it.id == linkedId }
+                historyById[linkedId]
             }
             val activePlayerChoices = activePlayerChoices(room, linkedEntry)
             val patchlessChoices = patchlessInviteChoices(room)
@@ -287,133 +469,92 @@ class HostedRoomsActivity : CompanionActivity() {
                 ?.map { File(it.path) }
                 ?.filter { it.isFile && PlayerFileLauncher.supports(it.name) }
                 .orEmpty()
-            val panel = CompanionUi.panel(this, active = isActive).apply {
-                addView(TextView(this@HostedRoomsActivity).apply {
-                    text = joinedRoom?.playerName?.takeIf { it.isNotBlank() }
-                        ?: room.players.firstOrNull()?.let(::hostedPlayerName)
-                        ?: "Archipelago room"
-                    textSize = 18f
-                    setTypeface(typeface, android.graphics.Typeface.BOLD)
-                    setTextColor(if (isActive) CompanionUi.primary else CompanionUi.text)
-                }, matchWrapParams())
-                addView(LinearLayout(this@HostedRoomsActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    if (isActive) addView(
-                        CompanionUi.statusChip(this@HostedRoomsActivity, "ACTIVE"),
-                        CompanionUi.wrapContentParams(this@HostedRoomsActivity, 5),
-                    )
-                    addView(
-                        CompanionUi.statusChip(
-                            this@HostedRoomsActivity,
-                            if (isHosted) "HOSTED" else "JOINED",
-                        ),
-                        CompanionUi.wrapContentParams(this@HostedRoomsActivity, 5),
-                    )
-                    val serverTone = when {
-                        room.lastPort > 0 -> CompanionUi.StatusTone.ACTIVE
-                        room.lastPort < 0 -> CompanionUi.StatusTone.ERROR
-                        else -> CompanionUi.StatusTone.WARNING
-                    }
-                    val serverLabel = when {
-                        room.lastPort > 0 -> "ONLINE"
-                        room.lastPort < 0 -> "ERROR"
-                        else -> "SLEEPING"
-                    }
-                    addView(
-                        CompanionUi.statusChip(this@HostedRoomsActivity, serverLabel, serverTone),
-                        CompanionUi.wrapContentParams(this@HostedRoomsActivity),
-                    )
-                }, CompanionUi.insetTop(View(this@HostedRoomsActivity), this@HostedRoomsActivity, 7))
-                addView(TextView(this@HostedRoomsActivity).apply {
-                    text = buildString {
-                        joinedRoom?.gameName?.takeIf { it.isNotBlank() }?.let { append(it) }
-                        if (room.lastPort > 0) {
-                            if (isNotEmpty()) append(" · ")
-                            append("archipelago.gg:${room.lastPort}")
-                        }
-                        if (room.players.isNotEmpty()) {
-                            if (isNotEmpty()) append('\n')
-                            append(room.players.joinToString())
-                        }
-                        if (isEmpty()) append("Room ${room.roomId.take(12)}…")
-                    }
-                    CompanionUi.styleMuted(this)
-                }, CompanionUi.insetTop(this, this@HostedRoomsActivity, 4))
-                addView(Button(this@HostedRoomsActivity).apply {
-                    when {
-                        !isActive -> {
-                            text = if (joinedRoom?.playerSlot == null && activePlayerChoices.isNotEmpty()) {
-                                "Choose player & activate"
-                            } else {
-                                "Make active"
-                            }
-                            isEnabled = true
-                            setOnClickListener {
-                                if (isHosted) activateHostedRoom(room, activePlayerChoices)
-                                else joinedRoom?.let(::activateJoinedRoom)
-                            }
-                        }
-                        joinedRoom?.playerSlot == null && activePlayerChoices.isNotEmpty() -> {
-                            text = "Choose player"
-                            isEnabled = true
-                            setOnClickListener { chooseActivePlayer(room, activePlayerChoices) }
-                        }
-                        sohPlayers.isNotEmpty() -> {
-                            text = if (room.lastPort > 0) "Launch Ship of Harkinian" else "Wake room to launch"
-                            isEnabled = room.lastPort > 0
-                            setOnClickListener { chooseSohPlayer(room, sohPlayers) }
-                        }
-                        nativePlayerFiles.isNotEmpty() -> {
-                            text = if (nativePlayerFiles.size == 1) {
-                                PlayerFileLauncher.actionLabel(nativePlayerFiles.single().name)
-                            } else {
-                                "Choose player file"
-                            }
-                            setOnClickListener { chooseNativePlayerFile(room, nativePlayerFiles) }
-                        }
-                        else -> {
-                            text = "Currently active"
-                            isEnabled = false
-                        }
-                    }
-                    CompanionUi.stylePrimary(this)
-                }, CompanionUi.insetTop(this, this@HostedRoomsActivity, 8))
-                val shareButton = Button(this@HostedRoomsActivity).apply {
-                    text = if (linkedSeedCanShareInvite == false && patchlessChoices.isEmpty()) {
-                        "Share unavailable"
-                    } else {
-                        "Share invite"
-                    }
-                    isEnabled = linkedSeedCanShareInvite != false || patchlessChoices.isNotEmpty()
-                    CompanionUi.styleSecondary(this)
-                    setOnClickListener { shareHostedRoom(room) }
-                }
-                val moreButton = Button(this@HostedRoomsActivity).apply {
-                    text = "More"
-                    CompanionUi.styleQuiet(this)
-                    setOnClickListener {
-                        showRoomMenu(
-                            it,
-                            room,
-                            isHosted,
-                            joinedRoom,
-                            activePlayerChoices,
-                            sohPlayers,
-                            nativePlayerFiles,
-                        )
-                    }
-                }
-                addView(LinearLayout(this@HostedRoomsActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    addView(shareButton, CompanionUi.weightedButtonParams(this@HostedRoomsActivity, 5))
-                    addView(moreButton, CompanionUi.weightedButtonParams(this@HostedRoomsActivity))
-                }, CompanionUi.insetTop(shareButton, this@HostedRoomsActivity, 5))
-            }
-            roomsContainer.addView(
-                panel,
-                CompanionUi.insetTop(panel, this, if (index == 0) 0 else 10),
+            val roomStatus = roomStatusPresentation(
+                port = room.lastPort,
+                refreshing = room.roomId in refreshingRoomIds,
+                waking = room.roomId in wakingRoomIds,
+                available = room.roomId !in unavailableRoomIds,
+            )
+            HostedRoomCardModel(
+                room = room,
+                title = joinedRoom?.playerName?.takeIf { it.isNotBlank() }
+                    ?: room.players.firstOrNull()?.let(::hostedPlayerName)
+                    ?: "Archipelago room",
+                details = roomCardDetails(room, joinedRoom),
+                isActive = isActive,
+                isHosted = isHosted,
+                joinedRoom = joinedRoom,
+                activePlayerChoices = activePlayerChoices,
+                patchlessChoices = patchlessChoices,
+                linkedSeedCanShareInvite = linkedSeedCanShareInvite,
+                sohPlayers = sohPlayers,
+                nativePlayerFiles = nativePlayerFiles,
+                status = roomStatus,
             )
         }
+        val emptyMessage = if (query.isNotBlank()) {
+            "No rooms match “$query”."
+        } else when (roomFilter) {
+            RoomFilter.ALL -> "No rooms yet. Open an invitation from Home or refresh website hosting."
+            RoomFilter.HOSTED -> "No hosted rooms are cached. Refresh website hosting to look for them."
+            RoomFilter.JOINED -> "No joined rooms yet. Open an invitation from Home to add one."
+        }
+        roomAdapter.submit(models, emptyMessage)
+        updateRoomListHeight(models.size)
+    }
+
+    private fun roomCardDetails(room: HostedRoom, joinedRoom: JoinedRoom?): String = buildString {
+        joinedRoom?.gameName?.takeIf { it.isNotBlank() }?.let { append(it) }
+        if (room.lastPort > 0) {
+            if (isNotEmpty()) append(" · ")
+            append("archipelago.gg:${room.lastPort}")
+        }
+        if (room.players.isNotEmpty()) {
+            if (isNotEmpty()) append('\n')
+            append(room.players.joinToString())
+        }
+        joinedRoom?.updatedAt?.takeIf { it > 0L }?.let {
+            append("\n${formatStatusAge(it)}")
+        }
+        formatWebsiteTime(room.lastActivity).takeIf { it.isNotBlank() }?.let {
+            append(" · Last activity $it")
+        }
+        if (isEmpty()) append("Room ${room.roomId.take(12)}…")
+    }
+
+    private fun roomCardCallbacks(model: HostedRoomCardModel) = HostedRoomCardCallbacks(
+        onActivate = {
+            if (model.isHosted) activateHostedRoom(model.room, model.activePlayerChoices)
+            else model.joinedRoom?.let(::activateJoinedRoom)
+        },
+        onWakeOrRefresh = { wake -> refreshRoom(model.room, wake) },
+        onChoosePlayer = { chooseActivePlayer(model.room, model.activePlayerChoices) },
+        onLaunchSoh = { chooseSohPlayer(model.room, model.sohPlayers) },
+        onOpenPlayerFile = { chooseNativePlayerFile(model.room, model.nativePlayerFiles) },
+        onShare = { shareHostedRoom(model.room) },
+        onMore = { anchor ->
+            showRoomMenu(
+                anchor,
+                model.room,
+                model.isHosted,
+                model.joinedRoom,
+                model.activePlayerChoices,
+                model.sohPlayers,
+                model.nativePlayerFiles,
+            )
+        },
+    )
+
+    private fun updateRoomListHeight(roomCount: Int) {
+        val desiredDp = roomLibraryHeightDp(roomCount, resources.configuration.screenHeightDp)
+        roomsContainer.layoutParams = (roomsContainer.layoutParams ?: LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            CompanionUi.dp(this, desiredDp),
+        )).apply {
+            width = ViewGroup.LayoutParams.MATCH_PARENT
+            height = CompanionUi.dp(this@HostedRoomsActivity, desiredDp)
+        }
+        roomsContainer.requestLayout()
     }
 
     private fun JoinedRoom.asHostedRoom() = HostedRoom(
@@ -428,8 +569,7 @@ class HostedRoomsActivity : CompanionActivity() {
     )
 
     private fun activateJoinedRoom(room: JoinedRoom) {
-        JoinedRoomStore.select(this, room.roomId)
-        room.port.takeIf { it > 0 }?.let { ServerSettings.save(this, "archipelago.gg:$it", "") }
+        RoomSessionRepository.select(this, room.roomId)
         setResult(RESULT_OK)
         Toast.makeText(this, "${room.playerName ?: "Room"} is now active", Toast.LENGTH_SHORT).show()
         finish()
@@ -481,6 +621,7 @@ class HostedRoomsActivity : CompanionActivity() {
             }
             if (sohPlayers.isNotEmpty()) menu.add("Launch Ship of Harkinian")
             if (nativePlayerFiles.isNotEmpty()) menu.add("Open player file")
+            menu.add(if (room.lastPort > 0) "Refresh room status" else "Wake and refresh room")
             menu.add("Open room controls")
             if (room.trackerId.isNotBlank()) menu.add("Open tracker")
             if (room.lastPort > 0) menu.add("Copy server address")
@@ -490,6 +631,8 @@ class HostedRoomsActivity : CompanionActivity() {
                     "Choose player", "Change player" -> chooseActivePlayer(room, activePlayerChoices)
                     "Launch Ship of Harkinian" -> chooseSohPlayer(room, sohPlayers)
                     "Open player file" -> chooseNativePlayerFile(room, nativePlayerFiles)
+                    "Refresh room status", "Wake and refresh room" ->
+                        refreshRoom(room, wake = room.lastPort <= 0)
                     "Open room controls" -> if (isHosted) {
                         openAuthenticatedWebUrl(
                             "${ArchipelagoWebHostClient.BASE_URL}/room/${room.roomId}",
@@ -516,13 +659,55 @@ class HostedRoomsActivity : CompanionActivity() {
         }
     }
 
+    private fun refreshRoom(room: HostedRoom, wake: Boolean) {
+        if (room.roomId in refreshingRoomIds || room.roomId in wakingRoomIds) return
+        unavailableRoomIds -= room.roomId
+        if (wake) wakingRoomIds += room.roomId else refreshingRoomIds += room.roomId
+        status.show(
+            if (wake) "Waking ${room.players.firstOrNull()?.let(::hostedPlayerName) ?: "room"}…"
+            else "Refreshing room status and port…",
+            CompanionStatusLevel.INFO,
+        )
+        renderHostedRooms(webHostClient.cachedRooms())
+        thread(name = "hosted-room-status-refresh") {
+            runCatching { webHostClient.refreshPublicRoom(room.roomId) }
+                .onSuccess { refreshed ->
+                    webHostClient.rememberRoom(refreshed)
+                    val activeRefresh = RoomSessionRepository.synchronizeActive(this, refreshed)
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        refreshingRoomIds -= room.roomId
+                        wakingRoomIds -= room.roomId
+                        unavailableRoomIds -= room.roomId
+                        renderHostedRooms(webHostClient.cachedRooms())
+                        val presentation = roomStatusPresentation(refreshed.lastPort)
+                        status.show(presentation.summary, presentation.level)
+                        if (activeRefresh?.addressChanged == true && activeRefresh.updatedAddress != null) {
+                            startForegroundService(
+                                Intent(this, BridgeService::class.java)
+                                    .setAction(BridgeService.ACTION_RECONNECT),
+                            )
+                        }
+                    }
+                }
+                .onFailure { error -> runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    refreshingRoomIds -= room.roomId
+                    wakingRoomIds -= room.roomId
+                    unavailableRoomIds += room.roomId
+                    renderHostedRooms(webHostClient.cachedRooms())
+                    showError("Could not refresh room", error)
+                } }
+        }
+    }
+
     private fun confirmForgetJoinedRoom(room: JoinedRoom) {
         AlertDialog.Builder(this)
             .setTitle("Forget joined room?")
             .setMessage("This removes the invitation and room shortcut from this device. It does not affect the room on archipelago.gg.")
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Forget") { _, _ ->
-                JoinedRoomStore.delete(this, room.roomId)
+                RoomSessionRepository.remove(this, room.roomId)
                 setResult(RESULT_OK)
                 renderHostedRooms(webHostClient.cachedRooms())
                 status.text = "Joined room removed from this device."
@@ -531,7 +716,7 @@ class HostedRoomsActivity : CompanionActivity() {
     }
 
     private fun activateHostedRoom(room: HostedRoom, choices: List<HostedInviteChoice>) {
-        val previous = JoinedRoomStore.loadAll(this).firstOrNull { it.roomId == room.roomId }
+        val previous = RoomSessionRepository.rooms(this).firstOrNull { it.roomId == room.roomId }
         if (previous?.playerSlot == null && choices.isNotEmpty()) {
             chooseActivePlayer(room, choices)
             return
@@ -571,11 +756,8 @@ class HostedRoomsActivity : CompanionActivity() {
     }
 
     private fun completeHostedRoomActivation(room: HostedRoom, invite: RoomInvite? = null) {
-        val joined = JoinedRoomStore.save(this, room, invite)
+        val joined = RoomSessionRepository.activate(this, room, invite)
         webHostClient.rememberRoom(room)
-        joined.serverAddress()?.let {
-            ServerSettings.save(this, it, ServerSettings.load(this).password)
-        }
         setResult(RESULT_OK)
         Toast.makeText(
             this,
@@ -600,7 +782,7 @@ class HostedRoomsActivity : CompanionActivity() {
             .setPositiveButton("Remove locally") { _, _ ->
                 val visibleRooms = webHostClient.dismissRoom(room.roomId)
                 HostedRoomHistoryLinks.remove(this, room.roomId)
-                JoinedRoomStore.delete(this, room.roomId)
+                RoomSessionRepository.remove(this, room.roomId)
                 renderHostedRooms(visibleRooms)
                 status.text = "Removed locally. The archipelago.gg room was not deleted."
             }
@@ -643,7 +825,7 @@ class HostedRoomsActivity : CompanionActivity() {
                 serverAddress,
                 player.name,
                 onLaunched = {
-                    JoinedRoomStore.save(
+                    RoomSessionRepository.activate(
                         this,
                         room,
                         RoomInvite(
@@ -909,12 +1091,12 @@ class HostedRoomsActivity : CompanionActivity() {
         ViewGroup.LayoutParams.WRAP_CONTENT,
     )
 
-    private fun JoinedRoom.serverAddress(): String? =
-        port.takeIf { it > 0 }?.let(HostedRoomReconnectPolicy::serverAddress)
-
     companion object {
         private const val EXTRA_OPEN_ROOM_ID = "open_room_id"
         private const val EXTRA_SHARE_ROOM_ID = "share_room_id"
+        private const val STATE_ROOM_FILTER = "room_filter"
+        private const val STATE_ROOM_SORT = "room_sort"
+        private const val STATE_ROOM_SEARCH = "room_search"
 
         fun openRoomIntent(context: Context, roomId: String) =
             Intent(context, HostedRoomsActivity::class.java).putExtra(EXTRA_OPEN_ROOM_ID, roomId)

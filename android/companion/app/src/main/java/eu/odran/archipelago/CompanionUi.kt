@@ -6,6 +6,8 @@ import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -337,12 +339,12 @@ object CompanionUi {
             background = roundedBackground(
                 context,
                 when {
-                    active -> primarySoft
+                    active -> activeSoft
                     selected -> primarySoft
                     else -> panelSurface
                 },
                 when {
-                    active -> primary
+                    active -> CompanionUi.active
                     selected -> primary
                     else -> border
                 },
@@ -350,7 +352,7 @@ object CompanionUi {
             )
         }
 
-    enum class StatusTone { NEUTRAL, ACTIVE, WARNING, ERROR }
+    enum class StatusTone { NEUTRAL, INFO, ACTIVE, WARNING, ERROR }
 
     fun statusChip(context: Context, label: String, tone: StatusTone = StatusTone.NEUTRAL) =
         TextView(context).apply {
@@ -360,6 +362,7 @@ object CompanionUi {
             setTypeface(typeface, Typeface.BOLD)
             val colors = when (tone) {
                 StatusTone.ACTIVE -> Triple(activeSoft, activeBorder, active)
+                StatusTone.INFO -> Triple(primarySoft, primaryBorder, primary)
                 StatusTone.WARNING -> Triple(warningSoft, warningBorder, warning)
                 StatusTone.ERROR -> Triple(errorSoft, errorBorder, danger)
                 StatusTone.NEUTRAL -> Triple(neutralSoft, border, textMuted)
@@ -368,6 +371,27 @@ object CompanionUi {
             background = roundedBackground(context, colors.first, colors.second, 20)
             setPadding(dp(context, 10), dp(context, 5), dp(context, 10), dp(context, 5))
         }
+
+    fun statusChip(context: Context, status: RoomStatusPresentation) =
+        statusChip(context, status.label, status.level.toStatusTone()).apply {
+            contentDescription = "Room status: ${status.label.lowercase()}. ${status.summary}"
+            tooltipText = status.summary
+        }
+
+    fun styleStatus(
+        textView: TextView,
+        level: CompanionStatusLevel,
+        compact: Boolean = false,
+    ) = textView.apply {
+        val colors = statusColors(level)
+        textSize = if (compact) 13f else 14f
+        setTextColor(colors.third)
+        background = roundedBackground(context, colors.first, colors.second, 10)
+        val horizontal = dp(context, if (compact) 10 else 12)
+        val vertical = dp(context, if (compact) 7 else 10)
+        setPadding(horizontal, vertical, horizontal, vertical)
+        setLineSpacing(0f, 1.08f)
+    }
 
     fun wrapContentParams(context: Context, endMargin: Int = 0) = LinearLayout.LayoutParams(
         ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -485,4 +509,54 @@ object CompanionUi {
         arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
         intArrayOf(disabled, enabled),
     )
+
+    private fun statusColors(level: CompanionStatusLevel): Triple<Int, Int, Int> = when (level) {
+        CompanionStatusLevel.SUCCESS -> Triple(activeSoft, activeBorder, active)
+        CompanionStatusLevel.INFO -> Triple(primarySoft, primaryBorder, primary)
+        CompanionStatusLevel.WARNING -> Triple(warningSoft, warningBorder, warning)
+        CompanionStatusLevel.ERROR -> Triple(errorSoft, errorBorder, danger)
+        CompanionStatusLevel.NEUTRAL -> Triple(neutralSoft, border, textMuted)
+    }
+
+    private fun CompanionStatusLevel.toStatusTone(): StatusTone = when (this) {
+        CompanionStatusLevel.SUCCESS -> StatusTone.ACTIVE
+        CompanionStatusLevel.INFO -> StatusTone.INFO
+        CompanionStatusLevel.WARNING -> StatusTone.WARNING
+        CompanionStatusLevel.ERROR -> StatusTone.ERROR
+        CompanionStatusLevel.NEUTRAL -> StatusTone.NEUTRAL
+    }
+}
+
+/** Status text which automatically applies the app-wide semantic palette. */
+class CompanionStatusView(
+    context: Context,
+    private val hideWhenEmpty: Boolean = false,
+) : TextView(context) {
+    private var explicitLevel: CompanionStatusLevel? = null
+
+    init {
+        minLines = 1
+        addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(value: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(value: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(value: Editable?) {
+                render(value?.toString().orEmpty())
+            }
+        })
+        render("")
+    }
+
+    fun show(message: CharSequence, level: CompanionStatusLevel) {
+        explicitLevel = level
+        text = message
+        explicitLevel = null
+    }
+
+    private fun render(message: String) {
+        visibility = if (hideWhenEmpty && message.isBlank()) View.GONE else View.VISIBLE
+        if (message.isBlank()) return
+        val level = explicitLevel ?: classifyStatusMessage(message)
+        CompanionUi.styleStatus(this, level)
+        contentDescription = "${level.name.lowercase()} status. $message"
+    }
 }

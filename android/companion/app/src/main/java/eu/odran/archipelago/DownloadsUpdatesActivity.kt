@@ -21,9 +21,9 @@ import kotlin.concurrent.thread
 class DownloadsUpdatesActivity : CompanionActivity() {
     private data class ComponentViews(val status: TextView, val action: Button)
 
-    private lateinit var catalogStatus: TextView
-    private lateinit var operationStatus: TextView
-    private lateinit var coreFolderStatus: TextView
+    private lateinit var catalogStatus: CompanionStatusView
+    private lateinit var operationStatus: CompanionStatusView
+    private lateinit var coreFolderStatus: CompanionStatusView
     private lateinit var checkButton: Button
     private lateinit var chooseCoreFolderButton: Button
     private val componentViews = linkedMapOf<ManagedComponent, ComponentViews>()
@@ -53,12 +53,9 @@ class DownloadsUpdatesActivity : CompanionActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        catalogStatus = TextView(this).apply { CompanionUi.styleMuted(this) }
-        operationStatus = TextView(this).apply {
-            CompanionUi.styleMuted(this)
-            setPadding(0, CompanionUi.dp(this@DownloadsUpdatesActivity, 8), 0, 0)
-        }
-        coreFolderStatus = TextView(this).apply { CompanionUi.styleMuted(this) }
+        catalogStatus = CompanionStatusView(this)
+        operationStatus = CompanionStatusView(this, hideWhenEmpty = true)
+        coreFolderStatus = CompanionStatusView(this)
         checkButton = Button(this).apply {
             text = "Check now"
             CompanionUi.styleSecondary(this)
@@ -101,9 +98,8 @@ class DownloadsUpdatesActivity : CompanionActivity() {
             }, CompanionUi.cardParams(this@DownloadsUpdatesActivity))
 
             fun addComponent(component: ManagedComponent) {
-                val componentStatus = TextView(this@DownloadsUpdatesActivity).apply {
+                val componentStatus = CompanionStatusView(this@DownloadsUpdatesActivity).apply {
                     text = "Waiting for release information…"
-                    CompanionUi.styleBody(this)
                 }
                 val action = Button(this@DownloadsUpdatesActivity).apply {
                     text = "Unavailable"

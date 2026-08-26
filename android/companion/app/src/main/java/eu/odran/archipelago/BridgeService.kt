@@ -130,7 +130,7 @@ class BridgeService : Service() {
 
     private fun probeDolphinRuntime(runtime: PythonDolphinRuntime): DetectedGameInfo? {
         runtime.probe()?.let { return it }
-        val room = JoinedRoomStore.load(this) ?: return null
+        val room = RoomSessionRepository.activeRoom(this) ?: return null
         val settings = ServerSettings.load(this)
         if (!settings.isConfigured) return null
         val playerName = room.playerName ?: room.playerSlot?.let { slot ->
@@ -236,7 +236,7 @@ class BridgeService : Service() {
                     val wakeResult = runCatching { completedRoomWake.get() }
                         .getOrElse { Result.failure(it) }
                     wakeResult.onSuccess { resolvedRoom ->
-                        val selectedRoom = JoinedRoomStore.load(this)
+                        val selectedRoom = RoomSessionRepository.activeRoom(this)
                         val currentSettings = ServerSettings.load(this)
                         val stillSelected = attemptedRoomId != null &&
                             selectedRoom?.roomId == attemptedRoomId &&
@@ -246,11 +246,9 @@ class BridgeService : Service() {
                             ) != null
                         if (stillSelected && resolvedRoom.lastPort > 0) {
                             ArchipelagoWebHostClient(this).rememberRoom(resolvedRoom)
-                            JoinedRoomStore.save(this, resolvedRoom)
-                            val refreshedAddress = HostedRoomReconnectPolicy.serverAddress(
-                                resolvedRoom.lastPort,
-                            )
-                            ServerSettings.save(this, refreshedAddress, currentSettings.password)
+                            val refresh = RoomSessionRepository.synchronizeActive(this, resolvedRoom)
+                                ?: return@onSuccess
+                            val refreshedAddress = checkNotNull(refresh.updatedAddress)
                             val oldSession = session
                             oldSession?.close()
                             if (activeSession === oldSession) activeSession = null
@@ -275,7 +273,7 @@ class BridgeService : Service() {
                         }
                     }.onFailure { error ->
                         if (attemptedRoomId != null &&
-                            JoinedRoomStore.load(this)?.roomId == attemptedRoomId
+                            RoomSessionRepository.activeRoom(this)?.roomId == attemptedRoomId
                         ) {
                             val message =
                                 "Could not wake website-hosted room · ${error.message ?: error.javaClass.simpleName}"
@@ -1012,7 +1010,7 @@ class BridgeService : Service() {
                         sessionSettings = null
                         if (retryAllowed) {
                             nextSessionAttempt = roomReconnectBackoff.nextAttemptAfterFailure(now)
-                            val selectedRoom = JoinedRoomStore.load(this)
+                            val selectedRoom = RoomSessionRepository.activeRoom(this)
                             val wakeRoom = HostedRoomReconnectPolicy.matchingRoom(
                                 settings.address,
                                 selectedRoom,
@@ -1060,7 +1058,7 @@ class BridgeService : Service() {
                             detected,
                             HostedRoomReconnectPolicy.matchingRoom(
                                 settings.address,
-                                JoinedRoomStore.load(this),
+                                RoomSessionRepository.activeRoom(this),
                             )?.forceLocalItemsFromServer == true,
                             ::publishServerDetails,
                             ::publishServerState,
@@ -1329,6 +1327,8 @@ class BridgeService : Service() {
 
         @Volatile
         private var lastServerState: RoomConnectionState? = null
+
+        internal fun connectionState(): RoomConnectionState? = lastServerState
 
         @Volatile
         var activeGameName: String? = null

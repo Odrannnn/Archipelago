@@ -12,9 +12,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
-import android.text.Editable
 import android.text.InputType
-import android.text.TextWatcher
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.Menu
@@ -55,9 +53,9 @@ class MainActivity : CompanionActivity() {
     )
 
     private val handler = Handler(Looper.getMainLooper())
-    private lateinit var status: TextView
-    private lateinit var serverStatus: TextView
-    private lateinit var inviteStatus: TextView
+    private lateinit var status: CompanionStatusView
+    private lateinit var serverStatus: CompanionStatusView
+    private lateinit var inviteStatus: CompanionStatusView
     private lateinit var address: EditText
     private lateinit var password: EditText
     private lateinit var joinedRoomContainer: LinearLayout
@@ -151,7 +149,7 @@ class MainActivity : CompanionActivity() {
     }
     private val refreshStatus = object : Runnable {
         override fun run() {
-            val storedRoom = JoinedRoomStore.load(this@MainActivity)
+            val storedRoom = RoomSessionRepository.activeRoom(this@MainActivity)
             if (storedRoom != renderedRoom) {
                 renderJoinedRoom(storedRoom)
                 storedRoom?.serverAddress()?.takeUnless { address.hasFocus() }?.let(address::setText)
@@ -188,14 +186,11 @@ class MainActivity : CompanionActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val savedSettings = ServerSettings.load(this)
-        status = TextView(this).apply {
+        status = CompanionStatusView(this).apply {
             text = "Starting background bridge…"
-            CompanionUi.styleMuted(this)
         }
-        serverStatus = TextView(this).apply {
+        serverStatus = CompanionStatusView(this).apply {
             text = "💤 Archipelago waiting for ROM"
-            CompanionUi.styleMuted(this)
-            setPadding(0, CompanionUi.dp(this@MainActivity, 6), 0, 0)
         }
 
         address = EditText(this).apply {
@@ -246,33 +241,7 @@ class MainActivity : CompanionActivity() {
                 hostedRooms.launch(Intent(this@MainActivity, HostedRoomsActivity::class.java))
             }
         }
-        inviteStatus = TextView(this).apply {
-            CompanionUi.styleMuted(this)
-            visibility = View.GONE
-            setPadding(
-                CompanionUi.dp(this@MainActivity, 12),
-                CompanionUi.dp(this@MainActivity, 10),
-                CompanionUi.dp(this@MainActivity, 12),
-                CompanionUi.dp(this@MainActivity, 10),
-            )
-            addTextChangedListener(object : TextWatcher {
-                override fun beforeTextChanged(value: CharSequence?, start: Int, count: Int, after: Int) = Unit
-                override fun onTextChanged(value: CharSequence?, start: Int, before: Int, count: Int) = Unit
-                override fun afterTextChanged(value: Editable?) {
-                    val message = value?.toString().orEmpty()
-                    visibility = if (message.isBlank()) View.GONE else View.VISIBLE
-                    val isError = listOf("could not", "failed", "error", "rejected", "not loaded")
-                        .any { it in message.lowercase() }
-                    background = CompanionUi.roundedBackground(
-                        this@MainActivity,
-                        if (isError) CompanionUi.errorSoft else CompanionUi.primarySoft,
-                        if (isError) CompanionUi.errorBorder else CompanionUi.border,
-                        10,
-                    )
-                    setTextColor(if (isError) CompanionUi.danger else CompanionUi.textMuted)
-                }
-            })
-        }
+        inviteStatus = CompanionStatusView(this, hideWhenEmpty = true)
         joinedRoomContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val content = CompanionUi.screen(this).apply {
             addView(mainHeader(), CompanionUi.fullWidth())
@@ -336,7 +305,7 @@ class MainActivity : CompanionActivity() {
         val scrollView = CompanionUi.scrollView(this, content)
         SystemBarInsets.apply(window, scrollView)
         setContentView(scrollView)
-        renderJoinedRoom(JoinedRoomStore.load(this))
+        renderJoinedRoom(RoomSessionRepository.activeRoom(this))
 
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -568,7 +537,7 @@ class MainActivity : CompanionActivity() {
     }
 
     private fun refreshSelectedRoom() {
-        val room = JoinedRoomStore.load(this)
+        val room = RoomSessionRepository.activeRoom(this)
         renderJoinedRoom(room)
         if (room == null) {
             inviteStatus.text = "No imported multiplayer room is active."
@@ -632,12 +601,22 @@ class MainActivity : CompanionActivity() {
             .setNeutralButton("Open console") { _, _ ->
                 startActivity(Intent(this, ClientConsoleActivity::class.java))
             }
+            .setNegativeButton("Share diagnostics") { _, _ -> shareDiagnostics() }
             .setPositiveButton("Close", null)
             .show()
     }
 
+    private fun shareDiagnostics() {
+        val report = CompanionDiagnostics.report(this)
+        startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, "Archipelago Companion diagnostics")
+            putExtra(Intent.EXTRA_TEXT, report)
+        }, "Share diagnostics"))
+    }
+
     private fun rememberExistingPatchedRom(uri: Uri, flags: Int) {
-        val room = JoinedRoomStore.load(this)
+        val room = RoomSessionRepository.activeRoom(this)
         if (room == null) {
             inviteStatus.text = "There is no active imported room to associate with this ROM."
             return
@@ -747,7 +726,7 @@ class MainActivity : CompanionActivity() {
     private fun ByteArray.toHexString(): String = joinToString("") { "%02x".format(it) }
 
     private fun chooseExistingPatchedRom() {
-        val isGameCube = JoinedRoomStore.load(this)?.let(::isGameCubeRoom) == true
+        val isGameCube = RoomSessionRepository.activeRoom(this)?.let(::isGameCubeRoom) == true
         selectPatchedRomDocument.launch(
             openDocumentIntent(if (isGameCube) "*/*" else "application/octet-stream"),
         )
@@ -766,7 +745,7 @@ class MainActivity : CompanionActivity() {
             .setMessage("Saved $name. Launch it now in RetroArch with $coreDescription")
             .setNegativeButton("Done", null)
             .setPositiveButton("Launch RetroArch") { _, _ ->
-                val room = JoinedRoomStore.load(this)
+                val room = RoomSessionRepository.activeRoom(this)
                     ?.takeIf { it.patchedRomUri == uri.toString() }
                 runCatching {
                     RetroArchLauncher.launch(
@@ -959,7 +938,7 @@ class MainActivity : CompanionActivity() {
             runCatching { webHostClient.resolvePublicRoom(invite.roomId) }
                 .onSuccess { room ->
                     webHostClient.rememberRoom(room)
-                    val joined = JoinedRoomStore.save(this, room, invite)
+                    val joined = RoomSessionRepository.activate(this, room, invite)
                     runOnUiThread {
                         renderJoinedRoom(joined)
                         if (room.lastPort > 0) {
@@ -1336,7 +1315,7 @@ class MainActivity : CompanionActivity() {
                     }
                 }
             }.onSuccess { output ->
-                val room = JoinedRoomStore.load(this).takeIf { session.rememberForActiveRoom }
+                val room = RoomSessionRepository.activeRoom(this).takeIf { session.rememberForActiveRoom }
                 val export = PatchedRomExport(
                     name = output.name,
                     bytes = output.readBytes(),
@@ -1442,31 +1421,25 @@ class MainActivity : CompanionActivity() {
             }, CompanionUi.insetTop(View(this), this, 8))
             return
         }
+        val roomStatus = roomStatusPresentation(
+            port = room.port,
+            refreshing = activeRoomRefreshRunning,
+        )
         joinedRoomContainer.addView(TextView(this).apply {
             text = room.playerName?.takeIf { it.isNotBlank() } ?: "Archipelago room"
             textSize = 20f
-            setTextColor(CompanionUi.text)
+            setTextColor(CompanionUi.active)
             setTypeface(typeface, android.graphics.Typeface.BOLD)
         }, matchWrapParams())
         joinedRoomContainer.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             addView(
-                CompanionUi.statusChip(this@MainActivity, "ACTIVE", CompanionUi.StatusTone.NEUTRAL),
+                CompanionUi.statusChip(this@MainActivity, "ACTIVE", CompanionUi.StatusTone.ACTIVE),
                 CompanionUi.wrapContentParams(this@MainActivity, 6),
             )
-            val serverLabel = when {
-                room.port > 0 -> "ONLINE"
-                room.port < 0 -> "SERVER ERROR"
-                else -> "SLEEPING"
-            }
-            val serverTone = when {
-                room.port > 0 -> CompanionUi.StatusTone.ACTIVE
-                room.port < 0 -> CompanionUi.StatusTone.ERROR
-                else -> CompanionUi.StatusTone.WARNING
-            }
             addView(
-                CompanionUi.statusChip(this@MainActivity, serverLabel, serverTone),
+                CompanionUi.statusChip(this@MainActivity, roomStatus),
                 CompanionUi.wrapContentParams(this@MainActivity),
             )
         }, CompanionUi.insetTop(View(this), this, 8))
@@ -1485,6 +1458,7 @@ class MainActivity : CompanionActivity() {
                     if (isNotEmpty()) append('\n')
                     append(room.players.joinToString())
                 }
+                append("\n${formatStatusAge(room.updatedAt)}")
             }
             CompanionUi.styleMuted(this)
             setPadding(0, CompanionUi.dp(this@MainActivity, 6), 0, CompanionUi.dp(this@MainActivity, 8))
@@ -1733,7 +1707,7 @@ class MainActivity : CompanionActivity() {
                     if (changingProgrammatically) return@setOnCheckedChangeListener
 
                     fun applySetting(value: Boolean) {
-                        val updated = JoinedRoomStore.setForceLocalItemsFromServer(
+                        val updated = RoomSessionRepository.setForceLocalItemsFromServer(
                             this@MainActivity,
                             room.roomId,
                             value,
@@ -1872,33 +1846,32 @@ class MainActivity : CompanionActivity() {
         ) return
         activeRoomRefreshRunning = true
         lastActiveRoomRefreshAt = now
+        renderJoinedRoom(room)
         thread(name = "active-hosted-room-refresh") {
             val webHostClient = ArchipelagoWebHostClient(this)
             runCatching { webHostClient.refreshPublicRoom(room.roomId) }
                 .onSuccess { resolved ->
                     webHostClient.rememberRoom(resolved)
-                    val selected = JoinedRoomStore.load(this)
+                    val selected = RoomSessionRepository.activeRoom(this)
                     if (selected?.roomId != room.roomId) {
                         runOnUiThread { activeRoomRefreshRunning = false }
                         return@onSuccess
                     }
-                    val previousPort = selected.port
-                    val updated = JoinedRoomStore.save(this, resolved)
+                    val refresh = RoomSessionRepository.synchronizeActive(this, resolved)
+                        ?: return@onSuccess
+                    val updated = refresh.updated
                     val settings = ServerSettings.load(this)
-                    val refreshedAddress = updated.serverAddress()
+                    val refreshedAddress = refresh.updatedAddress
                     val reconnect = refreshedAddress != null && (
-                        previousPort != updated.port ||
+                        refresh.addressChanged ||
                             HostedRoomReconnectPolicy.matchingRoom(settings.address, updated) == null
                         )
-                    if (refreshedAddress != null) {
-                        ServerSettings.save(this, refreshedAddress, settings.password)
-                    }
                     runOnUiThread {
                         activeRoomRefreshRunning = false
-                        if (JoinedRoomStore.load(this)?.roomId != updated.roomId) return@runOnUiThread
+                        if (RoomSessionRepository.activeRoom(this)?.roomId != updated.roomId) return@runOnUiThread
                         renderJoinedRoom(updated)
                         if (!address.hasFocus()) refreshedAddress?.let { address.setText(it) }
-                        if (previousPort != updated.port) {
+                        if (refresh.portChanged) {
                             inviteStatus.text = when {
                                 updated.port > 0 -> "Room server updated · archipelago.gg:${updated.port}"
                                 updated.port < 0 -> "The active hosted room reports a server error."
@@ -1913,7 +1886,14 @@ class MainActivity : CompanionActivity() {
                         }
                     }
                 }
-                .onFailure { runOnUiThread { activeRoomRefreshRunning = false } }
+                .onFailure { error -> runOnUiThread {
+                    activeRoomRefreshRunning = false
+                    renderJoinedRoom(RoomSessionRepository.activeRoom(this))
+                    inviteStatus.show(
+                        "Could not refresh the active room: ${error.message ?: error.javaClass.simpleName}",
+                        CompanionStatusLevel.ERROR,
+                    )
+                } }
         }
     }
 
@@ -1953,7 +1933,7 @@ class MainActivity : CompanionActivity() {
     }
 
     private fun launchNativePlayerFile(playerFile: File) {
-        val room = JoinedRoomStore.load(this)
+        val room = RoomSessionRepository.activeRoom(this)
         val options = PlayerFileLaunchOptions(
             serverAddress = room?.serverAddress(),
             password = password.text.toString(),
@@ -1976,7 +1956,7 @@ class MainActivity : CompanionActivity() {
     }
 
     private fun openNativePlayerFile(uri: Uri) {
-        val room = JoinedRoomStore.load(this)
+        val room = RoomSessionRepository.activeRoom(this)
         val expectedHandler = PlayerFileLauncher.handlerForGame(room?.gameName)
         val name = queryDisplayName(uri)?.let { File(it).name }.orEmpty()
         val selectedHandler = PlayerFileLauncher.handlerFor(name)
