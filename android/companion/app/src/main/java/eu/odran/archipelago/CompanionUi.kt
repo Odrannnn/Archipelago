@@ -3,6 +3,7 @@ package eu.odran.archipelago
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
@@ -14,17 +15,35 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 
+private enum class ResponsiveRole { CARD, FULL_SPAN }
+
 private class ResponsiveScreenLayout(context: Context) : LinearLayout(context) {
+    private val splitBounds = mutableMapOf<View, Rect>()
+    private var splitLayout = false
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val availableWidth = View.MeasureSpec.getSize(widthMeasureSpec)
         val widthMode = View.MeasureSpec.getMode(widthMeasureSpec)
-        val maximumWidth = CompanionUi.dp(context, CompanionUi.MAX_CONTENT_WIDTH_DP)
+        val cardCount = (0 until childCount).count { index ->
+            val child = getChildAt(index)
+            child.visibility != View.GONE && child.tag == ResponsiveRole.CARD
+        }
+        val canSplit = cardCount >= 2 &&
+            availableWidth >= CompanionUi.dp(context, CompanionUi.WIDE_BREAKPOINT_DP)
+        val maximumWidth = CompanionUi.dp(
+            context,
+            if (canSplit) CompanionUi.MAX_WIDE_CONTENT_WIDTH_DP else CompanionUi.MAX_CONTENT_WIDTH_DP,
+        )
         val measuredWidth = when (widthMode) {
             View.MeasureSpec.UNSPECIFIED -> maximumWidth
             else -> minOf(availableWidth, maximumWidth)
         }
         val tablet = measuredWidth >= CompanionUi.dp(context, CompanionUi.TABLET_BREAKPOINT_DP)
-        val horizontalPadding = CompanionUi.dp(context, if (tablet) 36 else 20)
+        val horizontalPadding = CompanionUi.dp(context, when {
+            canSplit -> 40
+            tablet -> 36
+            else -> 20
+        })
         val topPadding = CompanionUi.dp(context, if (tablet) 32 else 24)
         val bottomPadding = CompanionUi.dp(context, if (tablet) 40 else 32)
         if (
@@ -33,17 +52,88 @@ private class ResponsiveScreenLayout(context: Context) : LinearLayout(context) {
         ) {
             setPadding(horizontalPadding, topPadding, horizontalPadding, bottomPadding)
         }
+        splitLayout = canSplit
+        if (splitLayout) {
+            measureSplitLayout(measuredWidth, heightMeasureSpec)
+            return
+        }
+        splitBounds.clear()
         super.onMeasure(
             View.MeasureSpec.makeMeasureSpec(measuredWidth, View.MeasureSpec.EXACTLY),
             heightMeasureSpec,
         )
+    }
+
+    private fun measureSplitLayout(measuredWidth: Int, heightMeasureSpec: Int) {
+        splitBounds.clear()
+        val columnGap = CompanionUi.dp(context, CompanionUi.WIDE_COLUMN_GAP_DP)
+        val contentWidth = (measuredWidth - paddingLeft - paddingRight).coerceAtLeast(0)
+        val columnWidth = ((contentWidth - columnGap) / 2).coerceAtLeast(0)
+        val columnBottoms = intArrayOf(paddingTop, paddingTop)
+
+        repeat(childCount) { index ->
+            val child = getChildAt(index)
+            if (child.visibility == View.GONE) return@repeat
+            val margins = child.layoutParams as? ViewGroup.MarginLayoutParams
+                ?: ViewGroup.MarginLayoutParams(child.layoutParams)
+            val isCard = child.tag == ResponsiveRole.CARD
+            val availableChildWidth = if (isCard) columnWidth else contentWidth
+            val childWidth = (availableChildWidth - margins.leftMargin - margins.rightMargin)
+                .coerceAtLeast(0)
+            val childHeightSpec = getChildMeasureSpec(
+                heightMeasureSpec,
+                paddingTop + paddingBottom + margins.topMargin + margins.bottomMargin,
+                margins.height,
+            )
+            child.measure(
+                View.MeasureSpec.makeMeasureSpec(childWidth, View.MeasureSpec.EXACTLY),
+                childHeightSpec,
+            )
+
+            if (isCard) {
+                val column = if (columnBottoms[0] <= columnBottoms[1]) 0 else 1
+                val left = paddingLeft + column * (columnWidth + columnGap) + margins.leftMargin
+                val top = columnBottoms[column] + margins.topMargin
+                splitBounds[child] = Rect(left, top, left + child.measuredWidth, top + child.measuredHeight)
+                columnBottoms[column] = top + child.measuredHeight + margins.bottomMargin
+            } else {
+                val top = maxOf(columnBottoms[0], columnBottoms[1]) + margins.topMargin
+                val left = paddingLeft + margins.leftMargin
+                splitBounds[child] = Rect(left, top, left + child.measuredWidth, top + child.measuredHeight)
+                val bottom = top + child.measuredHeight + margins.bottomMargin
+                columnBottoms[0] = bottom
+                columnBottoms[1] = bottom
+            }
+        }
+
+        val desiredHeight = maxOf(columnBottoms[0], columnBottoms[1]) + paddingBottom
+        setMeasuredDimension(
+            measuredWidth,
+            resolveSize(maxOf(desiredHeight, suggestedMinimumHeight), heightMeasureSpec),
+        )
+    }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        if (!splitLayout) {
+            super.onLayout(changed, left, top, right, bottom)
+            return
+        }
+        repeat(childCount) { index ->
+            val child = getChildAt(index)
+            if (child.visibility != View.GONE) splitBounds[child]?.let { bounds ->
+                child.layout(bounds.left, bounds.top, bounds.right, bounds.bottom)
+            }
+        }
     }
 }
 
 /** Small programmatic UI kit shared by the companion's Android-only screens. */
 object CompanionUi {
     const val TABLET_BREAKPOINT_DP = 600
+    const val WIDE_BREAKPOINT_DP = 840
     const val MAX_CONTENT_WIDTH_DP = 880
+    const val MAX_WIDE_CONTENT_WIDTH_DP = 1280
+    const val WIDE_COLUMN_GAP_DP = 16
 
     val background: Int = Color.rgb(246, 247, 251)
     val surface: Int = Color.WHITE
@@ -95,6 +185,7 @@ object CompanionUi {
 
     fun pageTitle(context: Context, title: String, subtitle: String): LinearLayout =
         LinearLayout(context).apply {
+            tag = ResponsiveRole.FULL_SPAN
             val tablet = context.resources.configuration.screenWidthDp >= TABLET_BREAKPOINT_DP
             orientation = LinearLayout.VERTICAL
             setPadding(dp(context, 4), 0, dp(context, 4), dp(context, 8))
@@ -114,6 +205,7 @@ object CompanionUi {
 
     fun card(context: Context, title: String, subtitle: String? = null): LinearLayout =
         LinearLayout(context).apply {
+            tag = ResponsiveRole.CARD
             val tablet = context.resources.configuration.screenWidthDp >= TABLET_BREAKPOINT_DP
             orientation = LinearLayout.VERTICAL
             val horizontal = dp(context, if (tablet) 22 else 18)
