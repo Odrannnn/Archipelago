@@ -8,7 +8,6 @@ import android.os.Bundle
 import android.os.Process
 import android.widget.Button
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -79,7 +78,7 @@ class BackupRestoreActivity : Activity() {
                 addView(status, CompanionUi.fullWidth())
             }, CompanionUi.cardParams(this@BackupRestoreActivity))
         }
-        val scroll = ScrollView(this).apply { addView(content) }
+        val scroll = CompanionUi.scrollView(this, content)
         SystemBarInsets.apply(window, scroll)
         setContentView(scroll)
         refreshInventory()

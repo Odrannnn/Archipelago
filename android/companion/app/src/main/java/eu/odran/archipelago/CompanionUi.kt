@@ -9,12 +9,42 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 
+private class ResponsiveScreenLayout(context: Context) : LinearLayout(context) {
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val availableWidth = View.MeasureSpec.getSize(widthMeasureSpec)
+        val widthMode = View.MeasureSpec.getMode(widthMeasureSpec)
+        val maximumWidth = CompanionUi.dp(context, CompanionUi.MAX_CONTENT_WIDTH_DP)
+        val measuredWidth = when (widthMode) {
+            View.MeasureSpec.UNSPECIFIED -> maximumWidth
+            else -> minOf(availableWidth, maximumWidth)
+        }
+        val tablet = measuredWidth >= CompanionUi.dp(context, CompanionUi.TABLET_BREAKPOINT_DP)
+        val horizontalPadding = CompanionUi.dp(context, if (tablet) 36 else 20)
+        val topPadding = CompanionUi.dp(context, if (tablet) 32 else 24)
+        val bottomPadding = CompanionUi.dp(context, if (tablet) 40 else 32)
+        if (
+            paddingLeft != horizontalPadding || paddingTop != topPadding ||
+            paddingRight != horizontalPadding || paddingBottom != bottomPadding
+        ) {
+            setPadding(horizontalPadding, topPadding, horizontalPadding, bottomPadding)
+        }
+        super.onMeasure(
+            View.MeasureSpec.makeMeasureSpec(measuredWidth, View.MeasureSpec.EXACTLY),
+            heightMeasureSpec,
+        )
+    }
+}
+
 /** Small programmatic UI kit shared by the companion's Android-only screens. */
 object CompanionUi {
+    const val TABLET_BREAKPOINT_DP = 600
+    const val MAX_CONTENT_WIDTH_DP = 880
+
     val background: Int = Color.rgb(246, 247, 251)
     val surface: Int = Color.WHITE
     val primary: Int = Color.rgb(49, 87, 164)
@@ -33,19 +63,44 @@ object CompanionUi {
     fun dp(context: Context, value: Int): Int =
         (value * context.resources.displayMetrics.density).toInt()
 
-    fun screen(context: Context): LinearLayout = LinearLayout(context).apply {
+    fun screen(context: Context): LinearLayout = ResponsiveScreenLayout(context).apply {
         orientation = LinearLayout.VERTICAL
-        setPadding(dp(context, 20), dp(context, 24), dp(context, 20), dp(context, 32))
         setBackgroundColor(CompanionUi.background)
+    }
+
+    fun scrollView(context: Context, content: View): ScrollView = ScrollView(context).apply {
+        isFillViewport = true
+        setBackgroundColor(CompanionUi.background)
+        addView(
+            content,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER_HORIZONTAL,
+            ),
+        )
+    }
+
+    fun responsiveHost(context: Context, content: View): FrameLayout = FrameLayout(context).apply {
+        setBackgroundColor(CompanionUi.background)
+        addView(
+            content,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                Gravity.CENTER_HORIZONTAL,
+            ),
+        )
     }
 
     fun pageTitle(context: Context, title: String, subtitle: String): LinearLayout =
         LinearLayout(context).apply {
+            val tablet = context.resources.configuration.screenWidthDp >= TABLET_BREAKPOINT_DP
             orientation = LinearLayout.VERTICAL
             setPadding(dp(context, 4), 0, dp(context, 4), dp(context, 8))
             addView(TextView(context).apply {
                 text = title
-                textSize = 27f
+                textSize = if (tablet) 30f else 27f
                 setTextColor(CompanionUi.text)
                 setTypeface(typeface, Typeface.BOLD)
             }, fullWidth())
@@ -59,15 +114,16 @@ object CompanionUi {
 
     fun card(context: Context, title: String, subtitle: String? = null): LinearLayout =
         LinearLayout(context).apply {
+            val tablet = context.resources.configuration.screenWidthDp >= TABLET_BREAKPOINT_DP
             orientation = LinearLayout.VERTICAL
-            val horizontal = dp(context, 18)
-            val vertical = dp(context, 16)
+            val horizontal = dp(context, if (tablet) 22 else 18)
+            val vertical = dp(context, if (tablet) 20 else 16)
             setPadding(horizontal, vertical, horizontal, vertical)
             background = roundedBackground(context, surface, border, 16)
             elevation = dp(context, 2).toFloat()
             addView(TextView(context).apply {
                 text = title
-                textSize = 19f
+                textSize = if (tablet) 20f else 19f
                 setTextColor(CompanionUi.text)
                 setTypeface(typeface, Typeface.BOLD)
             }, fullWidth())
@@ -131,7 +187,16 @@ object CompanionUi {
     fun cardParams(context: Context, topMargin: Int = 12) = LinearLayout.LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT,
         ViewGroup.LayoutParams.WRAP_CONTENT,
-    ).apply { this.topMargin = dp(context, topMargin) }
+    ).apply {
+        this.topMargin = dp(
+            context,
+            if (context.resources.configuration.screenWidthDp >= TABLET_BREAKPOINT_DP) {
+                maxOf(topMargin, 14)
+            } else {
+                topMargin
+            },
+        )
+    }
 
     fun fullWidth() = ViewGroup.LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT,

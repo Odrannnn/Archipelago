@@ -4,7 +4,6 @@ import android.app.Activity
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.widget.ScrollView
 import android.widget.TextView
 
 /** Displays the live status and configuration of the custom Dolphin memory socket. */
@@ -49,7 +48,7 @@ class DolphinSocketActivity : Activity() {
                     "${DolphinSocketClient.DEFAULT_PORT}. No Dolphin.ini changes are required.",
             ), CompanionUi.cardParams(this@DolphinSocketActivity))
         }
-        val scroll = ScrollView(this).apply { addView(content) }
+        val scroll = CompanionUi.scrollView(this, content)
         SystemBarInsets.apply(window, scroll)
         setContentView(scroll)
     }

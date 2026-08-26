@@ -13,7 +13,6 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.PopupMenu
-import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import java.io.File
@@ -121,10 +120,25 @@ class HostedRoomsActivity : Activity() {
                 CompanionUi.cardParams(this@HostedRoomsActivity),
             )
         }
-        val scrollView = ScrollView(this).apply { addView(content) }
+        val scrollView = CompanionUi.scrollView(this, content)
         SystemBarInsets.apply(window, scrollView)
         setContentView(scrollView)
         val cachedRooms = webHostClient.cachedRooms()
+        intent.getStringExtra(EXTRA_OPEN_ROOM_ID)?.let { roomId ->
+            intent.removeExtra(EXTRA_OPEN_ROOM_ID)
+            val selected = runCatching {
+                JoinedRoomStore.select(this, roomId)
+                    ?: cachedRooms.firstOrNull { it.roomId == roomId }?.let { room ->
+                        JoinedRoomStore.save(this, room)
+                    }
+            }.getOrNull()
+            runCatching {
+                selected?.serverAddress()?.let { ServerSettings.save(this, it, "") }
+            }
+            if (selected == null) {
+                status.text = "The requested room is not available in the room library yet."
+            }
+        }
         renderHostedRooms(cachedRooms)
         intent.getStringExtra(EXTRA_SHARE_ROOM_ID)?.let { roomId ->
             intent.removeExtra(EXTRA_SHARE_ROOM_ID)
@@ -759,7 +773,11 @@ class HostedRoomsActivity : Activity() {
         port.takeIf { it > 0 }?.let(HostedRoomReconnectPolicy::serverAddress)
 
     companion object {
+        private const val EXTRA_OPEN_ROOM_ID = "open_room_id"
         private const val EXTRA_SHARE_ROOM_ID = "share_room_id"
+
+        fun openRoomIntent(context: Context, roomId: String) =
+            Intent(context, HostedRoomsActivity::class.java).putExtra(EXTRA_OPEN_ROOM_ID, roomId)
 
         fun shareIntent(context: Context, roomId: String) =
             Intent(context, HostedRoomsActivity::class.java).putExtra(EXTRA_SHARE_ROOM_ID, roomId)

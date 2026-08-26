@@ -9,7 +9,6 @@ import android.net.Uri
 import android.os.Bundle
 import android.widget.Button
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import java.io.File
 import java.text.DateFormat
@@ -127,7 +126,7 @@ class DownloadsUpdatesActivity : Activity() {
                 .filter { it.section == ComponentSection.EXTRA_PROJECTS }
                 .forEach(::addComponent)
         }
-        val scroll = ScrollView(this).apply { addView(content) }
+        val scroll = CompanionUi.scrollView(this, content)
         SystemBarInsets.apply(window, scroll)
         setContentView(scroll)
         renderCoreFolder()

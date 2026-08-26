@@ -130,8 +130,9 @@ class ClientConsoleActivity : Activity() {
                 }, CompanionUi.weightedButtonParams(this@ClientConsoleActivity))
             }, CompanionUi.insetTop(input, this@ClientConsoleActivity, 6))
         }
-        SystemBarInsets.apply(window, root)
-        setContentView(root)
+        val responsiveRoot = CompanionUi.responsiveHost(this, root)
+        SystemBarInsets.apply(window, responsiveRoot)
+        setContentView(responsiveRoot)
         startForegroundService(Intent(this, BridgeService::class.java))
         if (ClientConsoleStore.snapshot().entries.isEmpty()) {
             ClientConsoleStore.append("status", "Console ready. Enter /help to list commands.")

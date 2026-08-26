@@ -496,10 +496,7 @@ class GeneratorActivity : Activity() {
                 addView(advancedToolsContainer, matchWrapParams())
             }, CompanionUi.cardParams(this@GeneratorActivity))
         }
-        screenScrollView = ScrollView(this).apply {
-            isFillViewport = true
-            addView(content)
-        }
+        screenScrollView = CompanionUi.scrollView(this, content)
         SystemBarInsets.apply(window, screenScrollView)
         setContentView(screenScrollView)
         renderSavedYamls()
@@ -1787,6 +1784,12 @@ class GeneratorActivity : Activity() {
             runCatching { webHostClient.hostSeed(zip) }
                 .onSuccess { result ->
                     historyId?.let { HostedRoomHistoryLinks.save(this, result.room.roomId, it) }
+                    runCatching {
+                        val joinedRoom = JoinedRoomStore.save(this, result.room)
+                        joinedRoom.port.takeIf { it > 0 }?.let { port ->
+                            ServerSettings.save(this, "archipelago.gg:$port", "")
+                        }
+                    }
                     runOnUiThread {
                         hostingInProgress = false
                         hostSeedButton.isEnabled = seedFile?.isFile == true
@@ -1797,6 +1800,12 @@ class GeneratorActivity : Activity() {
                         } else {
                             "Room created on archipelago.gg. Open Rooms to refresh its port and manage it."
                         }
+                        startActivity(
+                            HostedRoomsActivity.openRoomIntent(
+                                this@GeneratorActivity,
+                                result.room.roomId,
+                            ),
+                        )
                     }
                 }
                 .onFailure { error ->

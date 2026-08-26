@@ -8,7 +8,6 @@ import android.os.Bundle
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import java.text.DateFormat
 import java.util.Date
@@ -107,7 +106,7 @@ class ApWorldManagerActivity : Activity() {
                 addView(worldsContainer, matchWrap())
             }, CompanionUi.cardParams(this@ApWorldManagerActivity))
         }
-        val scroll = ScrollView(this).apply { addView(content) }
+        val scroll = CompanionUi.scrollView(this, content)
         SystemBarInsets.apply(window, scroll)
         setContentView(scroll)
         renderWorlds()

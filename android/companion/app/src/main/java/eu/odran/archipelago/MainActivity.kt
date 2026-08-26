@@ -27,7 +27,6 @@ import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.PopupMenu
-import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import java.io.ByteArrayOutputStream
@@ -278,7 +277,7 @@ class MainActivity : Activity() {
             }, CompanionUi.cardParams(this@MainActivity))
 
         }
-        val scrollView = ScrollView(this).apply { addView(content) }
+        val scrollView = CompanionUi.scrollView(this, content)
         SystemBarInsets.apply(window, scrollView)
         setContentView(scrollView)
         renderJoinedRoom(JoinedRoomStore.load(this))

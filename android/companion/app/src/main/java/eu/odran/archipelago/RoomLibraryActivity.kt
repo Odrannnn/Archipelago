@@ -6,7 +6,6 @@ import android.os.Bundle
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import java.text.DateFormat
@@ -32,7 +31,7 @@ class RoomLibraryActivity : Activity() {
                 setOnClickListener { finish() }
             }, CompanionUi.cardParams(this@RoomLibraryActivity, 12))
         }
-        val scrollView = ScrollView(this).apply { addView(content) }
+        val scrollView = CompanionUi.scrollView(this, content)
         SystemBarInsets.apply(window, scrollView)
         setContentView(scrollView)
         renderRooms()
