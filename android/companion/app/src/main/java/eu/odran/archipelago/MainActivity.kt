@@ -62,7 +62,6 @@ class MainActivity : Activity() {
     private lateinit var address: EditText
     private lateinit var password: EditText
     private lateinit var joinedRoomContainer: LinearLayout
-    private lateinit var clientConsoleButton: Button
     private lateinit var updateBellButton: ImageButton
     private lateinit var updateBellBadge: TextView
     private var updateCheckRunning = false
@@ -218,13 +217,6 @@ class MainActivity : Activity() {
                     setTextColor(if (isError) CompanionUi.danger else CompanionUi.textMuted)
                 }
             })
-        }
-        clientConsoleButton = Button(this).apply {
-            text = "Console"
-            CompanionUi.styleSecondary(this)
-            setOnClickListener {
-                startActivity(Intent(this@MainActivity, ClientConsoleActivity::class.java))
-            }
         }
         joinedRoomContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val content = CompanionUi.screen(this).apply {
@@ -1663,7 +1655,14 @@ class MainActivity : Activity() {
         val commonActions = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             addView(shareRoomButton, CompanionUi.weightedButtonParams(this@MainActivity, 6))
-            addView(clientConsoleButton, CompanionUi.weightedButtonParams(this@MainActivity))
+            // This container is rebuilt after every hosted-room refresh, so each child must be a new View.
+            addView(Button(this@MainActivity).apply {
+                text = "Console"
+                CompanionUi.styleSecondary(this)
+                setOnClickListener {
+                    startActivity(Intent(this@MainActivity, ClientConsoleActivity::class.java))
+                }
+            }, CompanionUi.weightedButtonParams(this@MainActivity))
         }
         joinedRoomContainer.addView(commonActions, CompanionUi.insetTop(commonActions, this, 8))
 
