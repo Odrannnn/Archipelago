@@ -44,6 +44,7 @@ class HostedRoomsActivity : Activity() {
     private lateinit var hostedFilterButton: Button
     private lateinit var joinedFilterButton: Button
     private var roomFilter = RoomFilter.ALL
+    @Volatile private var startingRoomRefreshGeneration = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -124,7 +125,8 @@ class HostedRoomsActivity : Activity() {
         SystemBarInsets.apply(window, scrollView)
         setContentView(scrollView)
         val cachedRooms = webHostClient.cachedRooms()
-        intent.getStringExtra(EXTRA_OPEN_ROOM_ID)?.let { roomId ->
+        val requestedRoomId = intent.getStringExtra(EXTRA_OPEN_ROOM_ID)
+        requestedRoomId?.let { roomId ->
             intent.removeExtra(EXTRA_OPEN_ROOM_ID)
             val selected = runCatching {
                 JoinedRoomStore.select(this, roomId)
@@ -140,6 +142,7 @@ class HostedRoomsActivity : Activity() {
             }
         }
         renderHostedRooms(cachedRooms)
+        requestedRoomId?.let(::refreshStartingRoom)
         intent.getStringExtra(EXTRA_SHARE_ROOM_ID)?.let { roomId ->
             intent.removeExtra(EXTRA_SHARE_ROOM_ID)
             cachedRooms.firstOrNull { it.roomId == roomId }?.let(::shareHostedRoom)
@@ -150,6 +153,11 @@ class HostedRoomsActivity : Activity() {
     override fun onResume() {
         super.onResume()
         if (::roomsContainer.isInitialized) renderHostedRooms(webHostClient.cachedRooms())
+    }
+
+    override fun onDestroy() {
+        startingRoomRefreshGeneration += 1
+        super.onDestroy()
     }
 
     private fun filterButton(label: String, filter: RoomFilter) = Button(this).apply {
@@ -177,6 +185,7 @@ class HostedRoomsActivity : Activity() {
             runCatching { webHostClient.refreshRooms() }
                 .onSuccess { rooms -> runOnUiThread {
                     refreshButton.isEnabled = true
+                    synchronizeActiveRoom(rooms)
                     renderHostedRooms(rooms)
                     status.text = if (rooms.isEmpty()) {
                         "No visible hosted rooms belong to this app's website session."
@@ -188,6 +197,50 @@ class HostedRoomsActivity : Activity() {
                     runOnUiThread { refreshButton.isEnabled = true }
                     showError("Could not refresh hosted rooms", error)
                 }
+        }
+    }
+
+    /** Wakes a just-created room and waits for archipelago.gg to publish its server port. */
+    private fun refreshStartingRoom(roomId: String) {
+        if (!ArchipelagoWebHostClient.ROOM_ID_PATTERN.matches(roomId)) return
+        val generation = ++startingRoomRefreshGeneration
+        status.text = "Room created · waiting for archipelago.gg to start its server…"
+        thread(name = "starting-hosted-room-refresh") {
+            runCatching { webHostClient.refreshPublicRoom(roomId) }
+                .onSuccess { refreshed ->
+                    if (generation != startingRoomRefreshGeneration) return@onSuccess
+                    webHostClient.rememberRoom(refreshed)
+                    runOnUiThread {
+                        if (generation != startingRoomRefreshGeneration || isFinishing || isDestroyed) {
+                            return@runOnUiThread
+                        }
+                        synchronizeActiveRoom(listOf(refreshed))
+                        renderHostedRooms(webHostClient.cachedRooms())
+                        status.text = when {
+                            refreshed.lastPort > 0 ->
+                                "Room ready · archipelago.gg:${refreshed.lastPort}"
+                            refreshed.lastPort < 0 ->
+                                "The new room reported a server error. Open room controls for details."
+                            else ->
+                                "The room is still starting. Tap refresh if its port does not appear shortly."
+                        }
+                    }
+                }
+                .onFailure { error ->
+                    if (generation == startingRoomRefreshGeneration) {
+                        showError("Could not refresh the new room", error)
+                    }
+                }
+        }
+    }
+
+    private fun synchronizeActiveRoom(rooms: List<HostedRoom>) {
+        val activeRoomId = JoinedRoomStore.load(this)?.roomId ?: return
+        val refreshed = rooms.firstOrNull { it.roomId == activeRoomId } ?: return
+        val updated = JoinedRoomStore.save(this, refreshed)
+        updated.serverAddress()?.let { address ->
+            val password = ServerSettings.load(this).password
+            ServerSettings.save(this, address, password)
         }
     }
 
@@ -227,6 +280,7 @@ class HostedRoomsActivity : Activity() {
             val linkedEntry = HostedRoomHistoryLinks.historyId(this, room.roomId)?.let { linkedId ->
                 SeedHistoryStore.list(this).firstOrNull { it.id == linkedId }
             }
+            val activePlayerChoices = activePlayerChoices(room, linkedEntry)
             val patchlessChoices = patchlessInviteChoices(room)
             val linkedSeedCanShareInvite = linkedEntry?.let(::inviteChoices)?.isNotEmpty()
             val sohPlayers = SohLauncher.players(room.players)
@@ -289,12 +343,21 @@ class HostedRoomsActivity : Activity() {
                 addView(Button(this@HostedRoomsActivity).apply {
                     when {
                         !isActive -> {
-                            text = "Make active"
+                            text = if (joinedRoom?.playerSlot == null && activePlayerChoices.isNotEmpty()) {
+                                "Choose player & activate"
+                            } else {
+                                "Make active"
+                            }
                             isEnabled = true
                             setOnClickListener {
-                                if (isHosted) activateHostedRoom(room)
+                                if (isHosted) activateHostedRoom(room, activePlayerChoices)
                                 else joinedRoom?.let(::activateJoinedRoom)
                             }
+                        }
+                        joinedRoom?.playerSlot == null && activePlayerChoices.isNotEmpty() -> {
+                            text = "Choose player"
+                            isEnabled = true
+                            setOnClickListener { chooseActivePlayer(room, activePlayerChoices) }
                         }
                         sohPlayers.isNotEmpty() -> {
                             text = if (room.lastPort > 0) "Launch Ship of Harkinian" else "Wake room to launch"
@@ -330,7 +393,15 @@ class HostedRoomsActivity : Activity() {
                     text = "More"
                     CompanionUi.styleQuiet(this)
                     setOnClickListener {
-                        showRoomMenu(it, room, isHosted, joinedRoom, sohPlayers, nativePlayerFiles)
+                        showRoomMenu(
+                            it,
+                            room,
+                            isHosted,
+                            joinedRoom,
+                            activePlayerChoices,
+                            sohPlayers,
+                            nativePlayerFiles,
+                        )
                     }
                 }
                 addView(LinearLayout(this@HostedRoomsActivity).apply {
@@ -401,10 +472,14 @@ class HostedRoomsActivity : Activity() {
         room: HostedRoom,
         isHosted: Boolean,
         joinedRoom: JoinedRoom?,
+        activePlayerChoices: List<HostedInviteChoice>,
         sohPlayers: List<SohPlayer>,
         nativePlayerFiles: List<File>,
     ) {
         PopupMenu(this, anchor).apply {
+            if (activePlayerChoices.isNotEmpty()) {
+                menu.add(if (joinedRoom?.playerSlot == null) "Choose player" else "Change player")
+            }
             if (sohPlayers.isNotEmpty()) menu.add("Launch Ship of Harkinian")
             if (nativePlayerFiles.isNotEmpty()) menu.add("Open player file")
             menu.add("Open room controls")
@@ -413,6 +488,7 @@ class HostedRoomsActivity : Activity() {
             menu.add(if (isHosted) "Remove from this app" else "Forget joined room")
             setOnMenuItemClickListener { item ->
                 when (item.title.toString()) {
+                    "Choose player", "Change player" -> chooseActivePlayer(room, activePlayerChoices)
                     "Launch Ship of Harkinian" -> chooseSohPlayer(room, sohPlayers)
                     "Open player file" -> chooseNativePlayerFile(room, nativePlayerFiles)
                     "Open room controls" -> if (isHosted) {
@@ -455,11 +531,59 @@ class HostedRoomsActivity : Activity() {
             .show()
     }
 
-    private fun activateHostedRoom(room: HostedRoom) {
-        val joined = JoinedRoomStore.save(this, room)
+    private fun activateHostedRoom(room: HostedRoom, choices: List<HostedInviteChoice>) {
+        val previous = JoinedRoomStore.loadAll(this).firstOrNull { it.roomId == room.roomId }
+        if (previous?.playerSlot == null && choices.isNotEmpty()) {
+            chooseActivePlayer(room, choices)
+            return
+        }
+        completeHostedRoomActivation(room)
+    }
+
+    private fun chooseActivePlayer(room: HostedRoom, choices: List<HostedInviteChoice>) {
+        if (choices.isEmpty()) {
+            status.text = "No player metadata is available for this room."
+            return
+        }
+        fun select(choice: HostedInviteChoice) {
+            val invite = RoomInvite(
+                roomId = room.roomId,
+                seedId = room.seedId,
+                playerSlot = choice.slot,
+                playerName = choice.playerName,
+                gameName = choice.game,
+            )
+            completeHostedRoomActivation(room, invite)
+        }
+        if (choices.size == 1) {
+            select(choices.single())
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Choose the active player")
+            .setMessage("Patching, game launchers, and PopTracker will use this player.")
+            .setItems(choices.map { choice ->
+                buildString {
+                    append("Slot ${choice.slot} · ${choice.playerName}")
+                    choice.game.takeIf { it.isNotBlank() }?.let { append(" · $it") }
+                }
+            }.toTypedArray()) { _, index -> select(choices[index]) }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun completeHostedRoomActivation(room: HostedRoom, invite: RoomInvite? = null) {
+        val joined = JoinedRoomStore.save(this, room, invite)
         webHostClient.rememberRoom(room)
-        joined.serverAddress()?.let { ServerSettings.save(this, it, "") }
+        joined.serverAddress()?.let {
+            ServerSettings.save(this, it, ServerSettings.load(this).password)
+        }
         setResult(RESULT_OK)
+        Toast.makeText(
+            this,
+            "${joined.playerName ?: "Room"} is now active",
+            Toast.LENGTH_SHORT,
+        ).show()
         finish()
     }
 
@@ -688,6 +812,24 @@ class HostedRoomsActivity : Activity() {
             if (!SohLauncher.isGame(game) && catalog[game]?.romPatch != false) return@mapIndexedNotNull null
             HostedInviteChoice(index + 1, hostedPlayerName(displayName), game, null)
         }
+    }
+
+    private fun activePlayerChoices(
+        room: HostedRoom,
+        linkedEntry: SeedHistoryEntry?,
+    ): List<HostedInviteChoice> {
+        val linkedChoices = linkedEntry?.let(::inviteChoices).orEmpty()
+        val roomChoices = room.players.mapIndexedNotNull { index, displayName ->
+            val playerName = hostedPlayerName(displayName).takeIf { it.isNotBlank() }
+                ?: return@mapIndexedNotNull null
+            HostedInviteChoice(
+                slot = index + 1,
+                playerName = playerName,
+                game = hostedPlayerGame(displayName).orEmpty(),
+                patch = null,
+            )
+        }
+        return (linkedChoices + roomChoices).distinctBy { it.slot }
     }
 
     private fun playerGamesFromYaml(yaml: String): List<String> =

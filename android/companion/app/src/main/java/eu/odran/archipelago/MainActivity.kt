@@ -1005,6 +1005,29 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun openLinkedPlayerPatch(patch: File, room: JoinedRoom) {
+        inviteStatus.text = "Reading ${patch.name}…"
+        thread(name = "linked-player-patch-read") {
+            runCatching {
+                val patchBytes = patch.inputStream().use { it.readAtMost(MAX_PATCH_BYTES + 1) }
+                require(patchBytes.isNotEmpty()) { "The selected player patch is empty." }
+                require(patchBytes.size <= MAX_PATCH_BYTES) { "The selected player patch is too large." }
+                RomPatchSession(
+                    patchName = patch.name,
+                    patchBytes = patchBytes,
+                    game = OfflineGenerator.patchGame(this, patchBytes),
+                    playerName = room.playerName,
+                    rememberForActiveRoom = true,
+                )
+            }.onSuccess { session ->
+                runOnUiThread { prepareManualRomPatch(session) }
+            }.onFailure { error -> runOnUiThread {
+                inviteStatus.text =
+                    "Could not open ${patch.name}: ${error.message ?: error.javaClass.simpleName}"
+            } }
+        }
+    }
+
     private fun prepareManualRomPatch(session: RomPatchSession) {
         if (OfflineGenerator.isBundledGame(this, session.game) ||
             ImportedApWorldStore.list(this).any { it.game == session.game }
@@ -1460,6 +1483,7 @@ class MainActivity : Activity() {
         }
 
         val isSohRoom = SohLauncher.isGame(room.gameName)
+        val linkedPlayerPatch = linkedPlayerPatch(room)
         val linkedPlayerFiles = linkedPlayerFiles(room)
         val playerFileHandler = PlayerFileLauncher.handlerForGame(room.gameName)
             ?: linkedPlayerFiles.firstNotNullOfOrNull { PlayerFileLauncher.handlerFor(it.name) }
@@ -1488,6 +1512,15 @@ class MainActivity : Activity() {
                         "Could not open PopTracker. Make sure the PopTracker Android app is installed and up to date."
                 }
             }
+        }
+
+        if (!isSohRoom && linkedPlayerPatch != null && room.patchedRomUri.isNullOrBlank()) {
+            joinedRoomContainer.addView(Button(this).apply {
+                text = room.playerName?.takeIf { it.isNotBlank() }?.let { "Patch $it's game" }
+                    ?: "Patch player game"
+                CompanionUi.stylePrimary(this)
+                setOnClickListener { openLinkedPlayerPatch(linkedPlayerPatch, room) }
+            }, matchWrapParams())
         }
 
         if (isSohRoom && !room.playerName.isNullOrBlank()) {
@@ -1885,6 +1918,20 @@ class MainActivity : Activity() {
             candidates.size == 1 -> candidates
             else -> emptyList()
         }
+    }
+
+    private fun linkedPlayerPatch(room: JoinedRoom): File? {
+        val playerSlot = room.playerSlot ?: return null
+        val historyId = HostedRoomHistoryLinks.historyId(this, room.roomId) ?: return null
+        val entry = SeedHistoryStore.list(this).firstOrNull { it.id == historyId } ?: return null
+        return entry.patches.mapIndexedNotNull { index, artifact ->
+            File(artifact.path).takeIf { it.isFile }?.let { file ->
+                val slot = Regex("(?:^|_)P(\\d+)(?:_|\\.)", RegexOption.IGNORE_CASE)
+                    .find(artifact.name)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                    ?: (index + 1)
+                slot to file
+            }
+        }.firstOrNull { (slot, _) -> slot == playerSlot }?.second
     }
 
     private fun repairLinkedPlayerFiles(room: JoinedRoom) {
