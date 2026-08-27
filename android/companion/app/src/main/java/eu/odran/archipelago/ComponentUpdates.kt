@@ -125,27 +125,28 @@ internal object ComponentReleaseParser {
         ladxhdReleases: String,
     ): List<ComponentAsset> = buildList {
         val companion = JSONArray(companionReleases)
-        addFirstMatch(companion, ManagedComponent.COMPANION, allowPrerelease = false)?.let(::add)
-        addFirstMatch(companion, ManagedComponent.DOLPHIN, allowPrerelease = false)?.let(::add)
-        addFirstMatch(companion, ManagedComponent.MGBA_CORE, allowPrerelease = false)?.let(::add)
-        addFirstMatch(companion, ManagedComponent.SNES9X_CORE, allowPrerelease = false)?.let(::add)
-        addFirstMatch(
+        addBestMatch(companion, ManagedComponent.COMPANION, allowPrerelease = false)?.let(::add)
+        addBestMatch(companion, ManagedComponent.DOLPHIN, allowPrerelease = false)?.let(::add)
+        addBestMatch(companion, ManagedComponent.MGBA_CORE, allowPrerelease = false)?.let(::add)
+        addBestMatch(companion, ManagedComponent.SNES9X_CORE, allowPrerelease = false)?.let(::add)
+        addBestMatch(
             JSONArray(popTrackerReleases),
             ManagedComponent.POPTRACKER,
             allowPrerelease = true,
         )?.let(::add)
-        addFirstMatch(
+        addBestMatch(
             JSONArray(ladxhdReleases),
             ManagedComponent.LADXHD_ARCHIPELAGO,
             allowPrerelease = false,
         )?.let(::add)
     }
 
-    private fun addFirstMatch(
+    private fun addBestMatch(
         releases: JSONArray,
         component: ManagedComponent,
         allowPrerelease: Boolean,
     ): ComponentAsset? {
+        var bestMatch: ComponentAsset? = null
         repeat(releases.length()) { releaseIndex ->
             val release = releases.optJSONObject(releaseIndex) ?: return@repeat
             if (release.optBoolean("draft") || (!allowPrerelease && release.optBoolean("prerelease"))) {
@@ -162,7 +163,7 @@ internal object ComponentReleaseParser {
                 if (!digest.matches(Regex("[0-9a-f]{64}")) ||
                     !url.startsWith("https://github.com/") || size <= 0
                 ) return@repeat
-                return ComponentAsset(
+                val candidate = ComponentAsset(
                     component,
                     version,
                     name,
@@ -172,9 +173,16 @@ internal object ComponentReleaseParser {
                     release.optString("tag_name"),
                     release.optString("published_at"),
                 )
+                val current = bestMatch
+                if (current == null || ComponentVersion.compare(candidate.version, current.version) > 0 ||
+                    (ComponentVersion.compare(candidate.version, current.version) == 0 &&
+                        candidate.publishedAt > current.publishedAt)
+                ) {
+                    bestMatch = candidate
+                }
             }
         }
-        return null
+        return bestMatch
     }
 
     fun encode(assets: List<ComponentAsset>): String = JSONArray().apply {

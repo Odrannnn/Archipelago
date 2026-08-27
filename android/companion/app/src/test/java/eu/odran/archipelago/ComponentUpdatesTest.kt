@@ -76,6 +76,48 @@ class ComponentUpdatesTest {
     }
 
     @Test
+    fun `release parser selects newest semantic version when github order is lexical`() {
+        val companion = JSONArray()
+            .put(release(
+                "android-v0.38.9",
+                prerelease = false,
+                asset("Archipelago-Companion-0.38.9-arm64-v8a-release.apk", 'a', 10),
+            ))
+            .put(release(
+                "android-v0.38.10",
+                prerelease = false,
+                asset("Archipelago-Companion-0.38.10-arm64-v8a-release.apk", 'b', 10),
+            ))
+
+        val result = ComponentReleaseParser.parse(companion.toString(), "[]", "[]")
+
+        assertEquals("0.38.10", result.single().version)
+        assertEquals("android-v0.38.10", result.single().releaseTag)
+    }
+
+    @Test
+    fun `release parser prefers most recently published rebuild of same version`() {
+        val companion = JSONArray()
+            .put(release(
+                "android-v1.0.0-old",
+                prerelease = false,
+                asset("Archipelago-Companion-1.0.0-arm64-v8a-release.apk", 'a', 10),
+                publishedAt = "2026-01-01T00:00:00Z",
+            ))
+            .put(release(
+                "android-v1.0.0-new",
+                prerelease = false,
+                asset("Archipelago-Companion-1.0.0-arm64-v8a-release.apk", 'b', 10),
+                publishedAt = "2026-01-02T00:00:00Z",
+            ))
+
+        val result = ComponentReleaseParser.parse(companion.toString(), "[]", "[]")
+
+        assertEquals("android-v1.0.0-new", result.single().releaseTag)
+        assertEquals("b".repeat(64), result.single().sha256)
+    }
+
+    @Test
     fun `normalized catalog round trip preserves integrity metadata`() {
         val original = ComponentAsset(
             ManagedComponent.MGBA_CORE,
@@ -195,9 +237,10 @@ class ComponentUpdatesTest {
         tag: String,
         prerelease: Boolean,
         vararg assets: JSONObject,
+        publishedAt: String = "2026-01-01T00:00:00Z",
     ) = JSONObject()
         .put("tag_name", tag)
-        .put("published_at", "2026-01-01T00:00:00Z")
+        .put("published_at", publishedAt)
         .put("draft", false)
         .put("prerelease", prerelease)
         .put("assets", JSONArray().apply { assets.forEach(::put) })
