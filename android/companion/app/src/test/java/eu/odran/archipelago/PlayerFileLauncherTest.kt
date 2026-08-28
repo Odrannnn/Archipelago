@@ -7,6 +7,8 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 class PlayerFileLauncherTest {
     @Test
@@ -18,6 +20,16 @@ class PlayerFileLauncherTest {
         assertEquals("application/x-apladxhd", handler?.mimeType)
         assertEquals("Import into LADXHD", PlayerFileLauncher.actionLabel("seed.apladxhd"))
         assertTrue(PlayerFileLauncher.supports("seed.apladxhd"))
+    }
+
+    @Test
+    fun recognizesMinishCapAndroidPlayerFiles() {
+        val handler = PlayerFileLauncher.handlerFor("AP_Seed_P1_Link.APTMC")
+
+        assertEquals("The Minish Cap", handler?.gameName)
+        assertEquals("dev.picori.tmc", handler?.packageName)
+        assertEquals("Launch in The Minish Cap Android", PlayerFileLauncher.actionLabel("seed.aptmc"))
+        assertTrue(PlayerFileLauncher.supports("seed.aptmc"))
     }
 
     @Test
@@ -53,10 +65,51 @@ class PlayerFileLauncherTest {
     }
 
     @Test
+    fun readsEmbeddedMinishCapPlayerName() {
+        val file = File.createTempFile("player", ".aptmc")
+        try {
+            ZipOutputStream(file.outputStream()).use { archive ->
+                archive.putNextEntry(ZipEntry("archipelago.json"))
+                archive.write("""{"game":"The Minish Cap","player":2,"player_name":"Ezlo"}""".toByteArray())
+                archive.closeEntry()
+            }
+            assertEquals("Ezlo", PlayerFileLauncher.embeddedPlayerName(file))
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun readsAndValidatesMinishCapPlayerGame() {
+        val output = java.io.ByteArrayOutputStream()
+        ZipOutputStream(output).use { archive ->
+            archive.putNextEntry(ZipEntry("archipelago.json"))
+            archive.write("""{"game":"The Minish Cap","player":1,"player_name":"Link"}""".toByteArray())
+            archive.closeEntry()
+        }
+        assertEquals(
+            "The Minish Cap",
+            PlayerFileLauncher.declaredGame("seed.aptmc", output.toByteArray()),
+        )
+    }
+
+    @Test
     fun normalizesRoomAddressForLadxHdExtra() {
         assertEquals(
             "archipelago.gg:45678",
             PlayerFileLauncher.normalizedServerAddress("wss://archipelago.gg:45678/room"),
+        )
+    }
+
+    @Test
+    fun splitsHostedRoomAddressForNativeArchipelagoIntent() {
+        assertEquals(
+            PlayerFileServerTarget("archipelago.gg", 38281, true),
+            PlayerFileLauncher.serverTarget("archipelago.gg:38281"),
+        )
+        assertEquals(
+            PlayerFileServerTarget("192.168.1.50", 38281, false),
+            PlayerFileLauncher.serverTarget("ws://192.168.1.50:38281/room"),
         )
     }
 }

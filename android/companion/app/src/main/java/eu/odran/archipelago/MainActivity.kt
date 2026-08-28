@@ -930,6 +930,7 @@ class MainActivity : CompanionActivity() {
                                     PlayerFileLaunchOptions(
                                         serverAddress = room.lastPort.takeIf { it > 0 }
                                             ?.let { "archipelago.gg:$it" },
+                                        slotName = invite.playerName,
                                         password = "",
                                         saveSlot = 0,
                                     ),
@@ -1508,7 +1509,7 @@ class MainActivity : CompanionActivity() {
 
         if (playerFileHandler != null) {
             joinedRoomContainer.addView(Button(this).apply {
-                text = "Import into ${playerFileHandler.appName}"
+                text = PlayerFileLauncher.actionLabel(playerFileHandler)
                 CompanionUi.stylePrimary(this)
                 setOnClickListener {
                     when (linkedPlayerFiles.size) {
@@ -1899,6 +1900,7 @@ class MainActivity : CompanionActivity() {
         val room = RoomSessionRepository.activeRoom(this)
         val options = PlayerFileLaunchOptions(
             serverAddress = room?.serverAddress(),
+            slotName = room?.playerName,
             password = password.text.toString(),
             saveSlot = 0,
         )
@@ -1906,7 +1908,7 @@ class MainActivity : CompanionActivity() {
             .onSuccess {
                 val appName = PlayerFileLauncher.handlerFor(playerFile.name)?.appName ?: "the game"
                 val server = room?.serverAddress() ?: "the selected server"
-                inviteStatus.text = "Sent ${playerFile.name}, $server, and save position 1 to $appName."
+                inviteStatus.text = "Sent ${playerFile.name} and $server to $appName."
             }
             .onFailure { error ->
                 inviteStatus.text = "Could not open ${playerFile.name}: ${error.message ?: error.javaClass.simpleName}"
@@ -1929,13 +1931,14 @@ class MainActivity : CompanionActivity() {
         }
         val options = PlayerFileLaunchOptions(
             serverAddress = room?.serverAddress(),
+            slotName = room?.playerName,
             password = password.text.toString(),
             saveSlot = 0,
         )
         runCatching { PlayerFileLauncher.launch(this, uri, name, options) }
             .onSuccess {
                 val server = room?.serverAddress() ?: "the selected server"
-                inviteStatus.text = "Sent $name, $server, and save position 1 to ${selectedHandler.appName}."
+                inviteStatus.text = "Sent $name and $server to ${selectedHandler.appName}."
             }
             .onFailure { error ->
                 inviteStatus.text = "Could not open $name: ${error.message ?: error.javaClass.simpleName}"

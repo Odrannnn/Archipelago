@@ -591,11 +591,17 @@ class HostedRoomsActivity : CompanionActivity() {
 
     private fun launchNativePlayerFile(room: HostedRoom, playerFile: File) {
         val serverAddress = room.lastPort.takeIf { it > 0 }?.let { "archipelago.gg:$it" }
+        val playerName = PlayerFileLauncher.embeddedPlayerName(playerFile)
+            ?: RoomSessionRepository.rooms(this).firstOrNull { it.roomId == room.roomId }?.playerName
         runCatching {
             PlayerFileLauncher.launch(
                 this,
                 playerFile,
-                PlayerFileLaunchOptions(serverAddress = serverAddress, saveSlot = 0),
+                PlayerFileLaunchOptions(
+                    serverAddress = serverAddress,
+                    slotName = playerName,
+                    saveSlot = 0,
+                ),
             )
         }.onSuccess {
             status.text = if (serverAddress == null) {
