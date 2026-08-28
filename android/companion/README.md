@@ -322,8 +322,12 @@ room, adds it to **Rooms**, remembers the selected player, and reuses cached leg
 inputs or asks for each missing file. The embedded generator applies the patch
 locally and prompts the recipient to save the ready-to-run `.gba`, `.gbc`, `.gb`, `.sfc`, or `.smc`.
 For `Links Awakening DX HD`, it instead forwards the embedded `.apladxhd` manifest
-and resolved server address to the game's native import screen. Player-specific
-only the current version 4 invitation format is accepted. **Open multiplayer invite**
+and resolved server address to the game's native import screen. `The Minish Cap`
+rooms retain the normal `.aptmc` ROM-patching route and also expose
+**Launch in The Minish Cap Android**. That action grants the native port access to the
+same generated `.aptmc` and passes the active room host, port, TLS state, player name,
+and optional password through explicit intent extras. Only the current version 4
+invitation format is accepted. **Open multiplayer invite**
 provides a file-picker fallback when a receiving app
 does not open the attachment directly. **Sync website session** is separate and
 its secret link must not be shared.

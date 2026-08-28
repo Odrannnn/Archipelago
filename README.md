@@ -160,6 +160,9 @@ across refreshes and can be restored from the **Hosted rooms** screen.
 - Launches the Archipelago-enabled Ship of Harkinian Android port for a selected
   hosted SoH player, passing the server, slot name, and optional password through
   explicit intent extras. SoH connects to the room directly; the mGBA bridge is not used.
+- Launches The Minish Cap Android port with a generated `.aptmc` while passing the
+  active room host, port, TLS state, slot name, and optional password. The existing
+  `.aptmc` ROM-patching and RetroArch route remains available as a separate choice.
 
 ## How it is structured
 
