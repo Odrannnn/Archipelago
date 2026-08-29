@@ -45,29 +45,19 @@ internal class HostedRoomCardView(context: Context) : FrameLayout(context) {
                 setTextColor(if (model.isActive) CompanionUi.active else CompanionUi.text)
                 ViewCompat.setAccessibilityHeading(this, true)
             }, matchWrapParams())
-            addView(LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
+            addView(CompanionUi.flowRow(context).apply {
                 if (model.isActive) {
-                    addView(
-                        CompanionUi.statusChip(
-                            context,
-                            context.getString(R.string.active_chip),
-                            CompanionUi.StatusTone.ACTIVE,
-                        ),
-                        CompanionUi.wrapContentParams(context, 5),
-                    )
-                }
-                addView(
-                    CompanionUi.statusChip(
+                    addView(CompanionUi.statusChip(
                         context,
-                        context.getString(if (model.isHosted) R.string.hosted_chip else R.string.joined_chip),
-                    ),
-                    CompanionUi.wrapContentParams(context, 5),
-                )
-                addView(
-                    CompanionUi.statusChip(context, model.status),
-                    CompanionUi.wrapContentParams(context),
-                )
+                        context.getString(R.string.active_chip),
+                        CompanionUi.StatusTone.ACTIVE,
+                    ))
+                }
+                addView(CompanionUi.statusChip(
+                    context,
+                    context.getString(if (model.isHosted) R.string.hosted_chip else R.string.joined_chip),
+                ))
+                addView(CompanionUi.statusChip(context, model.status))
             }, CompanionUi.insetTop(View(context), context, 7))
             addView(TextView(context).apply {
                 text = model.details
@@ -125,10 +115,9 @@ internal class HostedRoomCardView(context: Context) : FrameLayout(context) {
                 CompanionUi.styleQuiet(this)
                 setOnClickListener(callbacks.onMore)
             }
-            addView(LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                addView(shareButton, CompanionUi.weightedButtonParams(context, 5))
-                addView(moreButton, CompanionUi.weightedButtonParams(context))
+            addView(CompanionUi.actionRow(context).apply {
+                addView(shareButton)
+                addView(moreButton)
             }, CompanionUi.insetTop(View(context), context, 5))
         }
         addView(panel, LayoutParams(

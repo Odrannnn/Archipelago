@@ -249,10 +249,9 @@ class GeneratorActivity : CompanionActivity() {
             CompanionUi.styleQuiet(this)
             setOnClickListener { removeSelectedPlayer() }
         }
-        val playerButtons = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            addView(addPlayerButton, weightedButtonParams())
-            addView(removePlayerButton, weightedButtonParams())
+        val playerButtons = CompanionUi.actionRow(this).apply {
+            addView(addPlayerButton)
+            addView(removePlayerButton)
         }
         val resetDraftButton = Button(this).apply {
             text = "Reset generator settings"
@@ -449,10 +448,9 @@ class GeneratorActivity : CompanionActivity() {
                 setTypeface(typeface, Typeface.BOLD)
             }, matchWrapParams())
             addView(hostSeedButton, CompanionUi.insetTop(hostSeedButton, this@GeneratorActivity, 6))
-            addView(LinearLayout(this@GeneratorActivity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                addView(exportSeedButton, CompanionUi.weightedButtonParams(this@GeneratorActivity, 5))
-                addView(viewHostedRoomsButton, CompanionUi.weightedButtonParams(this@GeneratorActivity))
+            addView(CompanionUi.actionRow(this@GeneratorActivity).apply {
+                addView(exportSeedButton)
+                addView(viewHostedRoomsButton)
             }, CompanionUi.insetTop(exportSeedButton, this@GeneratorActivity, 4))
             addView(patchesContainer, CompanionUi.insetTop(patchesContainer, this@GeneratorActivity, 8))
             addView(patchButton, CompanionUi.insetTop(patchButton, this@GeneratorActivity, 4))
@@ -1359,19 +1357,18 @@ class GeneratorActivity : CompanionActivity() {
                     }
                     CompanionUi.styleBody(this)
                 }, CompanionUi.insetTop(this, this@GeneratorActivity, 6))
-                addView(LinearLayout(this@GeneratorActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
+                addView(CompanionUi.actionRow(this@GeneratorActivity).apply {
                     addView(Button(this@GeneratorActivity).apply {
                         text = "Load"
                         CompanionUi.stylePrimary(this)
                         isEnabled = generatorReady
                         setOnClickListener { loadSavedYaml(entry) }
-                    }, CompanionUi.weightedButtonParams(this@GeneratorActivity, 4))
+                    })
                     addView(Button(this@GeneratorActivity).apply {
                         text = "More"
                         CompanionUi.styleQuiet(this)
                         setOnClickListener { showSavedYamlMenu(it, entry) }
-                    }, CompanionUi.weightedButtonParams(this@GeneratorActivity))
+                    })
                 }, CompanionUi.insetTop(this, this@GeneratorActivity, 8))
             }
             savedYamlsContainer.addView(
@@ -1753,8 +1750,7 @@ class GeneratorActivity : CompanionActivity() {
                     CompanionUi.stylePrimary(this)
                     setOnClickListener { openHistoryEntry(entry, loadSettings = true) }
                 }, CompanionUi.insetTop(this, this@GeneratorActivity, 10))
-                addView(LinearLayout(this@GeneratorActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
+                addView(CompanionUi.actionRow(this@GeneratorActivity).apply {
                     addView(Button(this@GeneratorActivity).apply {
                         text = "Host online"
                         isEnabled = zipAvailable && !hostingInProgress
@@ -1763,12 +1759,12 @@ class GeneratorActivity : CompanionActivity() {
                             zipArtifact?.let { File(it.path) }?.takeIf { it.isFile }
                                 ?.let { hostSeed(it, entry.id) }
                         }
-                    }, CompanionUi.weightedButtonParams(this@GeneratorActivity, 4))
+                    })
                     addView(Button(this@GeneratorActivity).apply {
                         text = "More"
                         CompanionUi.styleQuiet(this)
                         setOnClickListener { showSeedHistoryMenu(it, entry, zipArtifact, playerFiles) }
-                    }, CompanionUi.weightedButtonParams(this@GeneratorActivity))
+                    })
                 }, CompanionUi.insetTop(this, this@GeneratorActivity, 4))
             }
             historyContainer.addView(

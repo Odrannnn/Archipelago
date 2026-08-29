@@ -132,11 +132,13 @@ class HostedRoomsActivity : CompanionActivity() {
     private lateinit var joinedFilterButton: Button
     private lateinit var roomSearchEditor: EditText
     private lateinit var sortButton: Button
+    private lateinit var screenScrollView: android.widget.ScrollView
     private var roomFilter = RoomFilter.ALL
     private var roomSort = RoomSort.RECENT
     private val refreshingRoomIds = mutableSetOf<String>()
     private val wakingRoomIds = mutableSetOf<String>()
     private val unavailableRoomIds = mutableSetOf<String>()
+    private var renderedRoomCount = 0
     @Volatile private var startingRoomRefreshGeneration = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -200,11 +202,10 @@ class HostedRoomsActivity : CompanionActivity() {
                 CompanionUi.fullWidth(),
             )
             addView(CompanionUi.card(this@HostedRoomsActivity, "Room library").apply {
-                addView(LinearLayout(this@HostedRoomsActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    addView(allFilterButton, CompanionUi.weightedButtonParams(this@HostedRoomsActivity, 4))
-                    addView(hostedFilterButton, CompanionUi.weightedButtonParams(this@HostedRoomsActivity, 4))
-                    addView(joinedFilterButton, CompanionUi.weightedButtonParams(this@HostedRoomsActivity))
+                addView(CompanionUi.actionRow(this@HostedRoomsActivity, minimumChildWidthDp = 88).apply {
+                    addView(allFilterButton)
+                    addView(hostedFilterButton)
+                    addView(joinedFilterButton)
                 }, CompanionUi.fullWidth())
                 addView(roomSearchEditor, CompanionUi.insetTop(roomSearchEditor, this@HostedRoomsActivity, 8))
                 addView(sortButton, CompanionUi.insetTop(sortButton, this@HostedRoomsActivity, 4))
@@ -246,9 +247,12 @@ class HostedRoomsActivity : CompanionActivity() {
                 CompanionUi.cardParams(this@HostedRoomsActivity),
             )
         }
-        val scrollView = CompanionUi.scrollView(this, content)
-        SystemBarInsets.apply(window, scrollView)
-        setContentView(scrollView)
+        screenScrollView = CompanionUi.scrollView(this, content)
+        screenScrollView.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
+            if (bottom - top != oldBottom - oldTop) updateRoomListHeight(renderedRoomCount)
+        }
+        SystemBarInsets.apply(window, screenScrollView)
+        setContentView(screenScrollView)
         val cachedRooms = webHostClient.cachedRooms()
         val requestedRoomId = intent.getStringExtra(EXTRA_OPEN_ROOM_ID)
         requestedRoomId?.let { roomId ->
@@ -546,15 +550,23 @@ class HostedRoomsActivity : CompanionActivity() {
     )
 
     private fun updateRoomListHeight(roomCount: Int) {
-        val desiredDp = roomLibraryHeightDp(roomCount, resources.configuration.screenHeightDp)
-        roomsContainer.layoutParams = (roomsContainer.layoutParams ?: LinearLayout.LayoutParams(
+        renderedRoomCount = roomCount
+        val liveHeightDp = screenScrollView.height.takeIf { it > 0 }
+            ?.let { (it / resources.displayMetrics.density).toInt() }
+            ?: resources.configuration.screenHeightDp
+        val desiredDp = roomLibraryHeightDp(roomCount, liveHeightDp)
+        val desiredHeight = CompanionUi.dp(this, desiredDp)
+        val existingParams = roomsContainer.layoutParams
+        val params = (existingParams ?: LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            CompanionUi.dp(this, desiredDp),
+            desiredHeight,
         )).apply {
             width = ViewGroup.LayoutParams.MATCH_PARENT
-            height = CompanionUi.dp(this@HostedRoomsActivity, desiredDp)
         }
-        roomsContainer.requestLayout()
+        if (existingParams == null || params.height != desiredHeight) {
+            params.height = desiredHeight
+            roomsContainer.layoutParams = params
+        }
     }
 
     private fun JoinedRoom.asHostedRoom() = HostedRoom(

@@ -74,6 +74,22 @@ The rest of this repository remains based on the upstream
 The bridge runs as an Android foreground service, so split-screen mode is not
 required.
 
+### Desktop mode, multi-window, and external displays
+
+Every companion activity is explicitly resizable and uses the live window bounds
+rather than the physical display size. Compact windows use a single readable column;
+expanded windows center a bounded two-column card layout instead of stretching text
+across the monitor. Action groups stack before their labels become cramped, status
+chips wrap, and the room library recalculates its viewport when the window height
+changes. These transitions happen in place during freeform resizing, split-screen,
+orientation changes, and keyboard attachment, preserving the current form and room
+state instead of restarting the activity.
+
+System-bar, display-cutout, and IME insets are applied independently for each window.
+The client console retains a flexible transcript region, while the authenticated web
+view resizes with its window and saves browser navigation across configuration changes
+which still require recreation, such as moving between displays with different density.
+
 ### Generate and patch seeds without a PC
 
 The companion embeds Python 3.12 and the Archipelago 0.6.8 generation core.

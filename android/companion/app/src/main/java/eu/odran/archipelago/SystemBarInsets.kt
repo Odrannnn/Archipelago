@@ -19,11 +19,12 @@ object SystemBarInsets {
             val safe = windowInsets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),
             )
+            val ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime())
             view.setPadding(
                 initialLeft + safe.left,
                 initialTop + safe.top,
                 initialRight + safe.right,
-                initialBottom + safe.bottom,
+                initialBottom + maxOf(safe.bottom, ime.bottom),
             )
             windowInsets
         }

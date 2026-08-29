@@ -25,18 +25,17 @@ internal fun mainStartCard(context: Context, actions: MainStartActions): LinearL
             CompanionUi.stylePrimary(this)
             setOnClickListener { actions.openInvite() }
         }, CompanionUi.fullWidth())
-        val secondaryActions = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
+        val secondaryActions = CompanionUi.actionRow(context).apply {
             addView(Button(context).apply {
                 text = context.getString(R.string.generate_seed)
                 CompanionUi.styleSecondary(this)
                 setOnClickListener { actions.generateSeed() }
-            }, CompanionUi.weightedButtonParams(context, 6))
+            })
             addView(Button(context).apply {
                 text = context.getString(R.string.rooms)
                 CompanionUi.styleSecondary(this)
                 setOnClickListener { actions.openRooms() }
-            }, CompanionUi.weightedButtonParams(context))
+            })
         }
         addView(secondaryActions, CompanionUi.insetTop(secondaryActions, context, 6))
     }

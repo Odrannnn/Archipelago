@@ -46,9 +46,8 @@ internal fun firstRunGuideCard(context: Context, onOpenRooms: () -> Unit): Linea
                 this@guide.visibility = View.GONE
             }
         }
-        addView(LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            addView(browse, CompanionUi.weightedButtonParams(context, 6))
-            addView(dismiss, CompanionUi.weightedButtonParams(context))
+        addView(CompanionUi.actionRow(context).apply {
+            addView(browse)
+            addView(dismiss)
         }, CompanionUi.insetTop(browse, context, 8))
     }

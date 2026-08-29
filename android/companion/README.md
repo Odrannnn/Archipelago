@@ -6,6 +6,22 @@ component architecture, release procedure, and continuation checklist, see
 
 The Android application ID and Kotlin namespace are both `eu.odran.archipelago`.
 
+## Desktop mode and external displays
+
+The app is resizable in split-screen, freeform desktop windows, and on external
+displays. `CompanionUi` derives compact, medium, and expanded behavior from each
+window's measured content width: compact and medium windows use a centered single
+column, while expanded windows use a bounded two-column card layout. Buttons switch
+between rows and full-width stacks as space changes, status chips wrap, and the room
+library derives its scroll viewport from the live window height.
+
+Screen-size, orientation, keyboard, and navigation-device changes are handled without
+recreating activities, so generator fields, room controls, searches, and console input
+remain in place during live resizing. Density, font-scale, locale, and theme changes
+still follow Android's normal recreation path. The authenticated website view saves
+and restores its navigation state for those cases. Edge-to-edge roots account for
+system bars, desktop caption insets, display cutouts, and the on-screen keyboard.
+
 ## Dolphin GameCube backend
 
 The companion includes an experimental generic Dolphin backend. It connects to

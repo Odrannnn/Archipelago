@@ -106,26 +106,21 @@ class ClientConsoleActivity : CompanionActivity() {
                     bottomMargin = CompanionUi.dp(this@ClientConsoleActivity, 8)
                 },
             )
-            addView(LinearLayout(this@ClientConsoleActivity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                addView(input, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-                addView(send, LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                ).apply { marginStart = CompanionUi.dp(this@ClientConsoleActivity, 8) })
+            addView(CompanionUi.inlineActionRow(this@ClientConsoleActivity).apply {
+                addView(input)
+                addView(send)
             }, CompanionUi.fullWidth())
-            addView(LinearLayout(this@ClientConsoleActivity).apply {
-                orientation = LinearLayout.HORIZONTAL
+            addView(CompanionUi.actionRow(this@ClientConsoleActivity).apply {
                 addView(Button(this@ClientConsoleActivity).apply {
                     text = "Show commands"
                     CompanionUi.styleSecondary(this)
                     setOnClickListener { ClientConsoleStore.submit("/help") }
-                }, CompanionUi.weightedButtonParams(this@ClientConsoleActivity, 6))
+                })
                 addView(Button(this@ClientConsoleActivity).apply {
                     text = "Clear transcript"
                     CompanionUi.styleQuiet(this)
                     setOnClickListener { ClientConsoleStore.clear() }
-                }, CompanionUi.weightedButtonParams(this@ClientConsoleActivity))
+                })
             }, CompanionUi.insetTop(input, this@ClientConsoleActivity, 6))
         }
         val responsiveRoot = CompanionUi.responsiveHost(this, root)
@@ -194,9 +189,7 @@ class ClientConsoleActivity : CompanionActivity() {
         val style = consoleStyle(entry.kind)
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(LinearLayout(this@ClientConsoleActivity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
+            addView(CompanionUi.flowRow(this@ClientConsoleActivity).apply {
                 addView(consoleChip(
                     timeFormat.format(Date(entry.timestamp)),
                     CompanionUi.textMuted,
@@ -204,13 +197,7 @@ class ClientConsoleActivity : CompanionActivity() {
                     CompanionUi.border,
                     monospace = true,
                 ))
-                addView(
-                    consoleChip(style.label, style.accent, style.badgeFill, style.stroke),
-                    LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ).apply { marginStart = CompanionUi.dp(this@ClientConsoleActivity, 6) },
-                )
+                addView(consoleChip(style.label, style.accent, style.badgeFill, style.stroke))
             }, CompanionUi.fullWidth())
             addView(TextView(this@ClientConsoleActivity).apply {
                 text = entry.text

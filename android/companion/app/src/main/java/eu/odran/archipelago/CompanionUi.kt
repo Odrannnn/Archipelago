@@ -1,5 +1,6 @@
 package eu.odran.archipelago
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -19,6 +20,25 @@ import android.widget.TextView
 import androidx.core.view.ViewCompat
 
 private enum class ResponsiveRole { CARD, FULL_SPAN }
+
+internal enum class CompanionWindowWidthClass { COMPACT, MEDIUM, EXPANDED }
+
+internal fun companionWindowWidthClass(widthDp: Int): CompanionWindowWidthClass = when {
+    widthDp >= CompanionUi.WIDE_BREAKPOINT_DP -> CompanionWindowWidthClass.EXPANDED
+    widthDp >= CompanionUi.TABLET_BREAKPOINT_DP -> CompanionWindowWidthClass.MEDIUM
+    else -> CompanionWindowWidthClass.COMPACT
+}
+
+internal fun shouldUseSplitLayout(widthDp: Int, cardCount: Int): Boolean =
+    cardCount >= 2 && companionWindowWidthClass(widthDp) == CompanionWindowWidthClass.EXPANDED
+
+internal fun shouldLayOutActionsHorizontally(
+    widthDp: Int,
+    visibleChildCount: Int,
+    minimumChildWidthDp: Int,
+    gapDp: Int,
+): Boolean = visibleChildCount <= 1 ||
+    widthDp >= visibleChildCount * minimumChildWidthDp + (visibleChildCount - 1) * gapDp
 
 private data class CompanionPalette(
     val background: Int,
@@ -60,8 +80,8 @@ private class ResponsiveScreenLayout(context: Context) : LinearLayout(context) {
             val child = getChildAt(index)
             child.visibility != View.GONE && child.tag == ResponsiveRole.CARD
         }
-        val canSplit = cardCount >= 2 &&
-            availableWidth >= CompanionUi.dp(context, CompanionUi.WIDE_BREAKPOINT_DP)
+        val availableWidthDp = (availableWidth / context.resources.displayMetrics.density).toInt()
+        val canSplit = shouldUseSplitLayout(availableWidthDp, cardCount)
         val maximumWidth = CompanionUi.dp(
             context,
             if (canSplit) CompanionUi.MAX_WIDE_CONTENT_WIDTH_DP else CompanionUi.MAX_CONTENT_WIDTH_DP,
@@ -157,6 +177,260 @@ private class ResponsiveScreenLayout(context: Context) : LinearLayout(context) {
             }
         }
     }
+}
+
+@SuppressLint("ViewConstructor")
+private class ResponsiveActionLayout(
+    context: Context,
+    private val minimumChildWidthDp: Int,
+    private val gapDp: Int,
+    private val compactLastChild: Boolean = false,
+) : LinearLayout(context) {
+    private var horizontalLayout = true
+
+    init {
+        orientation = HORIZONTAL
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val availableWidth = if (View.MeasureSpec.getMode(widthMeasureSpec) == View.MeasureSpec.UNSPECIFIED) {
+            Int.MAX_VALUE
+        } else {
+            (View.MeasureSpec.getSize(widthMeasureSpec) - paddingLeft - paddingRight).coerceAtLeast(0)
+        }
+        val availableWidthDp = (availableWidth / resources.displayMetrics.density).toInt()
+        val visibleChildren = (0 until childCount).map(::getChildAt).filter { it.visibility != GONE }
+        val useHorizontal = shouldLayOutActionsHorizontally(
+            availableWidthDp,
+            visibleChildren.size,
+            minimumChildWidthDp,
+            gapDp,
+        )
+        if (horizontalLayout != useHorizontal) {
+            horizontalLayout = useHorizontal
+            orientation = if (useHorizontal) HORIZONTAL else VERTICAL
+        }
+        val gap = CompanionUi.dp(context, gapDp)
+        visibleChildren.forEachIndexed { index, child ->
+            val params = child.layoutParams as LayoutParams
+            val compact = useHorizontal && compactLastChild && index == visibleChildren.lastIndex
+            val targetWidth = when {
+                !useHorizontal -> LayoutParams.MATCH_PARENT
+                compact -> LayoutParams.WRAP_CONTENT
+                else -> 0
+            }
+            val targetWeight = if (useHorizontal && !compact) 1f else 0f
+            val targetEndMargin = if (useHorizontal && index != visibleChildren.lastIndex) gap else 0
+            val targetTopMargin = if (!useHorizontal && index != 0) gap else 0
+            val changed = params.width != targetWidth ||
+                params.height != LayoutParams.WRAP_CONTENT ||
+                params.weight != targetWeight || params.marginStart != 0 ||
+                params.marginEnd != targetEndMargin || params.topMargin != targetTopMargin
+            if (useHorizontal) {
+                params.width = targetWidth
+                params.height = LayoutParams.WRAP_CONTENT
+                params.weight = targetWeight
+                params.marginStart = 0
+                params.marginEnd = targetEndMargin
+                params.topMargin = targetTopMargin
+            } else {
+                params.width = targetWidth
+                params.height = LayoutParams.WRAP_CONTENT
+                params.weight = targetWeight
+                params.marginStart = 0
+                params.marginEnd = targetEndMargin
+                params.topMargin = targetTopMargin
+            }
+            if (changed) child.layoutParams = params
+        }
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+    }
+}
+
+@SuppressLint("ViewConstructor")
+private class ResponsivePageTitleLayout(
+    context: Context,
+    title: String,
+    subtitle: String,
+) : LinearLayout(context) {
+    private val titleView = TextView(context).apply {
+        text = title
+        setTextColor(CompanionUi.text)
+        setTypeface(typeface, Typeface.BOLD)
+        ViewCompat.setAccessibilityHeading(this, true)
+    }
+    private val subtitleView = TextView(context).apply {
+        text = subtitle
+        textSize = 15f
+        setTextColor(CompanionUi.textMuted)
+        setPadding(0, CompanionUi.dp(context, 6), 0, 0)
+    }
+    private var roomy: Boolean? = null
+
+    init {
+        tag = ResponsiveRole.FULL_SPAN
+        orientation = VERTICAL
+        addView(titleView, CompanionUi.fullWidth())
+        addView(subtitleView, CompanionUi.fullWidth())
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val widthDp = (View.MeasureSpec.getSize(widthMeasureSpec) / resources.displayMetrics.density).toInt()
+        val updatedRoomy = widthDp >= CompanionUi.TABLET_BREAKPOINT_DP
+        if (roomy != updatedRoomy) {
+            roomy = updatedRoomy
+            titleView.textSize = if (updatedRoomy) 30f else 27f
+            setPadding(
+                CompanionUi.dp(context, 4),
+                0,
+                CompanionUi.dp(context, 4),
+                CompanionUi.dp(context, if (updatedRoomy) 12 else 8),
+            )
+        }
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+    }
+}
+
+@SuppressLint("ViewConstructor")
+private class ResponsiveCardLayout(
+    context: Context,
+    title: String,
+    subtitle: String?,
+) : LinearLayout(context) {
+    private val titleView = TextView(context).apply {
+        text = title
+        setTextColor(CompanionUi.text)
+        setTypeface(typeface, Typeface.BOLD)
+        ViewCompat.setAccessibilityHeading(this, true)
+    }
+    private var roomy: Boolean? = null
+
+    init {
+        tag = ResponsiveRole.CARD
+        orientation = VERTICAL
+        background = CompanionUi.roundedBackground(context, CompanionUi.surface, CompanionUi.border, 16)
+        elevation = CompanionUi.dp(context, 2).toFloat()
+        addView(titleView, CompanionUi.fullWidth())
+        if (!subtitle.isNullOrBlank()) {
+            addView(TextView(context).apply {
+                text = subtitle
+                textSize = 14f
+                setTextColor(CompanionUi.textMuted)
+                setPadding(0, CompanionUi.dp(context, 4), 0, CompanionUi.dp(context, 8))
+            }, CompanionUi.fullWidth())
+        } else {
+            addView(View(context), LayoutParams(1, CompanionUi.dp(context, 8)))
+        }
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val widthDp = (View.MeasureSpec.getSize(widthMeasureSpec) / resources.displayMetrics.density).toInt()
+        val updatedRoomy = widthDp >= 520
+        if (roomy != updatedRoomy) {
+            roomy = updatedRoomy
+            titleView.textSize = if (updatedRoomy) 20f else 19f
+            val horizontal = CompanionUi.dp(context, if (updatedRoomy) 22 else 18)
+            val vertical = CompanionUi.dp(context, if (updatedRoomy) 20 else 16)
+            setPadding(horizontal, vertical, horizontal, vertical)
+        }
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+    }
+}
+
+@SuppressLint("ViewConstructor")
+private class ResponsiveFlowLayout(
+    context: Context,
+    horizontalGapDp: Int,
+    verticalGapDp: Int,
+) : ViewGroup(context) {
+    private val horizontalGap = CompanionUi.dp(context, horizontalGapDp)
+    private val verticalGap = CompanionUi.dp(context, verticalGapDp)
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val widthMode = View.MeasureSpec.getMode(widthMeasureSpec)
+        val availableWidth = if (widthMode == View.MeasureSpec.UNSPECIFIED) {
+            Int.MAX_VALUE
+        } else {
+            (View.MeasureSpec.getSize(widthMeasureSpec) - paddingLeft - paddingRight).coerceAtLeast(0)
+        }
+        var lineWidth = 0
+        var lineHeight = 0
+        var maximumLineWidth = 0
+        var contentHeight = 0
+        var itemsOnLine = 0
+        repeat(childCount) { index ->
+            val child = getChildAt(index)
+            if (child.visibility == GONE) return@repeat
+            measureChildWithMargins(child, widthMeasureSpec, paddingLeft + paddingRight, heightMeasureSpec, 0)
+            val margins = child.layoutParams as MarginLayoutParams
+            val childWidth = child.measuredWidth + margins.leftMargin + margins.rightMargin
+            val childHeight = child.measuredHeight + margins.topMargin + margins.bottomMargin
+            val proposedWidth = lineWidth + if (itemsOnLine == 0) 0 else horizontalGap + childWidth
+            if (itemsOnLine > 0 && proposedWidth > availableWidth) {
+                maximumLineWidth = maxOf(maximumLineWidth, lineWidth)
+                contentHeight += lineHeight + verticalGap
+                lineWidth = childWidth
+                lineHeight = childHeight
+                itemsOnLine = 1
+            } else {
+                lineWidth = proposedWidth
+                lineHeight = maxOf(lineHeight, childHeight)
+                itemsOnLine += 1
+            }
+        }
+        maximumLineWidth = maxOf(maximumLineWidth, lineWidth)
+        if (itemsOnLine > 0) contentHeight += lineHeight
+        setMeasuredDimension(
+            resolveSize(maximumLineWidth + paddingLeft + paddingRight, widthMeasureSpec),
+            resolveSize(contentHeight + paddingTop + paddingBottom, heightMeasureSpec),
+        )
+    }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        val availableWidth = (right - left - paddingLeft - paddingRight).coerceAtLeast(0)
+        var x = paddingLeft
+        var y = paddingTop
+        var lineHeight = 0
+        var itemsOnLine = 0
+        repeat(childCount) { index ->
+            val child = getChildAt(index)
+            if (child.visibility == GONE) return@repeat
+            val margins = child.layoutParams as MarginLayoutParams
+            val childWidth = child.measuredWidth + margins.leftMargin + margins.rightMargin
+            val childHeight = child.measuredHeight + margins.topMargin + margins.bottomMargin
+            val usedWidth = x - paddingLeft
+            if (itemsOnLine > 0 && usedWidth + horizontalGap + childWidth > availableWidth) {
+                x = paddingLeft
+                y += lineHeight + verticalGap
+                lineHeight = 0
+                itemsOnLine = 0
+            }
+            if (itemsOnLine > 0) x += horizontalGap
+            val childLeft = x + margins.leftMargin
+            val childTop = y + margins.topMargin
+            child.layout(
+                childLeft,
+                childTop,
+                childLeft + child.measuredWidth,
+                childTop + child.measuredHeight,
+            )
+            x += childWidth
+            lineHeight = maxOf(lineHeight, childHeight)
+            itemsOnLine += 1
+        }
+    }
+
+    override fun generateDefaultLayoutParams() = MarginLayoutParams(
+        LayoutParams.WRAP_CONTENT,
+        LayoutParams.WRAP_CONTENT,
+    )
+
+    override fun generateLayoutParams(attributes: android.util.AttributeSet?) =
+        MarginLayoutParams(context, attributes)
+
+    override fun generateLayoutParams(params: LayoutParams?) = MarginLayoutParams(params)
+
+    override fun checkLayoutParams(params: LayoutParams?) = params is MarginLayoutParams
 }
 
 /** Small programmatic UI kit shared by the companion's Android-only screens. */
@@ -284,55 +558,34 @@ object CompanionUi {
         )
     }
 
+    fun actionRow(
+        context: Context,
+        minimumChildWidthDp: Int = 156,
+        gapDp: Int = 6,
+    ): LinearLayout = ResponsiveActionLayout(context, minimumChildWidthDp, gapDp)
+
+    fun inlineActionRow(
+        context: Context,
+        minimumChildWidthDp: Int = 128,
+        gapDp: Int = 8,
+    ): LinearLayout = ResponsiveActionLayout(
+        context,
+        minimumChildWidthDp,
+        gapDp,
+        compactLastChild = true,
+    )
+
+    fun flowRow(
+        context: Context,
+        horizontalGapDp: Int = 6,
+        verticalGapDp: Int = 6,
+    ): ViewGroup = ResponsiveFlowLayout(context, horizontalGapDp, verticalGapDp)
+
     fun pageTitle(context: Context, title: String, subtitle: String): LinearLayout =
-        LinearLayout(context).apply {
-            tag = ResponsiveRole.FULL_SPAN
-            val tablet = context.resources.configuration.screenWidthDp >= TABLET_BREAKPOINT_DP
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(context, 4), 0, dp(context, 4), dp(context, 8))
-            addView(TextView(context).apply {
-                text = title
-                textSize = if (tablet) 30f else 27f
-                setTextColor(CompanionUi.text)
-                setTypeface(typeface, Typeface.BOLD)
-                ViewCompat.setAccessibilityHeading(this, true)
-            }, fullWidth())
-            addView(TextView(context).apply {
-                text = subtitle
-                textSize = 15f
-                setTextColor(textMuted)
-                setPadding(0, dp(context, 6), 0, 0)
-            }, fullWidth())
-        }
+        ResponsivePageTitleLayout(context, title, subtitle)
 
     fun card(context: Context, title: String, subtitle: String? = null): LinearLayout =
-        LinearLayout(context).apply {
-            tag = ResponsiveRole.CARD
-            val tablet = context.resources.configuration.screenWidthDp >= TABLET_BREAKPOINT_DP
-            orientation = LinearLayout.VERTICAL
-            val horizontal = dp(context, if (tablet) 22 else 18)
-            val vertical = dp(context, if (tablet) 20 else 16)
-            setPadding(horizontal, vertical, horizontal, vertical)
-            background = roundedBackground(context, surface, border, 16)
-            elevation = dp(context, 2).toFloat()
-            addView(TextView(context).apply {
-                text = title
-                textSize = if (tablet) 20f else 19f
-                setTextColor(CompanionUi.text)
-                setTypeface(typeface, Typeface.BOLD)
-                ViewCompat.setAccessibilityHeading(this, true)
-            }, fullWidth())
-            if (!subtitle.isNullOrBlank()) {
-                addView(TextView(context).apply {
-                    text = subtitle
-                    textSize = 14f
-                    setTextColor(textMuted)
-                    setPadding(0, dp(context, 4), 0, dp(context, 8))
-                }, fullWidth())
-            } else {
-                addView(View(context), LinearLayout.LayoutParams(1, dp(context, 8)))
-            }
-        }
+        ResponsiveCardLayout(context, title, subtitle)
 
     fun panel(context: Context, selected: Boolean = false, active: Boolean = false): LinearLayout =
         LinearLayout(context).apply {
@@ -409,14 +662,7 @@ object CompanionUi {
         ViewGroup.LayoutParams.MATCH_PARENT,
         ViewGroup.LayoutParams.WRAP_CONTENT,
     ).apply {
-        this.topMargin = dp(
-            context,
-            if (context.resources.configuration.screenWidthDp >= TABLET_BREAKPOINT_DP) {
-                maxOf(topMargin, 14)
-            } else {
-                topMargin
-            },
-        )
+        this.topMargin = dp(context, topMargin)
     }
 
     fun fullWidth() = ViewGroup.LayoutParams(
@@ -535,6 +781,7 @@ object CompanionUi {
 }
 
 /** Status text which automatically applies the app-wide semantic palette. */
+@SuppressLint("ViewConstructor")
 class CompanionStatusView(
     context: Context,
     private val hideWhenEmpty: Boolean = false,

@@ -1372,18 +1372,17 @@ class MainActivity : CompanionActivity() {
                 text = getString(R.string.no_active_room)
                 CompanionUi.styleMuted(this)
             })
-            joinedRoomContainer.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
+            joinedRoomContainer.addView(CompanionUi.actionRow(this).apply {
                 addView(Button(this@MainActivity).apply {
                     text = getString(R.string.open_invitation)
                     CompanionUi.stylePrimary(this)
                     setOnClickListener { openInviteDocument.launch(openDocumentIntent()) }
-                }, CompanionUi.weightedButtonParams(this@MainActivity, 6))
+                })
                 addView(Button(this@MainActivity).apply {
                     text = getString(R.string.browse_rooms)
                     CompanionUi.styleSecondary(this)
                     setOnClickListener { openRoomLibrary() }
-                }, CompanionUi.weightedButtonParams(this@MainActivity))
+                })
             }, CompanionUi.insetTop(View(this), this, 8))
             return
         }
@@ -1397,17 +1396,9 @@ class MainActivity : CompanionActivity() {
             setTextColor(CompanionUi.active)
             setTypeface(typeface, android.graphics.Typeface.BOLD)
         }, matchWrapParams())
-        joinedRoomContainer.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(
-                CompanionUi.statusChip(this@MainActivity, "ACTIVE", CompanionUi.StatusTone.ACTIVE),
-                CompanionUi.wrapContentParams(this@MainActivity, 6),
-            )
-            addView(
-                CompanionUi.statusChip(this@MainActivity, roomStatus),
-                CompanionUi.wrapContentParams(this@MainActivity),
-            )
+        joinedRoomContainer.addView(CompanionUi.flowRow(this).apply {
+            addView(CompanionUi.statusChip(this@MainActivity, "ACTIVE", CompanionUi.StatusTone.ACTIVE))
+            addView(CompanionUi.statusChip(this@MainActivity, roomStatus))
         }, CompanionUi.insetTop(View(this), this, 8))
         joinedRoomContainer.addView(TextView(this).apply {
             text = buildString {
@@ -1640,9 +1631,8 @@ class MainActivity : CompanionActivity() {
             joinedRoomContainer.addView(popTrackerButton, matchWrapParams())
         }
 
-        val commonActions = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            addView(shareRoomButton, CompanionUi.weightedButtonParams(this@MainActivity, 6))
+        val commonActions = CompanionUi.actionRow(this).apply {
+            addView(shareRoomButton)
             // This container is rebuilt after every hosted-room refresh, so each child must be a new View.
             addView(Button(this@MainActivity).apply {
                 text = "Console"
@@ -1650,7 +1640,7 @@ class MainActivity : CompanionActivity() {
                 setOnClickListener {
                     startActivity(Intent(this@MainActivity, ClientConsoleActivity::class.java))
                 }
-            }, CompanionUi.weightedButtonParams(this@MainActivity))
+            })
         }
         joinedRoomContainer.addView(commonActions, CompanionUi.insetTop(commonActions, this, 8))
 

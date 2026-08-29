@@ -49,7 +49,12 @@ class AuthenticatedWebActivity : CompanionActivity() {
             textSize = 18f
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.rgb(32, 39, 48))
-            setPadding(24, 18, 24, 18)
+            setPadding(
+                CompanionUi.dp(this@AuthenticatedWebActivity, 20),
+                CompanionUi.dp(this@AuthenticatedWebActivity, 14),
+                CompanionUi.dp(this@AuthenticatedWebActivity, 20),
+                CompanionUi.dp(this@AuthenticatedWebActivity, 14),
+            )
         }
         webView = WebView(this).apply {
             settings.javaScriptEnabled = true
@@ -84,6 +89,8 @@ class AuthenticatedWebActivity : CompanionActivity() {
         }
         SystemBarInsets.apply(window, root)
         setContentView(root)
+
+        if (savedInstanceState != null && webView.restoreState(savedInstanceState) != null) return
 
         titleView.text = "Authenticating with archipelago.gg…"
         thread(name = "website-browser-session") {
@@ -126,6 +133,11 @@ class AuthenticatedWebActivity : CompanionActivity() {
             webView.destroy()
         }
         super.onDestroy()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        if (::webView.isInitialized) webView.saveState(outState)
+        super.onSaveInstanceState(outState)
     }
 
     companion object {

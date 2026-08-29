@@ -47,4 +47,14 @@ abstract class CompanionActivity : ComponentActivity() {
         setTheme(if (dark) R.style.AppTheme_Dark else R.style.AppTheme_Light)
         super.onCreate(savedInstanceState)
     }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        window.decorView.requestLayout()
+    }
+
+    override fun onMultiWindowModeChanged(isInMultiWindowMode: Boolean, newConfig: Configuration) {
+        super.onMultiWindowModeChanged(isInMultiWindowMode, newConfig)
+        window.decorView.requestLayout()
+    }
 }
