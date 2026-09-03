@@ -28,6 +28,14 @@ class DesktopServices:
     def python(self, settings: Settings) -> str:
         return settings.python_executable.strip() or sys.executable
 
+    @property
+    def frozen(self) -> bool:
+        return bool(getattr(sys, "frozen", False))
+
+    def frozen_program(self, name: str) -> str:
+        suffix = ".exe" if sys.platform == "win32" else ""
+        return str(Path(sys.executable).resolve().parent / f"{name}{suffix}")
+
     def archipelago_uri(self, room: Room) -> str:
         if not room.server.strip() or not room.slot.strip():
             raise ValueError("The room needs both a server address and player name")
@@ -40,41 +48,48 @@ class DesktopServices:
     def client_command(self, room: Room, settings: Settings) -> Command:
         if not room.game.strip():
             raise ValueError("Choose the room's game so Archipelago can select its desktop client")
-        return Command(
-            self.python(settings),
-            [str(self.repository_root / "Launcher.py"), self.archipelago_uri(room)],
-            str(self.repository_root),
-        )
+        if self.frozen:
+            program = self.frozen_program("ArchipelagoLauncher")
+            return Command(program, [self.archipelago_uri(room)], str(Path(program).parent))
+        return Command(self.python(settings), [
+            str(self.repository_root / "Launcher.py"), self.archipelago_uri(room),
+        ], str(self.repository_root))
 
     def text_client_command(self, room: Room, settings: Settings) -> Command:
         if not room.server.strip() or not room.slot.strip():
             raise ValueError("The room needs both a server address and player name")
-        arguments = [
-            str(self.repository_root / "CommonClient.py"),
-            "--connect", room.server.strip(),
+        arguments = ["--connect", room.server.strip(),
             "--name", room.slot.strip(),
         ]
         if room.password:
             arguments.extend(("--password", room.password))
-        return Command(self.python(settings), arguments, str(self.repository_root))
+        if self.frozen:
+            program = self.frozen_program("ArchipelagoTextClient")
+            return Command(program, arguments, str(Path(program).parent))
+        return Command(
+            self.python(settings), [str(self.repository_root / "CommonClient.py"), *arguments],
+            str(self.repository_root),
+        )
 
     def patch_command(self, patch: Path, settings: Settings) -> Command:
         if not patch.is_file():
             raise ValueError("The selected patch file no longer exists")
-        return Command(
-            self.python(settings),
-            [str(self.repository_root / "Launcher.py"), str(patch.resolve())],
-            str(self.repository_root),
-        )
+        if self.frozen:
+            program = self.frozen_program("ArchipelagoLauncher")
+            return Command(program, [str(patch.resolve())], str(Path(program).parent))
+        return Command(self.python(settings), [
+            str(self.repository_root / "Launcher.py"), str(patch.resolve()),
+        ], str(self.repository_root))
 
     def install_world_command(self, world: Path, settings: Settings) -> Command:
         if not world.is_file() or world.suffix.lower() != ".apworld":
             raise ValueError("Select an .apworld file")
-        return Command(
-            self.python(settings),
-            [str(self.repository_root / "Launcher.py"), str(world.resolve())],
-            str(self.repository_root),
-        )
+        if self.frozen:
+            program = self.frozen_program("ArchipelagoLauncher")
+            return Command(program, [str(world.resolve())], str(Path(program).parent))
+        return Command(self.python(settings), [
+            str(self.repository_root / "Launcher.py"), str(world.resolve()),
+        ], str(self.repository_root))
 
     def generation_command(self, yamls: list[Path], seed: str, settings: Settings) -> Command:
         if not yamls:
@@ -86,9 +101,7 @@ class DesktopServices:
             if not source.is_file() or source.suffix.lower() not in {".yaml", ".yml"}:
                 raise ValueError(f"Invalid player YAML: {source}")
             shutil.copy2(source, players / f"{index:03d}-{source.name}")
-        arguments = [
-            str(self.repository_root / "Generate.py"),
-            "--player_files_path", str(players),
+        arguments = ["--player_files_path", str(players),
             "--outputpath", str(self.store.seed_dir),
             "--multi", str(len(yamls)),
         ]
@@ -98,7 +111,13 @@ class DesktopServices:
             except ValueError as error:
                 raise ValueError("Seed must be an integer") from error
             arguments.extend(("--seed", seed.strip()))
-        return Command(self.python(settings), arguments, str(self.repository_root))
+        if self.frozen:
+            program = self.frozen_program("ArchipelagoGenerate")
+            return Command(program, arguments, str(Path(program).parent))
+        return Command(
+            self.python(settings), [str(self.repository_root / "Generate.py"), *arguments],
+            str(self.repository_root),
+        )
 
     @staticmethod
     def executable_command(executable: str, file_path: str = "") -> Command:

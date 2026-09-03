@@ -343,6 +343,8 @@ def open_folder(folder_path):
 components: list[Component] = [
     # Launcher
     Component('Launcher', 'Launcher', component_type=Type.HIDDEN),
+    Component('Companion', 'DesktopCompanion', 'ArchipelagoCompanion', component_type=Type.TOOL,
+              description="Manage rooms, generation, APWorlds, patches, and desktop clients."),
     # Core
     Component('Host', 'MultiServer', 'ArchipelagoServer', cli=True,
               file_identifier=SuffixIdentifier('.archipelago', '.zip'),

@@ -56,3 +56,10 @@ The desktop core and Qt startup/layout smoke tests run on both
 $env:PYTHONPATH = "desktop"
 python -m unittest discover desktop/tests -v
 ```
+
+The repository's existing `setup.py build_exe --yes` packaging path includes
+`ArchipelagoCompanion.exe` in Windows distributions and
+`ArchipelagoCompanion` in Linux distributions. The main Archipelago Launcher
+also exposes it as **Companion**. Frozen builds call the sibling Launcher,
+Generator, and Text Client executables, so they do not depend on a source tree
+or an external Python interpreter at runtime.

@@ -4,6 +4,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 from archipelago_companion.models import AppState, Room, Settings
 from archipelago_companion.services import DesktopServices
@@ -89,6 +90,25 @@ class ServiceTests(unittest.TestCase):
                 ["--connect", "host:1234", "--name", "Player", "--password", "secret"],
                 command.arguments[1:],
             )
+
+    def test_frozen_build_uses_sibling_archipelago_executables(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            services = DesktopServices(StateStore(Path(directory)), Path(directory))
+            room = Room(game="Metroid Fusion", server="host:1234", slot="Player")
+            with patch.object(__import__("sys"), "frozen", True, create=True), patch.object(
+                __import__("sys"), "executable", str(Path(directory) / "ArchipelagoCompanion.exe"),
+            ), patch.object(__import__("sys"), "platform", "win32"):
+                client = services.client_command(room, Settings())
+                generator = services.generation_command([self._yaml(Path(directory))], "", Settings())
+            self.assertTrue(client.program.endswith("ArchipelagoLauncher.exe"))
+            self.assertTrue(generator.program.endswith("ArchipelagoGenerate.exe"))
+            self.assertNotIn("Generate.py", generator.arguments)
+
+    @staticmethod
+    def _yaml(root: Path) -> Path:
+        source = root / "Frozen.yaml"
+        source.write_text("name: Player\n", encoding="utf-8")
+        return source
 
     def test_generation_stages_player_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

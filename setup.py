@@ -655,7 +655,8 @@ cx_Freeze.setup(
     ext_modules=cythonize("_speedups.pyx"),
     options={
         "build_exe": {
-            "packages": ["worlds", "kivy", "cymem", "websockets", "kivymd"],
+            "packages": ["worlds", "kivy", "cymem", "websockets", "kivymd", "PySide6", "shiboken6",
+                         "desktop.archipelago_companion"],
             "includes": ["rule_builder.cached_world"],
             "excludes": ["numpy", "Cython", "PySide2", "PIL",
                          "pandas"],
