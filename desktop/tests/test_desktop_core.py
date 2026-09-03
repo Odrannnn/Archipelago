@@ -123,6 +123,20 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(1, len(staged))
             self.assertEqual(yaml.read_text(), staged[0].read_text())
 
+    def test_poptracker_receives_pack_and_room_data(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / "poptracker.exe"
+            executable.touch()
+            services = DesktopServices(StateStore(Path(directory) / "data"), Path(directory))
+            command = services.poptracker_command(
+                Room(game="Metroid Fusion", server="host:1234", slot="Player", password="secret"),
+                Settings(poptracker_executable=str(executable)),
+            )
+            self.assertEqual([
+                "--load-game", "Metroid Fusion", "--ap-host", "host:1234",
+                "--ap-slot", "Player", "--ap-password", "secret",
+            ], command.arguments)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -14,7 +14,8 @@ there is no Android emulation layer and no Chaquopy runtime.
 - Player patch handling through the upstream Archipelago Launcher.
 - Seed generation in an isolated worker process using one or more saved YAMLs.
 - APWorld installation through Archipelago's standard desktop installer.
-- PopTracker, RetroArch, and Dolphin executable configuration.
+- PopTracker, RetroArch, and Dolphin executable configuration. PopTracker is
+  launched with the active room's matching pack, server, player, and password.
 - Complete desktop Companion backup and restore.
 - GitHub release checks.
 

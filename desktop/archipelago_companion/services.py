@@ -127,6 +127,17 @@ class DesktopServices:
         arguments = [str(Path(file_path).expanduser().resolve())] if file_path else []
         return Command(str(executable_path.resolve()), arguments, str(executable_path.resolve().parent))
 
+    def poptracker_command(self, room: Room, settings: Settings) -> Command:
+        executable = self.executable_command(settings.poptracker_executable)
+        if not room.game or not room.server or not room.slot:
+            raise ValueError("The active room needs a game, server, and player for PopTracker")
+        return Command(executable.program, [
+            "--load-game", room.game,
+            "--ap-host", room.server,
+            "--ap-slot", room.slot,
+            "--ap-password", room.password,
+        ], executable.working_directory)
+
     @staticmethod
     def latest_release() -> tuple[str, str]:
         request = urllib.request.Request(

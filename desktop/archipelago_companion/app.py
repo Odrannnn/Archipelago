@@ -343,6 +343,8 @@ class MainWindow(QMainWindow):
             button("Connect console", self.connect_console),
             button("Open player patch", self.patch_active),
             button("Open PopTracker", self.open_poptracker),
+            button("Open RetroArch", lambda: self.open_configured_app("RetroArch", "retroarch_executable")),
+            button("Open Dolphin", lambda: self.open_configured_app("Dolphin", "dolphin_executable")),
         ))
         layout.addWidget(card("Active room", room_body))
         quick = QWidget()
@@ -595,11 +597,19 @@ class MainWindow(QMainWindow):
             self.show_error(ValueError("Select a room first"))
             return
         try:
-            command = self.services.executable_command(self.state.settings.poptracker_executable)
+            command = self.services.poptracker_command(room, self.state.settings)
         except Exception as error:
             self.show_error(error)
             return
         self.run_process(command, "PopTracker")
+
+    def open_configured_app(self, label: str, setting: str) -> None:
+        try:
+            command = self.services.executable_command(getattr(self.state.settings, setting))
+        except Exception as error:
+            self.show_error(error)
+            return
+        self.run_process(command, label)
 
     def run_process(self, command: Command, label: str, on_finished=None) -> QProcess:
         process = QProcess(self)
