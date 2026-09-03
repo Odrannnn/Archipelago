@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 import webbrowser
 from pathlib import Path
 from time import time
 
-from PySide6.QtCore import QPoint, QProcess, QProcessEnvironment, QRect, QSize, Qt, QUrl
+import yaml
+from PySide6.QtCore import QPoint, QProcess, QProcessEnvironment, QRect, QSize, Qt, QUrl, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QFont, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -27,19 +31,30 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSplitter,
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from . import __version__
 from .models import AppState, Room
+from .player_options import (
+    GameSpec,
+    OptionSpec,
+    default_values,
+    game_catalog,
+    game_schema,
+    player_yaml,
+    read_player_yaml,
+    safe_player_filename,
+)
 from .services import Command, DesktopServices
 from .storage import StateStore
-
 
 APP_STYLE = """
 QWidget { font-size: 14px; }
@@ -54,7 +69,15 @@ QPushButton { background: #283247; border: 1px solid #3b4862; border-radius: 7px
 QPushButton:hover { background: #33415c; }
 QPushButton#primary { background: #3267cf; border-color: #5683dc; }
 QPushButton#danger { background: #572a32; border-color: #82404c; }
-QLineEdit, QPlainTextEdit, QListWidget, QTableWidget { background: #121722; border: 1px solid #313b50; border-radius: 7px; padding: 6px; selection-background-color: #3267cf; }
+QLineEdit, QPlainTextEdit, QListWidget, QTableWidget, QComboBox {
+    background: #121722; border: 1px solid #313b50; border-radius: 7px; padding: 6px;
+    selection-background-color: #3267cf;
+}
+QComboBox QAbstractItemView { background: #151a24; color: #ecf0f6; selection-background-color: #3267cf; }
+QToolButton#group {
+    background: #202736; border: 1px solid #313b50; border-radius: 7px; padding: 9px;
+    font-weight: 600; text-align: left;
+}
 QListWidget#navigation { background: #151a24; border: 0; border-right: 1px solid #293142; border-radius: 0; padding: 10px; }
 QListWidget#navigation::item { padding: 11px; margin: 2px; border-radius: 7px; }
 QListWidget#navigation::item:selected { background: #2b3850; }
@@ -259,6 +282,388 @@ class SettingsPage(QWidget):
         self.window.statusBar().showMessage("Settings saved", 3000)
 
 
+class OptionEditor(QWidget):
+    def __init__(self, option: OptionSpec, value=None) -> None:
+        super().__init__()
+        self.option = option
+        value = option.default if value is None else value
+        self.structured_override = isinstance(value, dict) and option.kind not in {"dict", "custom"}
+        self.setProperty("searchText", f"{option.label} {option.key} {option.description}".casefold())
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 5, 0, 7)
+        layout.setSpacing(4)
+        if option.kind == "toggle" and not self.structured_override:
+            control = QCheckBox(option.label)
+            self.control = control
+        else:
+            title = QLabel(option.label)
+            title.setObjectName("section")
+            layout.addWidget(title)
+            if self.structured_override:
+                control = QPlainTextEdit()
+                control.setMaximumHeight(120)
+                control.setPlaceholderText("Weighted YAML value")
+            elif option.kind in {"choice", "text_choice"}:
+                control = QComboBox()
+                for choice in option.choices:
+                    control.addItem(choice.label, choice.value)
+                if option.kind == "text_choice":
+                    control.setEditable(True)
+            elif option.kind in {"list", "set", "dict", "custom"}:
+                control = QPlainTextEdit()
+                control.setMaximumHeight(120)
+                control.setPlaceholderText("One value per line" if option.kind in {"list", "set"} else "YAML value")
+            else:
+                control = QLineEdit()
+                if option.kind == "range":
+                    limits = f"{option.minimum} to {option.maximum}"
+                    specials = ", ".join(choice.value for choice in option.special_values)
+                    control.setPlaceholderText(limits + (f"; also {specials}" if specials else ""))
+            self.control = control
+        layout.addWidget(self.control)
+        if option.description:
+            description = QLabel(option.description)
+            description.setObjectName("muted")
+            description.setWordWrap(True)
+            layout.addWidget(description)
+        self.set_value(value)
+
+    def set_value(self, value) -> None:
+        if isinstance(self.control, QCheckBox):
+            self.control.setChecked(bool(value))
+        elif isinstance(self.control, QComboBox):
+            index = self.control.findData(str(value))
+            if index >= 0:
+                self.control.setCurrentIndex(index)
+            elif self.control.isEditable():
+                self.control.setEditText(str(value))
+        elif isinstance(self.control, QPlainTextEdit):
+            if self.option.kind in {"list", "set"} and isinstance(value, list | tuple | set | frozenset):
+                text = "\n".join(str(item) for item in value)
+            else:
+                text = yaml.safe_dump(value, sort_keys=False, allow_unicode=True).replace("...\n", "").strip()
+            self.control.setPlainText(text)
+        else:
+            self.control.setText(str(value))
+
+    def value(self):
+        if isinstance(self.control, QCheckBox):
+            return self.control.isChecked()
+        if isinstance(self.control, QComboBox):
+            index = self.control.currentIndex()
+            data = self.control.itemData(index)
+            if not self.control.isEditable() or self.control.currentText() == self.control.itemText(index):
+                return data
+            return self.control.currentText()
+        if isinstance(self.control, QPlainTextEdit):
+            text = self.control.toPlainText().strip()
+            if self.option.kind in {"list", "set"} and not self.structured_override:
+                return [item.strip() for item in text.replace(",", "\n").splitlines() if item.strip()]
+            if not text:
+                return {} if self.option.kind == "dict" else ""
+            try:
+                return yaml.safe_load(text)
+            except yaml.YAMLError as error:
+                raise ValueError(f"{self.option.label}: invalid YAML value ({error})") from error
+        text = self.control.text()
+        if self.option.kind == "range" and text.lstrip("-").isdigit():
+            return int(text)
+        return text
+
+
+class CollapsibleOptionGroup(QWidget):
+    def __init__(self, title: str, collapsed: bool) -> None:
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.toggle = QToolButton()
+        self.toggle.setObjectName("group")
+        self.toggle.setText(title)
+        self.toggle.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.toggle.setCheckable(True)
+        self.toggle.setChecked(not collapsed)
+        self.toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.body = QWidget()
+        self.body_layout = QVBoxLayout(self.body)
+        self.body_layout.setContentsMargins(12, 4, 6, 8)
+        self.toggle.toggled.connect(self._set_open)
+        layout.addWidget(self.toggle)
+        layout.addWidget(self.body)
+        self._set_open(not collapsed)
+
+    def _set_open(self, opened: bool) -> None:
+        self.toggle.setArrowType(Qt.ArrowType.DownArrow if opened else Qt.ArrowType.RightArrow)
+        self.body.setVisible(opened)
+
+
+class PlayerCreatorPage(QWidget):
+    catalog_loaded = Signal(object, object)
+
+    def __init__(self, window: "MainWindow") -> None:
+        super().__init__()
+        self.window = window
+        self.schema: GameSpec | None = None
+        self.editors: dict[str, OptionEditor] = {}
+        self.groups: list[CollapsibleOptionGroup] = []
+        self.preserved_values: dict[str, object] = {}
+        self.preserved_extras: dict[str, object] = {}
+        self.catalog_loading = False
+        content, layout = page(
+            "Player creator",
+            "Create standard Archipelago player YAMLs visually. Games and options come directly from installed "
+            "APWorlds.",
+        )
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(content)
+
+        identity = QWidget()
+        identity_form = QFormLayout(identity)
+        self.name_edit = QLineEdit("Player1")
+        self.name_edit.setMaxLength(16)
+        self.game_combo = QComboBox()
+        self.game_combo.setEditable(True)
+        self.game_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.game_combo.completer().setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.game_combo.activated.connect(lambda _index: self.load_game(self.game_combo.currentText()))
+        identity_form.addRow("Player name", self.name_edit)
+        identity_form.addRow("Game", self.game_combo)
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Search option names and descriptions")
+        self.search_edit.textChanged.connect(self.filter_options)
+        identity_form.addRow("Find option", self.search_edit)
+        layout.addWidget(card("Player", identity))
+
+        self.notice = QLabel()
+        self.notice.setObjectName("muted")
+        self.notice.setWordWrap(True)
+        self.notice.hide()
+        self.options_widget = QWidget()
+        self.options_layout = QVBoxLayout(self.options_widget)
+        self.options_layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.notice)
+        layout.addWidget(self.options_widget)
+        layout.addWidget(action_bar(
+            button("Save and add to seed", self.save_and_add, "primary"),
+            button("Preview YAML", self.preview_yaml),
+            button("Reset defaults", self.reset_defaults),
+            button("Open options page", self.open_options_page),
+        ))
+
+        library = QWidget()
+        library_layout = QVBoxLayout(library)
+        library_layout.setContentsMargins(0, 0, 0, 0)
+        self.library_list = QListWidget()
+        self.library_list.setMinimumHeight(125)
+        self.library_list.doubleClicked.connect(self.load_saved)
+        library_layout.addWidget(self.library_list)
+        library_layout.addWidget(action_bar(
+            button("Load selected", self.load_saved),
+            button("Add selected to seed", self.add_saved),
+            button("Import YAML…", self.import_yaml),
+            button("Delete selected", self.delete_saved, "danger"),
+        ))
+        layout.addWidget(card("Saved players", library))
+        layout.addStretch()
+        self.catalog_loaded.connect(self._apply_catalog)
+        self.reload_catalog()
+        self.refresh_library()
+
+    def reload_catalog(self) -> None:
+        if self.catalog_loading:
+            return
+        self.catalog_loading = True
+        self.game_combo.setEnabled(False)
+        self.notice.setText("Loading installed APWorld games and options…")
+        self.notice.show()
+        selected = self.game_combo.currentText()
+
+        def load() -> None:
+            try:
+                self.catalog_loaded.emit((selected, game_catalog()), None)
+            except Exception as error:
+                self.catalog_loaded.emit(None, error)
+
+        threading.Thread(target=load, name="desktop-player-options", daemon=True).start()
+
+    def _apply_catalog(self, result, error) -> None:
+        self.catalog_loading = False
+        self.game_combo.setEnabled(True)
+        if error is not None:
+            self.notice.setText(f"Could not load installed APWorld options: {error}")
+            self.notice.show()
+            return
+        selected, catalog = result
+        self.game_combo.blockSignals(True)
+        self.game_combo.clear()
+        for game, native, page_url in catalog:
+            self.game_combo.addItem(game, (native, page_url))
+        self.game_combo.blockSignals(False)
+        index = self.game_combo.findText(selected)
+        self.game_combo.setCurrentIndex(index if index >= 0 else (0 if self.game_combo.count() else -1))
+        if self.game_combo.currentText():
+            self.load_game(self.game_combo.currentText())
+
+    def _clear_options(self) -> None:
+        while self.options_layout.count():
+            item = self.options_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self.editors.clear()
+        self.groups.clear()
+
+    def load_game(self, game: str, values: dict | None = None, extras: dict | None = None) -> None:
+        if not game:
+            return
+        try:
+            self.schema = game_schema(game)
+        except Exception as error:
+            self.window.show_error(error)
+            return
+        self._clear_options()
+        self.preserved_values = dict(values or {})
+        self.preserved_extras = dict(extras or {})
+        if not self.schema.native_options:
+            message = f"{game} does not expose an upstream native options form."
+            if self.schema.options_page:
+                message += " Use its upstream options page to create the player file."
+            self.notice.setText(message)
+            self.notice.show()
+            return
+        self.notice.hide()
+        for index, group_spec in enumerate(self.schema.groups):
+            section = CollapsibleOptionGroup(group_spec.name, group_spec.start_collapsed or index > 0)
+            for option in group_spec.options:
+                editor = OptionEditor(option, self.preserved_values.pop(option.key, option.default))
+                self.editors[option.key] = editor
+                section.body_layout.addWidget(editor)
+            self.groups.append(section)
+            self.options_layout.addWidget(section)
+        self.filter_options(self.search_edit.text())
+
+    def filter_options(self, query: str) -> None:
+        needle = query.strip().casefold()
+        for section in self.groups:
+            visible = False
+            for index in range(section.body_layout.count()):
+                editor = section.body_layout.itemAt(index).widget()
+                matches = not needle or needle in str(editor.property("searchText"))
+                editor.setVisible(matches)
+                visible = visible or matches
+            section.setVisible(visible)
+            if needle and visible:
+                section.toggle.setChecked(True)
+
+    def values(self) -> dict:
+        result = dict(self.preserved_values)
+        for key, editor in self.editors.items():
+            result[key] = editor.value()
+        return result
+
+    def yaml_text(self) -> str:
+        if not self.schema or not self.schema.native_options:
+            raise ValueError("This game does not expose an upstream native options form")
+        return player_yaml(self.name_edit.text(), self.schema.game, self.values(), self.preserved_extras)
+
+    def save_and_add(self) -> None:
+        try:
+            path = self.window.store.save_yaml(safe_player_filename(self.name_edit.text()), self.yaml_text())
+            self.window.add_generator_yaml(path)
+            self.refresh_library(path)
+            self.window.statusBar().showMessage(f"Saved {path.name} and added it to the seed", 5000)
+        except Exception as error:
+            self.window.show_error(error)
+
+    def preview_yaml(self) -> None:
+        try:
+            text = self.yaml_text()
+        except Exception as error:
+            self.window.show_error(error)
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Player YAML preview")
+        dialog.resize(720, 620)
+        layout = QVBoxLayout(dialog)
+        editor = QPlainTextEdit(text)
+        editor.setReadOnly(True)
+        layout.addWidget(editor)
+        actions = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        actions.rejected.connect(dialog.reject)
+        layout.addWidget(actions)
+        dialog.exec()
+
+    def reset_defaults(self) -> None:
+        if self.schema:
+            self.load_game(self.schema.game, default_values(self.schema), self.preserved_extras)
+
+    def open_options_page(self) -> None:
+        if not self.schema or not self.schema.options_page:
+            self.window.statusBar().showMessage("This game uses the built-in visual options form", 4000)
+            return
+        url = self.schema.options_page
+        if not url.startswith(("http://", "https://")):
+            url = "https://archipelago.gg/" + url.lstrip("/")
+        QDesktopServices.openUrl(QUrl(url))
+
+    def refresh_library(self, selected: Path | None = None) -> None:
+        self.library_list.clear()
+        for path in self.window.store.list_yamls():
+            item = QListWidgetItem(path.name)
+            item.setData(Qt.ItemDataRole.UserRole, str(path))
+            self.library_list.addItem(item)
+            if selected and path == selected:
+                self.library_list.setCurrentItem(item)
+
+    def selected_path(self) -> Path | None:
+        item = self.library_list.currentItem()
+        return Path(item.data(Qt.ItemDataRole.UserRole)) if item else None
+
+    def load_saved(self) -> None:
+        path = self.selected_path()
+        if not path:
+            return
+        try:
+            name, game, values, extras = read_player_yaml(path)
+            index = self.game_combo.findText(game)
+            if index < 0:
+                raise ValueError(f"The installed worlds do not provide {game}")
+            self.game_combo.blockSignals(True)
+            self.game_combo.setCurrentIndex(index)
+            self.game_combo.blockSignals(False)
+            self.name_edit.setText(name)
+            self.load_game(game, values, extras)
+        except Exception as error:
+            self.window.show_error(error)
+
+    def add_saved(self) -> None:
+        path = self.selected_path()
+        if path:
+            self.window.add_generator_yaml(path)
+
+    def import_yaml(self) -> None:
+        paths, _ = QFileDialog.getOpenFileNames(self, "Import player YAML", filter="YAML files (*.yaml *.yml)")
+        selected = None
+        try:
+            for source in paths:
+                selected = self.window.store.import_yaml(Path(source))
+            self.refresh_library(selected)
+            if selected:
+                self.load_saved()
+        except Exception as error:
+            self.window.show_error(error)
+
+    def delete_saved(self) -> None:
+        path = self.selected_path()
+        if not path:
+            return
+        answer = QMessageBox.question(self, "Delete saved player", f"Delete {path.name} from the Companion library?")
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.window.remove_generator_yaml(path)
+        path.unlink(missing_ok=True)
+        self.refresh_library()
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -268,6 +673,7 @@ class MainWindow(QMainWindow):
         self.processes: list[QProcess] = []
         self.client_process: QProcess | None = None
         self.generator_yamls: list[Path] = []
+        self.page_rows: dict[str, int] = {}
         self.setWindowTitle(f"Archipelago Companion {__version__}")
         self.resize(1180, 760)
         self.setMinimumSize(720, 520)
@@ -303,15 +709,18 @@ class MainWindow(QMainWindow):
         self.navigation.setMinimumWidth(165)
         self.navigation.setMaximumWidth(230)
         self.stack = QStackedWidget()
+        self.player_creator = PlayerCreatorPage(self)
         pages = [
             ("Overview", self._home_page()),
             ("Rooms", self._rooms_page()),
+            ("Player creator", self.player_creator),
             ("Generate", self._generator_page()),
             ("APWorlds", self._worlds_page()),
             ("Console", self._console_page()),
             ("Settings", SettingsPage(self)),
         ]
-        for title, widget in pages:
+        for row, (title, widget) in enumerate(pages):
+            self.page_rows[title] = row
             self.navigation.addItem(QListWidgetItem(title))
             scroll = QScrollArea()
             scroll.setWidgetResizable(True)
@@ -325,6 +734,9 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(1, 1)
         self.setCentralWidget(splitter)
         self.statusBar().showMessage(f"Data: {self.store.root}")
+
+    def show_page(self, title: str) -> None:
+        self.navigation.setCurrentRow(self.page_rows[title])
 
     def _home_page(self) -> QWidget:
         content, layout = page("Archipelago Companion", "Generate, organize, patch, launch, and monitor multiworld sessions.")
@@ -350,6 +762,7 @@ class MainWindow(QMainWindow):
         quick = QWidget()
         quick_layout = FlowLayout(quick)
         quick_layout.addWidget(button("Add room", self.add_room))
+        quick_layout.addWidget(button("Create player", lambda: self.show_page("Player creator")))
         quick_layout.addWidget(button("Add player YAML", self.add_yaml))
         quick_layout.addWidget(button("Install APWorld", self.install_world))
         layout.addWidget(card("Quick actions", quick))
@@ -373,7 +786,7 @@ class MainWindow(QMainWindow):
         return content
 
     def _generator_page(self) -> QWidget:
-        content, layout = page("Generate seed", "Runs the repository's upstream generator in a separate Python process.")
+        content, layout = page("Generate seed", "Select saved players, then run Archipelago's upstream generator.")
         self.yaml_list = QListWidget()
         self.yaml_list.setMinimumHeight(150)
         yaml_body = QWidget()
@@ -383,7 +796,7 @@ class MainWindow(QMainWindow):
         yaml_layout.addWidget(action_bar(
             button("Add YAML…", self.add_yaml), button("Remove selected", self.remove_yaml),
         ))
-        layout.addWidget(card("Players", yaml_body))
+        layout.addWidget(card("Players selected for this seed", yaml_body))
         options = QWidget()
         options_form = QFormLayout(options)
         self.seed_edit = QLineEdit()
@@ -505,11 +918,28 @@ class MainWindow(QMainWindow):
         paths, _ = QFileDialog.getOpenFileNames(self, "Add player YAML", filter="YAML files (*.yaml *.yml)")
         for path in paths:
             imported = self.store.import_yaml(Path(path))
-            if imported not in self.generator_yamls:
-                self.generator_yamls.append(imported)
-                self.yaml_list.addItem(str(imported))
+            self.add_generator_yaml(imported)
+        if hasattr(self, "player_creator"):
+            self.player_creator.refresh_library()
         if paths:
-            self.navigation.setCurrentRow(2)
+            self.show_page("Generate")
+
+    def add_generator_yaml(self, path: Path) -> None:
+        path = path.resolve()
+        if path not in self.generator_yamls:
+            self.generator_yamls.append(path)
+            item = QListWidgetItem(path.name)
+            item.setToolTip(str(path))
+            item.setData(Qt.ItemDataRole.UserRole, str(path))
+            self.yaml_list.addItem(item)
+        self.show_page("Generate")
+
+    def remove_generator_yaml(self, path: Path) -> None:
+        resolved = path.resolve()
+        for row in range(len(self.generator_yamls) - 1, -1, -1):
+            if self.generator_yamls[row] == resolved:
+                self.generator_yamls.pop(row)
+                self.yaml_list.takeItem(row)
 
     def remove_yaml(self) -> None:
         row = self.yaml_list.currentRow()
@@ -524,7 +954,7 @@ class MainWindow(QMainWindow):
             self.show_error(error)
             return
         self.generate_button.setEnabled(False)
-        self.navigation.setCurrentRow(4)
+        self.show_page("Console")
         self.run_process(command, "Generator", on_finished=lambda _: self.generate_button.setEnabled(True))
 
     def install_world(self) -> None:
@@ -565,14 +995,14 @@ class MainWindow(QMainWindow):
             self.show_error(ValueError("Select a room first"))
             return
         if self.client_process and self.client_process.state() != QProcess.ProcessState.NotRunning:
-            self.navigation.setCurrentRow(4)
+            self.show_page("Console")
             return
         try:
             command = self.services.text_client_command(room, self.state.settings)
         except Exception as error:
             self.show_error(error)
             return
-        self.navigation.setCurrentRow(4)
+        self.show_page("Console")
         self.client_process = self.run_process(command, "Text client")
 
     def disconnect_console(self) -> None:

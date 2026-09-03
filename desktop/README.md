@@ -13,6 +13,7 @@ there is no Android emulation layer and no Chaquopy runtime.
   of any installed game-specific client which advertises URI support.
 - Player patch handling through the upstream Archipelago Launcher.
 - Seed generation in an isolated worker process using one or more saved YAMLs.
+- Visual player creation driven by the option definitions in built-in and installed APWorlds.
 - APWorld installation through Archipelago's standard desktop installer.
 - PopTracker, RetroArch, and Dolphin executable configuration. PopTracker is
   launched with the active room's matching pack, server, player, and password.
@@ -25,6 +26,16 @@ and `$XDG_DATA_HOME/archipelago-companion` (normally
 `ARCHIPELAGO_COMPANION_HOME` to override it. Passwords are currently stored in
 the local state file with the same confidentiality as the user's OS account;
 do not share that file or a Companion backup.
+
+## Visual player creator
+
+The Windows and Linux applications share the same player-creation flow. Game selection, option groups, visibility,
+defaults, choices, ranges, and validation come from Archipelago's installed APWorld classes rather than a
+Companion-maintained game database. Saved players are standard YAML files in the Companion data folder and can be
+added directly to the Generate page, imported again for editing, or used by upstream Archipelago tools.
+
+Games whose `WebWorld.options_page` redirects to a website retain that upstream behavior: the Companion explains
+that no native form is available and opens the declared options page instead of guessing at unsupported controls.
 
 ## Run from source
 

@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from archipelago_companion.models import AppState, Room, Settings
+from archipelago_companion.player_options import read_player_yaml, safe_player_filename
 from archipelago_companion.services import DesktopServices
 from archipelago_companion.storage import StateStore
 
@@ -30,6 +31,16 @@ class ModelTests(unittest.TestCase):
 
 
 class StorageTests(unittest.TestCase):
+    def test_generated_yaml_is_saved_atomically_without_overwriting(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = StateStore(Path(directory) / "data")
+            first = store.save_yaml("Player.yaml", "name: One\n")
+            duplicate = store.save_yaml("Player.yaml", "name: One\n")
+            second = store.save_yaml("Player.yaml", "name: Two\n")
+            self.assertEqual(first, duplicate)
+            self.assertEqual("Player-2.yaml", second.name)
+            self.assertEqual([second, first], store.list_yamls())
+
     def test_atomic_state_and_backup_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = StateStore(Path(directory) / "source")
@@ -59,6 +70,25 @@ class StorageTests(unittest.TestCase):
             source.write_text("not a zip", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "valid ZIP"):
                 StateStore(Path(directory) / "data").import_world(source)
+
+
+class PlayerCreatorTests(unittest.TestCase):
+    def test_player_filename_removes_unsafe_characters(self) -> None:
+        self.assertEqual("Link Player.yaml", safe_player_filename(" Link:/ Player "))
+
+    def test_import_preserves_upstream_top_level_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "Player.yaml"
+            source.write_text(
+                "name: Link\ndescription: Custom player\ngame: Test Game\n"
+                "requires:\n  version: 0.6.0\nTest Game:\n  setting: enabled\n",
+                encoding="utf-8",
+            )
+            name, game, values, extras = read_player_yaml(source)
+            self.assertEqual(("Link", "Test Game"), (name, game))
+            self.assertEqual({"setting": "enabled"}, values)
+            self.assertEqual("Custom player", extras["description"])
+            self.assertEqual({"version": "0.6.0"}, extras["requires"])
 
 
 class ServiceTests(unittest.TestCase):

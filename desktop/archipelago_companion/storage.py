@@ -74,6 +74,35 @@ class StateStore:
     def import_yaml(self, source: Path) -> Path:
         return self.import_file(source, self.yaml_dir, {".yaml", ".yml"})
 
+    def save_yaml(self, filename: str, content: str) -> Path:
+        target = self.yaml_dir / Path(filename).name
+        if target.suffix.lower() not in {".yaml", ".yml"}:
+            target = target.with_suffix(".yaml")
+        encoded = content.encode("utf-8")
+        counter = 2
+        while target.exists() and target.read_bytes() != encoded:
+            target = self.yaml_dir / f"{Path(filename).stem}-{counter}{target.suffix}"
+            counter += 1
+        if target.exists():
+            return target
+        fd, temporary_name = tempfile.mkstemp(prefix="yaml-", suffix=".tmp", dir=self.yaml_dir)
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(fd, "wb") as output:
+                output.write(encoded)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, target)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return target
+
+    def list_yamls(self) -> list[Path]:
+        return sorted(
+            (path for path in self.yaml_dir.iterdir() if path.is_file() and path.suffix.lower() in {".yaml", ".yml"}),
+            key=lambda path: (-path.stat().st_mtime, path.name.casefold()),
+        )
+
     def import_world(self, source: Path) -> Path:
         if not zipfile.is_zipfile(source):
             raise ValueError("The selected APWorld is not a valid ZIP container")
