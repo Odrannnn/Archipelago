@@ -1,4 +1,4 @@
-# Archipelago Android Companion
+# Archipelago Companion
 
 <p align="center">
   ☕ <a href="https://ko-fi.com/odrannnn">Support this little Android adventure on Ko-fi</a> 💙
@@ -6,7 +6,7 @@
 
 ## ⚠️ AI-generated code disclaimer
 
-> **All Android-specific code, emulator-bridge changes, companion features, and
+> **All platform-specific code, emulator-bridge changes, companion features, and
 > project documentation introduced by this fork were generated with OpenAI
 > Codex under human direction. The generated code may contain defects,
 > security issues, or incomplete assumptions and should be independently
@@ -17,8 +17,9 @@ third-party components and source incorporated from Archipelago, mGBA,
 RetroArch, ArchipelagoMine, or imported APWorlds. Those projects retain
 their original authorship, history, and licenses.
 
-This fork adds a self-contained Android workflow for playing GBA, GBC, and SNES multiworlds
-with [Archipelago](https://archipelago.gg). It combines an Android companion app
+This fork adds a self-contained Android workflow and a native Windows/Linux
+companion frontend for [Archipelago](https://archipelago.gg). The Android app
+supports playing GBA, GBC, and SNES multiworlds without a PC and combines a companion app
 with RetroArch's memory interfaces so games can exchange state with an Archipelago
 room without a PC. GBA/GBC uses a custom mGBA bridge; SNES uses nightly Network
 Commands by default and offers a custom SNES9x bridge as an optional fallback.
@@ -36,6 +37,13 @@ use their upstream `BizHawkClient` through the Python-to-mGBA path. Link's
 Awakening DX uses a dedicated Android adapter over the same mGBA bridge.
 The rest of this repository remains based on the upstream
 [Archipelago project](https://github.com/ArchipelagoMW/Archipelago).
+
+The initial native desktop frontend lives under [`desktop/`](desktop/README.md).
+It provides a resizable room library, upstream generation, APWorld installation,
+patch launching, an interactive text-client console, application launchers,
+backup/restore, and update checks. Unlike Android, it launches Archipelago's
+ordinary desktop game clients and therefore retains their native SNI, BizHawk,
+and Dolphin Memory Engine behavior.
 
 > This is an independent fork and is not an official Archipelago Android
 > client. It does not include any commercial ROM.

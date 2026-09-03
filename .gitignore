@@ -208,3 +208,4 @@ android/companion/.kotlin/
 android/companion/local.properties
 android/companion/release-signing.properties
 android/companion/**/build/
+.desktop-venv/

@@ -1,0 +1,36 @@
+name: Desktop Companion
+
+on:
+  push:
+    paths:
+      - "desktop/**"
+      - ".github/workflows/desktop-companion.yml"
+  pull_request:
+    paths:
+      - "desktop/**"
+      - ".github/workflows/desktop-companion.yml"
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install desktop UI
+        run: python -m pip install -r desktop/requirements.txt
+      - name: Test desktop companion
+        env:
+          PYTHONPATH: desktop
+          QT_QPA_PLATFORM: offscreen
+          ARCHIPELAGO_COMPANION_HOME: ${{ runner.temp }}/archipelago-companion-test
+        run: python -m unittest discover desktop/tests -v
+      - name: Compile desktop source
+        run: python -m compileall -q desktop/archipelago_companion
+
